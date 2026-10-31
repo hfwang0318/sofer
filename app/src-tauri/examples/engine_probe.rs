@@ -9,10 +9,18 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use ocr4code_app::engine::{Event, Manager, Paths};
+use ocr4code_app::engine::{Event, Manager, ModelQuality, Paths};
 
 fn main() {
     let command = std::env::args().nth(1).unwrap_or_else(|| "status".into());
+    let quality = match std::env::var("OCR4CODE_MODEL_QUALITY").as_deref() {
+        Ok("low") => ModelQuality::Low,
+        _ => ModelQuality::High,
+    };
+    let config = ocr4code_app::engine::ServerConfig {
+        quality,
+        ..Default::default()
+    };
     let home = std::env::var("HOME").unwrap_or_default();
     let data = PathBuf::from(home).join("Library/Application Support/com.ocr4code.desktop");
     let runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("runtime/macos-arm64");
@@ -56,10 +64,13 @@ fn main() {
     let manager = Manager::new(paths, sink);
     match command.as_str() {
         "status" => {
-            let status = manager.status("http://127.0.0.1:8099");
+            let status = manager.status("http://127.0.0.1:8099", quality);
             println!("{}", serde_json::to_string_pretty(&status).unwrap());
         }
-        "download" => match manager.ensure_model(&Default::default()) {
+        "download" => match manager.ensure_model(&ocr4code_app::engine::DownloadOptions {
+            quality,
+            ..Default::default()
+        }) {
             Ok(model) => println!(
                 "model ready: {} MB verified={} at {}",
                 model.bytes / 1_000_000,
@@ -71,14 +82,21 @@ fn main() {
                 std::process::exit(1);
             }
         },
-        "bootstrap" => match manager.bootstrap("", &Default::default()) {
+        "bootstrap" => match manager.bootstrap(
+            "",
+            &ocr4code_app::engine::DownloadOptions {
+                quality,
+                ..Default::default()
+            },
+            config,
+        ) {
             Ok(()) => println!("bootstrap complete: model verified + server ready"),
             Err(err) => {
                 eprintln!("bootstrap failed: {err}");
                 std::process::exit(1);
             }
         },
-        "start" => match manager.ensure_ready("") {
+        "start" => match manager.ensure_ready("", config) {
             Ok(url) => {
                 println!("healthy at {url}");
                 std::thread::sleep(Duration::from_secs(2));

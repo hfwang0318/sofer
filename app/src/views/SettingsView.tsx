@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Icon } from "../components/Icon";
 import { Keycaps, Segmented, SettingRow, ShortcutRecorder, Switch } from "../components/Controls";
 import { DEFAULT_PROMPT, DEFAULT_SETTINGS } from "../lib/defaults";
+import { llamaSlots, perSlotCtx, totalCtx } from "../lib/llamaPlan";
 import { engineForMode } from "../lib/status";
 import { setShortcutEnabled } from "../lib/bridge";
 import { formatBytes, formatEta, formatSpeed } from "../lib/format";
@@ -12,6 +13,7 @@ import type {
   DownloadProgress,
   EngineStatus,
   Settings,
+  SettingsSection,
   ToastTone,
 } from "../lib/types";
 
@@ -38,7 +40,20 @@ interface SettingsViewProps {
   onStopEngine: () => void;
   onRemoveModel: () => void;
   onCancelSetup: () => void;
+  section: SettingsSection;
+  sectionNav: number;
+  onSectionChange: (section: SettingsSection) => void;
 }
+
+const SECTION_IDS: SettingsSection[] = [
+  "screenshot",
+  "interface",
+  "engine",
+  "layout",
+  "output",
+  "updates",
+  "about",
+];
 
 const PSM_OPTIONS = [
   { value: 3, label: "3 · 完全自动" },
@@ -50,18 +65,20 @@ const PSM_OPTIONS = [
 ];
 
 function Section({
+  id,
   title,
   description,
   meta,
   children,
 }: {
+  id: SettingsSection;
   title: string;
   description?: string;
   meta?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <section className="settings-section panel">
+    <section className="settings-section panel" id={`settings-${id}`}>
       <header className="section-head">
         <div>
           <h2>{title}</h2>
@@ -191,6 +208,7 @@ function LocalEnginePanel({
         <div>
           <span className="runtime-label">模型</span>
           <span className="runtime-value">
+            {status.setup.modelName} ·{" "}
             {model.installed
               ? `${formatBytes(model.bytes)} · ${model.verified ? "SHA-256 已校验" : "未校验"}`
               : `${formatBytes(model.total)} 待下载`}
@@ -271,13 +289,15 @@ function LocalEnginePanel({
           </button>
         )}
         <span className="runtime-foot-note">
-          {model.installed ? "完全离线运行" : "一次性 1.43 GB · 支持续传"}
+          {model.installed
+            ? "完全离线运行"
+            : `一次性 ${formatBytes(model.total)} · 支持续传`}
         </span>
       </div>
 
       {confirmRemove && (
         <div className="runtime-confirm">
-          <span>移除 {formatBytes(model.bytes)} 的模型文件？</span>
+          <span>移除当前精度（{status.setup.modelName}）的模型文件？</span>
           <div>
             <button
               type="button"
@@ -327,12 +347,44 @@ export function SettingsView({
   onStopEngine,
   onRemoveModel,
   onCancelSetup,
+  section,
+  sectionNav,
+  onSectionChange,
 }: SettingsViewProps) {
   const [draft, setDraft] = useState<Settings>(settings);
   const [baseline, setBaseline] = useState<Settings>(settings);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const lastNav = useRef<number | null>(null);
+
+  useEffect(() => {
+    // Only scroll on an explicit sidebar click (or first mount). The scroll
+    // observer also updates `section`; without this guard the two would fight.
+    if (lastNav.current === sectionNav) return;
+    lastNav.current = sectionNav;
+    const target = document.getElementById(`settings-${section}`);
+    if (!target) return;
+    onSectionChange(section);
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [section, sectionNav, onSectionChange]);
+
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root) return;
+    const onScroll = () => {
+      const top = root.getBoundingClientRect().top + 120;
+      let active = SECTION_IDS[0];
+      for (const id of SECTION_IDS) {
+        const element = document.getElementById(`settings-${id}`);
+        if (element && element.getBoundingClientRect().top <= top) active = id;
+      }
+      onSectionChange(active);
+    };
+    root.addEventListener("scroll", onScroll, { passive: true });
+    return () => root.removeEventListener("scroll", onScroll);
+  }, [onSectionChange]);
 
   useEffect(() => {
     setDraft(settings);
@@ -342,6 +394,9 @@ export function SettingsView({
 
   const dirty = !sameSettings(draft, baseline);
   const engine = engineForMode(status, draft.engine);
+  const slots = llamaSlots(draft.jobs);
+  const slotCtx = perSlotCtx(draft.maxTokens);
+  const context = totalCtx(draft.jobs, draft.maxTokens);
 
   const handleRecordingChange = useCallback(
     (recording: boolean) => {
@@ -360,14 +415,18 @@ export function SettingsView({
     !draft.llamaUrl.trim() || !/^https?:\/\//i.test(draft.llamaUrl.trim())
       ? "请输入完整的 http:// 或 https:// 地址。"
       : null;
-  const proxyError =
-    draft.downloadProxy.trim() && !/^http:\/\//i.test(draft.downloadProxy.trim())
-      ? "下载代理必须以 http:// 开头。"
+  const proxyAddress = draft.proxyUrl.trim();
+  const proxyError = proxyAddress.includes("@")
+    ? "代理地址里不要再写用户名/密码，请填到下面的认证字段。"
+    : proxyAddress && !/^(http:\/\/)?[^\s/]+$/i.test(proxyAddress)
+      ? "请填写 host:port，或 http://host:port。"
       : null;
-  const mirrorError =
-    draft.modelBase.trim() && !/^https?:\/\//i.test(draft.modelBase.trim())
-      ? "模型镜像必须以 http:// 或 https:// 开头。"
-      : null;
+  const proxyAuthError =
+    !proxyAddress && (draft.proxyUsername || draft.proxyPassword)
+      ? "填写代理认证前，请先填写代理地址。"
+      : !draft.proxyUsername && draft.proxyPassword
+        ? "填写代理密码前，请先填写用户名。"
+        : null;
   const promptError = draft.prompt.trim() ? null : "提示词不能为空。";
   const langError = draft.tessLang.trim() ? null : "例如 `eng` 或 `eng+chi_sim`。";
   const fenceError =
@@ -377,7 +436,7 @@ export function SettingsView({
   const valid =
     !urlError &&
     !proxyError &&
-    !mirrorError &&
+    !proxyAuthError &&
     !promptError &&
     !fenceError &&
     (draft.engine === "llamacpp" || !langError) &&
@@ -452,7 +511,7 @@ export function SettingsView({
 
   return (
     <div className="view settings-view">
-      <div className="view-scroll">
+      <div className="view-scroll" ref={scrollRef}>
         <header className="view-head">
           <div>
             <p className="eyebrow">偏好设置</p>
@@ -465,6 +524,7 @@ export function SettingsView({
         </header>
 
         <Section
+          id="screenshot"
           title="截图"
           description="应用把截图交给内核的方式。"
         >
@@ -491,6 +551,7 @@ export function SettingsView({
         </Section>
 
         <Section
+          id="interface"
           title="界面"
           description="整体放大字体和控件；窗口尺寸也可以直接拖动。截图内容不受影响。"
         >
@@ -512,6 +573,7 @@ export function SettingsView({
         </Section>
 
         <Section
+          id="engine"
           title="引擎"
           description="文字来自模型；无论用哪个引擎，版面都由纯 CV 几何层重建。"
           meta={
@@ -548,22 +610,40 @@ export function SettingsView({
             />
           )}
           <SettingRow
+            title="模型精度"
+            description="高精度用官方 Q8_0（约 1.43 GB），低精度用 Q4_K_M（约 1.03 GB）；两者共用同一个 mmproj。Windows 内置 CPU 运行时建议低精度。保存后生效；对应模型未下载时会引导下载。"
+          >
+            <Segmented
+              label="模型精度"
+              value={draft.modelQuality}
+              onChange={(next) => update("modelQuality", next)}
+              options={[
+                { value: "high", label: "高精度 Q8_0" },
+                { value: "low", label: "低精度 Q4_K_M" },
+              ]}
+            />
+          </SettingRow>
+          <SettingRow
             title="模型下载"
-            description="首次下载 1.43 GB 模型时使用；保存后对下一次下载生效。"
+            description="代理和镜像只影响模型下载；保存后对下一次下载生效。"
             stack
           >
             <div className="field-grid">
               <Field
-                label="下载代理（可选）"
+                label="代理地址（可选）"
                 error={proxyError}
-                hint="HTTP 代理，例如 http://user:pass@127.0.0.1:7890。密码中的 @ 可写成 %40，程序会自动解码；留空则读取环境变量。"
+                hint="例如 http://127.0.0.1:7897；只填 host:port 时按 http 处理。留空则读取环境变量。"
                 full
                 action={
-                  draft.downloadProxy ? (
+                  draft.proxyUrl || draft.proxyUsername || draft.proxyPassword ? (
                     <button
                       type="button"
                       className="link-btn"
-                      onClick={() => update("downloadProxy", "")}
+                      onClick={() => {
+                        update("proxyUrl", "");
+                        update("proxyUsername", "");
+                        update("proxyPassword", "");
+                      }}
                     >
                       清除
                     </button>
@@ -573,34 +653,84 @@ export function SettingsView({
                 <input
                   className="input mono"
                   type="text"
-                  value={draft.downloadProxy}
-                  placeholder="http://127.0.0.1:7890"
+                  value={draft.proxyUrl}
+                  placeholder="http://127.0.0.1:7897"
                   spellCheck={false}
                   autoComplete="off"
-                  aria-label="下载代理"
+                  aria-label="下载代理地址"
                   aria-invalid={Boolean(proxyError)}
-                  onChange={(event) => update("downloadProxy", event.target.value)}
+                  onChange={(event) => update("proxyUrl", event.target.value)}
                 />
               </Field>
               <Field
-                label="模型镜像（可选）"
-                error={mirrorError}
-                hint="填包含 resolve 路径的自建镜像基址；浏览器需打开「基址/GLM-OCR-Q8_0.gguf」才能下载，只开基址会 404。留空则跟随环境变量，再退回官方源。"
-                full
+                label="代理用户名（可选）"
+                error={proxyAuthError}
+                hint="支持任意字符；保存时会自动做 URL 编码。"
               >
                 <input
                   className="input mono"
-                  type="url"
-                  value={draft.modelBase}
-                  placeholder="https://your-mirror.example/ggml-org/GLM-OCR-GGUF/resolve/<revision>"
+                  type="text"
+                  value={draft.proxyUsername}
                   spellCheck={false}
-                  autoComplete="off"
-                  aria-label="模型镜像地址"
-                  aria-invalid={Boolean(mirrorError)}
-                  onChange={(event) => update("modelBase", event.target.value)}
+                  autoComplete="username"
+                  aria-label="代理用户名"
+                  onChange={(event) => update("proxyUsername", event.target.value)}
                 />
               </Field>
+              <Field
+                label="代理密码（可选）"
+                hint="输入原字符即可，例如 p@ss:word；应用会编码成 p%40ss%3Aword，密码框不会显示明文。"
+              >
+                <input
+                  className="input mono"
+                  type="password"
+                  value={draft.proxyPassword}
+                  spellCheck={false}
+                  autoComplete="new-password"
+                  aria-label="代理密码"
+                  onChange={(event) => update("proxyPassword", event.target.value)}
+                />
+              </Field>
+              <div className="field field-full">
+                <div className="field-head">
+                  <span className="field-label">使用镜像</span>
+                  <Switch
+                    checked={draft.useMirror}
+                    onChange={(useMirror) => update("useMirror", useMirror)}
+                    label="使用 hf-mirror.com 镜像"
+                  />
+                </div>
+                <span className="field-hint">
+                  通过 hf-mirror.com 加速下载；无法直连 Hugging Face 时开启。
+                </span>
+              </div>
             </div>
+          </SettingRow>
+          <SettingRow
+            title="空闲释放内存"
+            description="空闲后卸载模型，常驻内存从 GB 级降到约 100 MB；下次首张截图会多等 0.2–0.7 秒。"
+          >
+            <Segmented
+              label="空闲释放内存"
+              value={String(draft.idleSleepSecs)}
+              onChange={(value) => update("idleSleepSecs", Number(value))}
+              options={[
+                { value: "0", label: "关闭" },
+                { value: "300", label: "5 分钟" },
+                { value: "600", label: "10 分钟" },
+                { value: "1800", label: "30 分钟" },
+              ]}
+            />
+          </SettingRow>
+          <SettingRow
+            title="KV 缓存量化"
+            description="q8_0 把 32k 上下文的 KV 从 2 GiB 降到 1 GiB，实测精度不变；macOS 默认开，Windows CPU 会慢约 2×，默认关。"
+          >
+            <Switch
+              checked={draft.kvCacheQuant}
+              onChange={(kvCacheQuant) => update("kvCacheQuant", kvCacheQuant)}
+              label="KV 缓存量化"
+            />
           </SettingRow>
           <SettingRow
             title="识别引擎"
@@ -691,7 +821,7 @@ export function SettingsView({
 
                   <Field
                     label={`最大输出 token 数 — ${draft.maxTokens}`}
-                    hint="同时决定切块的行数预算。3072 是实测默认值；8192 可能超发。"
+                    hint={`同时决定切块的行数预算。3072 是实测默认值；8192 可能超发。当前会启动 -c ${context} -np ${slots}（每槽 ${slotCtx} token），调大输出会同步增加 KV 内存。`}
                     full
                   >
                     <div className="range-row">
@@ -712,7 +842,7 @@ export function SettingsView({
 
                   <Field
                     label={`并行引擎调用数 — ${draft.jobs}`}
-                    hint="仅在长截图切块时使用。3 与 llama-server 的四个 slot 相匹配，避免排队。"
+                    hint={`仅在长截图切块时使用。llama.cpp 最多 3 个 slot（当前 -np ${slots}），更多请求会排队；tesseract 不受此限制。`}
                     full
                   >
                     <div className="range-row">
@@ -782,6 +912,7 @@ export function SettingsView({
         </Section>
 
         <Section
+          id="layout"
           title="版面重建"
           description="几何层对每个引擎都会运行，它决定粘贴后是否还能用。"
         >
@@ -828,6 +959,7 @@ export function SettingsView({
         </Section>
 
         <Section
+          id="output"
           title="输出"
           description="复制什么，以及保留多少历史记录。"
         >
@@ -889,6 +1021,7 @@ export function SettingsView({
         </Section>
 
         <Section
+          id="updates"
           title="更新"
           description="从 GitHub Releases 检查新版本；下载完成后重启安装。"
           meta={<span className="settings-version">当前 {appVersion || "—"}</span>}
@@ -975,6 +1108,7 @@ export function SettingsView({
         </Section>
 
         <Section
+          id="about"
           title="关于"
           description="ocr4code 内核的桌面外壳。"
           meta={<span className="about-version">v{appVersion || "—"}</span>}

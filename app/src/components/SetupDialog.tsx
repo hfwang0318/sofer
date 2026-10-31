@@ -192,7 +192,7 @@ export function SetupDialog({
             <h2 id="setup-title">{progressLabel}</h2>
             <p className="setup-lede">
               {download?.phase === "starting"
-                ? "首次启动会从磁盘加载约 1.4 GB 模型，通常需要 10–20 秒。"
+                ? "首次启动会从磁盘加载所选模型，通常需要 10–20 秒。"
                 : "请保持应用开启。可以取消，之后继续下载——已下载的部分会保留。"}
             </p>
 
@@ -253,7 +253,7 @@ export function SetupDialog({
             </div>
             <p className="setup-note">
               <Icon name="info" size={13} />
-              连接失败？可在设置 → 引擎 → 模型下载中填写镜像或代理。
+              连接失败？可在设置 → 引擎 → 模型下载中开启镜像或填写代理。
               <button type="button" className="link-btn" onClick={onOpenSettings}>
                 配置下载
               </button>
@@ -346,7 +346,7 @@ export function SetupDialog({
               </button>
             </div>
             <p className="setup-footnote">
-              {status.setup.modelName} · {MODEL_LICENSE} · 来自 huggingface.co/ggml-org
+              {status.setup.modelName} · {MODEL_LICENSE} · 来自 Hugging Face
               <button type="button" className="link-btn" onClick={onOpenSettings}>
                 引擎设置
               </button>

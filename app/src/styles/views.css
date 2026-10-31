@@ -1804,3 +1804,7 @@
 .update-error {
   padding: 0 18px 16px;
 }
+
+.settings-section {
+  scroll-margin-top: 14px;
+}

@@ -2,14 +2,16 @@ import { Icon } from "./Icon";
 import { Keycaps } from "./Controls";
 import { engineSummary } from "../lib/status";
 import { isMac, shortcutText } from "../lib/platform";
-import type { EngineStatus, View } from "../lib/types";
+import type { EngineStatus, SettingsSection, View } from "../lib/types";
 
 interface SidebarProps {
   view: View;
   shortcut: string;
   status: EngineStatus | null;
   historyCount: number;
+  settingsSection: SettingsSection;
   onNavigate: (view: View) => void;
+  onSettingsSection: (section: SettingsSection) => void;
   onCapture: () => void;
 }
 
@@ -18,12 +20,24 @@ const NAV = [
   { view: "history" as const, label: "历史", icon: "history" as const, hint: "2" },
 ];
 
+const SETTINGS_NAV: Array<{ id: SettingsSection; label: string }> = [
+  { id: "screenshot", label: "截图" },
+  { id: "interface", label: "界面" },
+  { id: "engine", label: "引擎" },
+  { id: "layout", label: "版面" },
+  { id: "output", label: "输出" },
+  { id: "updates", label: "更新" },
+  { id: "about", label: "关于" },
+];
+
 export function Sidebar({
   view,
   shortcut,
   status,
   historyCount,
+  settingsSection,
   onNavigate,
+  onSettingsSection,
   onCapture,
 }: SidebarProps) {
   const engine = engineSummary(status);
@@ -60,6 +74,22 @@ export function Sidebar({
           <Icon name="settings" size={17} />
           <span className="nav-label-text">设置</span>
         </button>
+        {view === "settings" && (
+          <div className="settings-subnav" role="group" aria-label="设置分类">
+            {SETTINGS_NAV.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`subnav-item ${settingsSection === item.id ? "is-active" : ""}`}
+                aria-current={settingsSection === item.id ? "true" : undefined}
+                onClick={() => onSettingsSection(item.id)}
+              >
+                <span className="subnav-dot" aria-hidden="true" />
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </nav>
 
       <div className="sidebar-spacer" />
@@ -83,7 +113,7 @@ export function Sidebar({
       <button
         type="button"
         className="engine-card"
-        onClick={() => onNavigate("settings")}
+        onClick={() => onSettingsSection("engine")}
         title="引擎设置"
       >
         <span className={`status-dot tone-${engine.tone}`} />

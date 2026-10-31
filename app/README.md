@@ -16,7 +16,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 |---|---|
 | ![首次设置](docs/setup-idle.webp) | ![模型下载](docs/setup-progress.webp) |
 
-| 识别结果 | 下载代理 / 镜像 |
+| 识别结果 | 模型与下载 |
 |---|---|
 | ![识别结果](docs/capture-result.webp) | ![下载设置](docs/settings-download.webp) |
 
@@ -34,10 +34,10 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 | 截图能力 | 0 | **应用内实现** | macOS `screencapture`；Windows 自绘浮层 + GDI 抓屏，预览全分辨率 |
 | WebView2（Windows） | — | **安装器自动处理** | `embedBootstrapper`，无需用户手动装 |
 | VC++ 运行库（Windows） | ~1.5 MB | **打包** | VS 2022 x64 CRT 随运行时放在 `llama-server.exe` 旁，避免旧 `msvcp140` 导致 `0xc0000005` |
-| GLM-OCR Q8_0 权重 + mmproj | **1.43 GB** | **应用内一键下载** | 950,433,408 + 484,403,648 bytes，MIT；不支持塞进安装包 |
+| GLM-OCR 权重 + mmproj | **高精度 1.43 GB / 低精度 1.03 GB** | **应用内一键下载** | 高：官方 Q8_0 950,433,408 B；低：`mradermacher/GLM-OCR-GGUF` @11fad2c9 的 Q4_K_M 548,515,136 B（SHA-256 `bb27f245…`）；共用 mmproj 484,403,648 B；MIT |
 | tesseract（可选兜底） | ~50–100 MB | **不打包、不强制** | 只检测系统已安装；默认不需要，模型路径是主力 |
 
-模型不随安装包分发的原因：1.43 GB 会让安装包膨胀、更新成本高；而且权重与运行时可以独立升级。
+模型不随安装包分发的原因：1.0–1.4 GB 会让安装包膨胀、更新成本高；而且权重与运行时可以独立升级。
 如果面向内网/离线分发，后续可以额外做一个「离线模型包」，把两个 `.gguf` 放进 U 盘或内部镜像即可。
 
 ### 首次启动的一键流程
@@ -45,16 +45,18 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 ```text
 打开应用
   └─ 首启向导：llama.cpp 运行时 ✓（已内置）
-                 GLM-OCR 模型 ✗（1.43 GB）
+                 所选精度模型 ✗（高 1.43 GB / 低 1.03 GB）
         │
         └─ 点击「下载并配置」
-              ├─ 下载两个文件（断点续传）
+              ├─ 下载所选主权重 + mmproj（断点续传）
               ├─ SHA-256 校验
               ├─ 启动内置 llama-server（自动选端口、健康检查）
               └─ 就绪 → 直接按快捷键截图
 ```
 
 下载过程有百分比、速度、ETA、当前文件；可取消，取消后保留 `.part`，下次继续。
+大文件会先探测 `Range` 支持，然后按 **最多 8 条连接** 并行分片；分片可断点续传，
+全部完成后拼接、SHA-256 校验再改名。小文件或不支持 Range 的服务器自动回退单流。
 不需要手动解压、放路径、启动服务或配置环境变量。
 
 ### 模型在哪里
@@ -64,7 +66,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 | macOS | `~/Library/Application Support/com.ocr4code.desktop/models/glm-ocr/` |
 | Windows | `%APPDATA%\com.ocr4code.desktop\models\glm-ocr\` |
 
-`verified.json` 记录校验通过的模型 revision；`llama-server.pid` 用于清理异常退出留下的服务进程。
+`verified-high.json` / `verified-low.json` 分别记录两套权重的 manifest；`llama-server.pid` 用于清理异常退出留下的服务进程。两套权重可以共存，切换精度不会重复下载 mmproj。
 
 ---
 
@@ -72,13 +74,14 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 
 | 能力 | 说明 |
 |---|---|
-| 一键模型安装 | 首启向导下载 1.43 GB 模型、校验、启动服务；断点续传，可取消/重试/移除 |
+| 一键模型安装 | 首启向导下载所选精度（高 1.43 GB / 低 1.03 GB）、校验、启动服务；断点续传，可取消/重试/移除 |
 | 全局快捷键 | 默认 `⌘⇧2` / `Ctrl+Shift+2`；支持单键、2 键或 3 键组合（必须有 1 个主键），设置里可录制 |
 | 原生截图 | macOS `screencapture -i`；Windows 自绘选区浮层 + GDI 抓屏（不调用系统截屏工具） |
 | 自动识别 | 复用 `ocr4code::pipeline`：引擎 → 切块/重试 → 几何层 → 修复 → 渲染 |
 | 自动复制 | 成功后直接写剪贴板；窗口隐藏时不抢焦点，托盘提示「copied N lines」 |
 | 引擎管理 | 内置运行时、模型状态、服务状态、启动/停止、移除/重新下载，全部在设置里 |
-| 设置面板 | 引擎、外部 server URL、prompt、token 预算、并发、tesseract 参数、版面开关、输出格式、历史条数 |
+| 设置面板 | 模型精度（高/低）、代理地址/用户名/密码、使用镜像、空闲释放、KV 量化、外部 server URL、prompt、token 预算、并发、tesseract 参数、版面开关、输出格式、历史条数 |
+| 设置导航 | 进入设置后侧边栏展开二级目录（截图/界面/引擎/版面/输出/更新/关于），点击跳转并随滚动高亮 |
 | 界面缩放 | 默认 115%，可选 100/115/130%；窗口默认 1120×740 |
 | 历史 | 最近 N 条结果留在本机 `localStorage`，可复制/删除/清空 |
 | 深色玻璃 | 无边框窗口 + macOS `NSVisualEffectView` / Windows Acrylic + CSS 半透明层 |
@@ -159,11 +162,16 @@ render(text/markdown/json) ──► 剪贴板
 
 | UI | 内核参数 | 默认 | 备注 |
 |---|---|---|---|
+| Model precision | `model_quality` | `low` | Q4_K_M；`high` 为官方 Q8_0 |
+| Model mirror | `use_mirror` | 关 | 勾选后走 `hf-mirror.com` |
+| Download proxy | `proxy_url/username/password` | 空 | 保存时自动做 userinfo 编码 |
+| Idle release | `idle_sleep_secs` | `300` | 0 = 关闭；其余 60–3600 秒 |
+| KV cache quantization | `kv_cache_quant` | macOS 开 / Windows 关 | q8_0；CPU 上会变慢 |
 | Recognition engine | `engine` | `auto` | 见上面的引擎行为 |
 | External llama.cpp URL | `llama_url` | `http://127.0.0.1:8099` | 可选；内置 server 用独立端口 |
 | Prompt | `prompt` | 基线默认 prompt | 对版面影响大于其它参数 |
-| Max output tokens | `max_tokens` | `3072` | 同时决定切块行数上限 |
-| Parallel engine calls | `jobs` | `3` | 只影响切块并发 |
+| Max output tokens | `max_tokens` | `3072` | 同时决定切块行数上限和 `-c` |
+| Parallel engine calls | `jobs` | `3` | 决定切块并发和 llama `-np`（最多 3） |
 | Tesseract language | `tess_lang` | `eng` | 如 `eng+chi_sim` |
 | Page segmentation | `psm` | `6` | 3/4/6/7/11/13 |
 | Tile tall screenshots | `tile` | 开 | 超预算按行带切块 + 一次重试 |
@@ -250,34 +258,51 @@ cd app && pnpm dev
 ### 后端自测
 
 ```bash
-# 用真实 Hugging Face 下载模型到应用数据目录（约 1.43 GB），并打印进度
+# 用真实 Hugging Face 下载高精度模型（约 1.43 GB），并打印进度
 cd app/src-tauri
 cargo run --example engine_probe -- download
+# 低精度（Q4_K_M，约 1.03 GB）
+OCR4CODE_MODEL_QUALITY=low cargo run --example engine_probe -- download
 # 启动内置 server，健康检查后退出
 cargo run --example engine_probe -- start
 ```
 
-### 下载代理与镜像
+### 模型精度、代理与镜像
 
-在 **设置 → 引擎 → 模型下载** 中可以直接填写：
+在 **设置 → 引擎** 中：
 
-- **下载代理**：HTTP 代理，例如 `http://user:pass@127.0.0.1:7890`
-  - 密码里的 `@` 写成 `%40`，程序会先解码再认证
-- **模型镜像**：填包含 `resolve` 路径的基址，不提供固定预设
-  - 下载器会自动拼上文件名；浏览器要打开「基址/GLM-OCR-Q8_0.gguf」才能验证，只打开基址会 404
-  - 镜像需同时提供两个 `.gguf`，且 SHA-256 与内置 manifest 一致
+- **模型精度**：高精度 `Q8_0`（官方，1.43 GB）或低精度 `Q4_K_M`（HF，1.03 GB）。
+  两套权重共用同一个 mmproj；切换后如果对应主权重尚未下载，会弹出引导下载。
+- **代理地址**：例如 `http://127.0.0.1:7897`，也可以只填 `127.0.0.1:7897`（按 HTTP 处理）。
+- **代理用户名 / 密码**：直接输入原字符，应用会自动做 URL userinfo 编码后再拼接，
+  例如 `p@ss:word` → `p%40ss%3Aword`。密码输入框是 `type=password`，不会显示明文。
+  密码只在下载时使用；本地健康检查（`127.0.0.1`）不走代理。
+- **使用镜像**：勾选后通过 `https://hf-mirror.com` 下载；不勾选走官方
+  `https://huggingface.co`。不再需要手填镜像基址。
 
-保存后对下一次下载生效。本地健康检查（`127.0.0.1`）不走代理。
+保存后对下一次下载生效。两套模型使用不同的 manifest：
+
+| 精度 | 主权重 | 下载源 | 总大小（含 mmproj） |
+|---|---|---|---|
+| 高 | `GLM-OCR-Q8_0.gguf` | `ggml-org/GLM-OCR-GGUF`（固定 revision） | 1,434,837,056 B |
+| 低 | `GLM-OCR.Q4_K_M.gguf` | `mradermacher/GLM-OCR-GGUF`（固定 revision，MIT） | 1,032,918,784 B |
+
+`--sleep-idle-seconds` 和 `-cram 0` 只对内置 b12018 运行时追加；外部系统
+`llama-server` 可能不认新参数，会自动跳过（`-c/-np` 和 KV 量化仍生效）。
+
+默认 **低精度 Q4_K_M**（包括从旧设置升级、没有显式选过高精度的安装）；已有
+`"modelQuality":"high"` 的配置会保留高精度。默认还会开 **空闲 5 分钟释放**、macOS
+**KV q8**、Windows **f16 KV**，`-c/-np` 随 `jobs`/`max_tokens` 自动计算，`-cram 0`
+关闭 prompt cache。
 
 TLS 证书使用系统信任库；如果代理/安全软件会劫持 HTTPS，需要把它的根证书安装到系统信任库，否则会出现 `unknown issuer`。
 
-留空时仍兼容环境变量：`HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY`，以及
-`OCR4CODE_MODEL_BASE`（同样要包含 resolve 路径，例如
-`https://mirror.example/ggml-org/GLM-OCR-GGUF/resolve/65a42de...`）。Finder 启动的 App
-可能不继承 shell 环境变量，此时用界面字段最方便。
+留空时仍兼容环境变量：`HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY`。内网 staging 仍可用
+`OCR4CODE_MODEL_BASE` 覆盖成包含 resolve 路径的完整基址（会忽略“使用镜像”勾选）；
+Finder 启动的 App 可能不继承 shell 环境变量，此时用界面字段最方便。
 
-镜像上的文件名必须一致，SHA-256 仍按内置 manifest 校验。也可以直接把两个 `.gguf`
-放进模型目录做离线预置。
+镜像上的文件名必须一致，SHA-256 仍按内置 manifest 校验。也可以直接把对应精度的
+`GLM-OCR-Q8_0.gguf` 或 `GLM-OCR.Q4_K_M.gguf` 加 mmproj 放进模型目录做离线预置。
 
 ---
 
@@ -328,18 +353,18 @@ Windows CI（`.github/workflows/release.yml`）在 `windows-latest` 上完成：
 
 - 拉取固定 llama.cpp b12018 Windows CPU runtime；
 - 从 VS 2022 Redist 复制 x64 CRT 到 `llama-server.exe` 同目录，并跑 `--version` 冒烟；
-- 运行 12 个桌面后端测试；
+- 运行 21 个桌面后端测试；
 - 构建 NSIS、生成 `.sig` 和 `latest.json`，上传 GitHub Release。
 
 已在 macOS 真机验证：
 
 - 安装包内 `Resources/runtime/llama/llama-server` 可执行，资源路径解析正确；
-- 用内置 manager 从 Hugging Face 实际下载 1.43 GB 模型，SHA-256 校验通过；
+- 用内置 manager 从 Hugging Face 实际下载高精度 1.43 GB / 低精度 1.03 GB 模型，SHA-256 校验通过；
 - 内置 `llama-server` 加载真实 GLM-OCR 模型，`/health` 返回 200，启动约 7–10 秒；
 - 应用 autostart 后侧栏显示「llama.cpp 已就绪 · 内置本地引擎」；
 - 通过同一 server 跑通 CLI OCR；
 - SIGTERM 会停止子进程；异常退出留下的 pid 文件会在下次启动时清理；
-- 模型下载代理/镜像、`%40` 代理密码和系统 TLS 可工作。
+- 模型下载代理（地址 + 用户名 + 密码自动编码）、“使用镜像”勾选和系统 TLS 可工作。
 
 Windows 实际验证：
 

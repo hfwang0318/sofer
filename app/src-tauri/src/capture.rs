@@ -183,7 +183,7 @@ fn run(app: &AppHandle) -> Result<()> {
     if settings.engine != EngineMode::Tesseract {
         let _ = app.emit("ocr:phase", Phase { phase: "starting" });
         let manager = app.state::<Arc<engine::Manager>>().inner().clone();
-        match manager.ensure_ready(&settings.llama_url) {
+        match manager.ensure_ready(&settings.llama_url, settings.server_config()) {
             Ok(url) => config.llama_url = Some(url),
             Err(engine::Error::Cancelled) => {
                 let _ = app.emit("ocr:phase", Phase { phase: "idle" });
@@ -308,7 +308,7 @@ fn localize_error(message: &str) -> String {
 
 fn hint_for(message: &str, setup_required: bool) -> String {
     if setup_required {
-        return "本地模型需要一次性下载约 1.43 GB。打开引导设置即可启用 OCR，无需手动安装。".into();
+        return "本地模型需要一次性下载。打开引导设置即可启用 OCR，无需手动安装。".into();
     }
     let lower = message.to_lowercase();
     if lower.contains("no engine available") || lower.contains("starting the ocr engine") {

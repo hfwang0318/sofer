@@ -1,5 +1,7 @@
+import { isMac } from "./platform";
 import type {
   HistoryEntry,
+  ModelQuality,
   OcrResult,
   Settings,
 } from "./types";
@@ -12,8 +14,13 @@ export const DEFAULT_SETTINGS: Settings = {
   shortcut: "CommandOrControl+Shift+2",
   autoCopy: true,
   historyLimit: 20,
-  downloadProxy: "",
-  modelBase: "",
+  useMirror: false,
+  proxyUrl: "",
+  proxyUsername: "",
+  proxyPassword: "",
+  modelQuality: "low",
+  idleSleepSecs: 300,
+  kvCacheQuant: isMac,
   uiScale: 1.15,
   autoCheckUpdates: true,
   autoDownloadUpdates: true,
@@ -32,9 +39,20 @@ export const DEFAULT_SETTINGS: Settings = {
   jobs: 3,
 };
 
-export const MODEL_TOTAL_BYTES = 1_434_837_056;
-export const MODEL_NAME = "GLM-OCR Q8_0";
-/** Keep in sync with `engine::MODEL_REVISION` in src-tauri/src/engine.rs. */
+export const MODEL_TOTAL_BYTES_HIGH = 1_434_837_056;
+export const MODEL_TOTAL_BYTES_LOW = 1_032_918_784;
+export const MODEL_NAME_HIGH = "GLM-OCR Q8_0";
+export const MODEL_NAME_LOW = "GLM-OCR Q4_K_M";
+
+
+export function modelTotalBytes(quality: ModelQuality): number {
+  return quality === "low" ? MODEL_TOTAL_BYTES_LOW : MODEL_TOTAL_BYTES_HIGH;
+}
+
+export function modelName(quality: ModelQuality): string {
+  return quality === "low" ? MODEL_NAME_LOW : MODEL_NAME_HIGH;
+}
+/** Keep in sync with `engine::MODEL_LICENSE` in src-tauri/src/engine.rs. */
 export const MODEL_LICENSE = "MIT";
 export const SETUP_DISMISSED_KEY = "ocr4code.setup.dismissed";
 export const SETTINGS_KEY = "ocr4code.settings.v1";

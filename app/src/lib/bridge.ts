@@ -6,8 +6,8 @@ import {
   DEFAULT_SETTINGS,
   DEMO_RESULT,
   MODEL_LICENSE,
-  MODEL_NAME,
-  MODEL_TOTAL_BYTES,
+  modelName,
+  modelTotalBytes,
   SETTINGS_KEY,
 } from "./defaults";
 import { isTauri } from "./platform";
@@ -78,7 +78,19 @@ function mockLlamaUrl(): string {
   return DEFAULT_SETTINGS.llamaUrl;
 }
 
+function mockModelQuality(): "high" | "low" {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (raw) return JSON.parse(raw).modelQuality === "low" ? "low" : "high";
+  } catch {
+    /* ignore */
+  }
+  return "high";
+}
+
 function mockEngineStatus(): EngineStatus {
+  const quality = mockModelQuality();
+  const total = modelTotalBytes(quality);
   const offlineDemo = demo === "error";
   const online = mockInstalled && mockServer === "online" && !offlineDemo;
   const llamaUrl = online ? "http://127.0.0.1:18099" : mockLlamaUrl();
@@ -96,8 +108,8 @@ function mockEngineStatus(): EngineStatus {
     model: {
       installed: mockInstalled,
       verified: mockInstalled,
-      bytes: mockInstalled ? MODEL_TOTAL_BYTES : 0,
-      total: MODEL_TOTAL_BYTES,
+      bytes: mockInstalled ? total : 0,
+      total,
       dir: "…/models/glm-ocr",
     },
     server: {
@@ -105,11 +117,12 @@ function mockEngineStatus(): EngineStatus {
       url: online ? "http://127.0.0.1:18099" : null,
       managed: true,
       error: null,
+      quality,
     },
     setup: {
       needed: !mockInstalled && !online,
-      downloadBytes: MODEL_TOTAL_BYTES,
-      modelName: MODEL_NAME,
+      downloadBytes: total,
+      modelName: modelName(quality),
       license: MODEL_LICENSE,
       runtimeReady: true,
     },
@@ -120,7 +133,7 @@ function mockDownload(progress: Partial<DownloadProgress> & { phase: DownloadPro
   return {
     file: null,
     downloaded: 0,
-    total: MODEL_TOTAL_BYTES,
+    total: modelTotalBytes(mockModelQuality()),
     bytesPerSec: 0,
     etaSecs: null,
     message: null,
@@ -130,8 +143,10 @@ function mockDownload(progress: Partial<DownloadProgress> & { phase: DownloadPro
 
 function startMockSetup() {
   if (mockSetupRunning) return;
+  const total = modelTotalBytes(mockModelQuality());
+  const quality = mockModelQuality();
   if (mockInstalled && mockServer === "online") {
-    emitPreview("engine:download", mockDownload({ phase: "ready", downloaded: MODEL_TOTAL_BYTES }));
+    emitPreview("engine:download", mockDownload({ phase: "ready", downloaded: total, total }));
     return;
   }
   mockSetupRunning = true;
@@ -140,32 +155,35 @@ function startMockSetup() {
 
   let downloaded = 0;
   const speed = 78_000_000;
-  // Roughly 1.43 GB at a simulated 78 MB/s, compressed into a short preview.
+  // Compressed into a short preview; the real total depends on the quality.
   mockSetupInterval = window.setInterval(() => {
     if (mockSetupCancelled) return;
-    downloaded = Math.min(MODEL_TOTAL_BYTES, downloaded + MODEL_TOTAL_BYTES / 34);
+    downloaded = Math.min(total, downloaded + total / 34);
     const file =
-      downloaded > MODEL_TOTAL_BYTES * 0.66
+      downloaded > total * 0.66
         ? "mmproj-GLM-OCR-Q8_0.gguf"
-        : "GLM-OCR-Q8_0.gguf";
+        : quality === "low"
+          ? "GLM-OCR.Q4_K_M.gguf"
+          : "GLM-OCR-Q8_0.gguf";
     emitPreview(
       "engine:download",
       mockDownload({
         phase: "downloading",
         file,
         downloaded,
+        total,
         bytesPerSec: speed,
-        etaSecs: Math.max(0, Math.round((MODEL_TOTAL_BYTES - downloaded) / speed)),
+        etaSecs: Math.max(0, Math.round((total - downloaded) / speed)),
       }),
     );
 
-    if (downloaded >= MODEL_TOTAL_BYTES) {
+    if (downloaded >= total) {
       clearMockSetup();
-      emitPreview("engine:download", mockDownload({ phase: "verifying", downloaded }));
+      emitPreview("engine:download", mockDownload({ phase: "verifying", downloaded, total }));
       mockSetupTimers.push(
         window.setTimeout(() => {
           if (mockSetupCancelled) return;
-          emitPreview("engine:download", mockDownload({ phase: "starting", downloaded }));
+          emitPreview("engine:download", mockDownload({ phase: "starting", downloaded, total }));
           mockSetupTimers.push(
             window.setTimeout(() => {
               if (mockSetupCancelled) return;
@@ -178,11 +196,12 @@ function startMockSetup() {
                 url: "http://127.0.0.1:18099",
                 managed: true,
                 error: null,
+                quality,
               };
               emitPreview("engine:state", state);
               emitPreview(
                 "engine:download",
-                mockDownload({ phase: "ready", downloaded: MODEL_TOTAL_BYTES }),
+                mockDownload({ phase: "ready", downloaded: total, total }),
               );
             }, 1000),
           );
@@ -301,6 +320,7 @@ export async function startEngine(): Promise<EngineStatus> {
     url: "http://127.0.0.1:18099",
     managed: true,
     error: null,
+    quality: mockModelQuality(),
   };
   emitPreview("engine:state", state);
   return mockEngineStatus();
@@ -321,6 +341,7 @@ export async function stopEngine(): Promise<void> {
     url: null,
     managed: false,
     error: null,
+    quality: null,
   } satisfies ServerInfo);
 }
 
@@ -336,6 +357,7 @@ export async function removeModel(): Promise<void> {
     url: null,
     managed: false,
     error: null,
+    quality: null,
   } satisfies ServerInfo);
 }
 

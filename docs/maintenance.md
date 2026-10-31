@@ -25,7 +25,7 @@ bench/
   baseline.py        走 CLI 的基线跑批
   tools/             打分器、各引擎 runner、真机截图工具
   results/           基线产物（**生成物**）
-docs/                选型报告 / 基线 / 本手册
+docs/                选型报告 / 基线 / 内存实测 / 本手册
 app/                 Tauri + React 桌面壳（见 app/README.md）
 CHANGELOG.md         桌面端 v0.1.0–v0.1.10 变更记录
 ```
@@ -48,6 +48,10 @@ CHANGELOG.md         桌面端 v0.1.0–v0.1.10 变更记录
 | `peak MB` | 峰值 RSS | 口径不一（子进程 RSS / Metal buffer / 服务进程）；模型内存不在 CLI 里 |
 
 **判读顺序**：先看 `rows_ratio`（结构对不对）→ 再看 `sym_recall`（符号对不对）→ 最后 `content_acc`（字对不对）。
+
+内存不是这张表里的指标：RSS 含 mmap 的 clean page，活动监视器看的是 footprint；
+`-c 32768` 的 KV 本身就是 2 GiB。测法、量化与运行时横评见
+[内存实测](memory-footprint.md)。
 
 ---
 

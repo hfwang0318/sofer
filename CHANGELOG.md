@@ -3,6 +3,30 @@
 All notable changes to the desktop app. The root OCR kernel keeps its own
 `cargo test`/baseline history; this file records the shipped desktop releases.
 
+## Unreleased
+
+- Added a high/low precision model option: high uses the official Q8_0 pack,
+  low uses the verified `mradermacher/GLM-OCR-GGUF` Q4_K_M pack. Both share the
+  same mmproj; switching precision stops the old server and guides the user
+  through downloading the selected pack when it is missing.
+- Replaced the free-form model mirror URL with a **使用镜像** switch
+  (`hf-mirror.com`); the old `modelBase`/`downloadProxy` settings are migrated
+  automatically.
+- Split download proxy settings into address, username and password. The
+  password field is masked, and credentials are percent-encoded
+  (`@` → `%40`) before being appended to the proxy URL.
+- Added `docs/memory-footprint.md` with measured KV/quantization/memory data.
+- Default to low-precision Q4_K_M unless the settings file explicitly says
+  `"modelQuality":"high"`. Servers now default to a 5-minute idle sleep, `-cram 0`,
+  q8 KV on macOS (f16 on Windows CPU), and derive `-c`/`-np` and
+  `--max-tokens` context from the jobs/output settings.
+- Settings now has a secondary sidebar directory (截图/界面/引擎/版面/输出/更新/关于)
+  that scrolls to the matching section and highlights the current one while
+  scrolling.
+- Model downloads now use up to 8 parallel Range connections for large files,
+  with per-chunk resume, aggregate progress/ETA, cancel support, and a
+  single-stream fallback when the server ignores Range.
+
 ## v0.1.10 — 2026-10-31
 
 - Stop the managed `llama-server` and wait for Windows to release file handles

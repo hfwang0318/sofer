@@ -64,7 +64,19 @@ fn save_settings(
     }
 
     state.shortcut_active.store(true, Ordering::SeqCst);
+    let quality_changed = old.model_quality != settings.model_quality;
+    let restart = old.server_signature() != settings.server_signature();
     *state.settings.lock().unwrap() = settings.clone();
+    if restart {
+        // `-c`/`-np`/KV/sleep/quality are baked into the child process. Stop it
+        // so the next capture or the setup dialog starts the new plan.
+        let manager = app.state::<Arc<EngineManager>>().inner().clone();
+        if quality_changed {
+            // An in-flight download is for the old pack.
+            manager.cancel.store(true, Ordering::SeqCst);
+        }
+        manager.stop();
+    }
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.set_zoom(settings.ui_scale);
     }
@@ -194,7 +206,13 @@ fn current_engine_url(app: &AppHandle) -> String {
 }
 
 fn emit_download_phase(app: &AppHandle, phase: &str, message: Option<&str>) {
-    let total = engine::MODEL_TOTAL_BYTES;
+    let quality = app
+        .state::<AppState>()
+        .settings
+        .lock()
+        .unwrap()
+        .model_quality;
+    let total = engine::model_total(quality);
     let payload = DownloadProgress {
         phase: phase.to_string(),
         file: None,
@@ -213,9 +231,15 @@ fn emit_download_phase(app: &AppHandle, phase: &str, message: Option<&str>) {
 async fn start_engine(app: AppHandle) -> Result<engine::Status, String> {
     let manager = app.state::<Arc<EngineManager>>().inner().clone();
     let url = current_engine_url(&app);
+    let config = app
+        .state::<AppState>()
+        .settings
+        .lock()
+        .unwrap()
+        .server_config();
     tauri::async_runtime::spawn_blocking(move || {
-        manager.ensure_ready(&url).map_err(|e| e.to_string())?;
-        let mut status = manager.status(&url);
+        manager.ensure_ready(&url, config).map_err(|e| e.to_string())?;
+        let mut status = manager.status(&url, config.quality);
         status.tesseract = tesseract::available();
         Ok::<_, String>(status)
     })
@@ -240,9 +264,17 @@ async fn prepare_update(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 async fn remove_model(app: AppHandle) -> Result<(), String> {
     let manager = app.state::<Arc<EngineManager>>().inner().clone();
-    tauri::async_runtime::spawn_blocking(move || manager.remove_model().map_err(|e| e.to_string()))
-        .await
-        .map_err(|e| format!("移除模型失败：{e}"))?
+    let quality = app
+        .state::<AppState>()
+        .settings
+        .lock()
+        .unwrap()
+        .model_quality;
+    tauri::async_runtime::spawn_blocking(move || {
+        manager.remove_model(quality).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("移除模型失败：{e}"))?
 }
 
 /// One-click setup: download both files (resuming), verify SHA-256, start the
@@ -250,19 +282,17 @@ async fn remove_model(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn setup_engine(app: AppHandle) -> Result<(), String> {
     let manager = app.state::<Arc<EngineManager>>().inner().clone();
+    let url = current_engine_url(&app);
+    let settings = app.state::<AppState>().settings.lock().unwrap().clone();
+    let options = settings.download_options()?;
+    let server = settings.server_config();
     if manager.setup_running.swap(true, Ordering::SeqCst) {
         return Ok(());
     }
     manager.reset_cancel();
-    let url = current_engine_url(&app);
-    let settings = app.state::<AppState>().settings.lock().unwrap().clone();
-    let options = engine::DownloadOptions {
-        model_base: Some(settings.model_base),
-        proxy: Some(settings.download_proxy),
-    };
 
     std::thread::spawn(move || {
-        match manager.bootstrap(&url, &options) {
+        match manager.bootstrap(&url, &options, server) {
             Ok(()) => {}
             Err(engine::Error::Cancelled) => {
                 emit_download_phase(
@@ -291,8 +321,14 @@ fn cancel_engine_setup(app: AppHandle) {
 async fn engine_status(app: AppHandle) -> Result<engine::Status, String> {
     let manager = app.state::<Arc<EngineManager>>().inner().clone();
     let url = current_engine_url(&app);
+    let quality = app
+        .state::<AppState>()
+        .settings
+        .lock()
+        .unwrap()
+        .model_quality;
     tauri::async_runtime::spawn_blocking(move || {
-        let mut status = manager.status(&url);
+        let mut status = manager.status(&url, quality);
         status.tesseract = tesseract::available();
         status
     })
@@ -306,11 +342,12 @@ fn autostart_engine(app: &AppHandle) {
     if settings.engine == EngineMode::Tesseract {
         return;
     }
-    if !manager.model_info().installed {
+    let config = settings.server_config();
+    if !manager.model_info(config.quality).installed {
         return;
     }
     std::thread::spawn(move || {
-        if let Err(err) = manager.ensure_ready(&settings.llama_url) {
+        if let Err(err) = manager.ensure_ready(&settings.llama_url, config) {
             eprintln!("engine: autostart failed: {err}");
         }
     });

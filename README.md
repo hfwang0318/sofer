@@ -3,7 +3,7 @@
 把**代码截图 / 终端输出 / 报错堆栈**转成能直接粘回去的文本。离线运行，macOS + Windows。
 
 > **Windows 预览版安装包**：[GitHub Releases](https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.10)
-> —— 首次启动在应用内一键下载 1.43 GB 模型；安装器自带 llama.cpp 运行时，无需另装。
+> —— 首次启动在应用内下载模型（默认低精度 1.03 GB，可在设置切换高精度 1.43 GB）；安装器自带 llama.cpp 运行时，无需另装。
 
 > 一句话架构：**文本由本地 VLM 给，版面由纯 CV 给**。缩进和列对齐从像素算，不依赖任何单平台的 OCR API，
 > 所以换平台不用换引擎，换引擎不用改版面代码。
@@ -11,6 +11,7 @@
 **文档索引**
 - 设计取舍与选型：[docs/ocr4code-选型报告.md](docs/ocr4code-选型报告.md)
 - 可复现基线（26 场景 × 4 变体）：[docs/baseline.md](docs/baseline.md)
+- **常驻内存实测与优化**（KV/量化/运行时横评）：[docs/memory-footprint.md](docs/memory-footprint.md)
 - **维护手册**：[docs/maintenance.md](docs/maintenance.md)
 - 桌面外壳（Tauri + TS，截图到剪贴板）：[app/README.md](app/README.md)
 - 桌面端版本记录：[CHANGELOG.md](CHANGELOG.md)
@@ -57,7 +58,7 @@ cargo test                   # 29 单元 + 5 集成
 ### 2.2 启动主力引擎（llama.cpp + GLM-OCR）
 
 > **桌面应用不需要做这一节**：`app/` 已经内置 `llama-server`，首次启动会一键下载并校验
-> 模型（1.43 GB），自动拉起服务。下面是 CLI / 手动部署方式。
+> 模型（高精度 1.43 GB / 低精度 1.03 GB），自动拉起服务。下面是 CLI / 手动部署方式。
 
 ```bash
 # 首次：下载官方 GGUF（MIT，Q8_0 约 950 MB + mmproj 约 484 MB）
@@ -71,10 +72,34 @@ llama-server -m ~/models/GLM-OCR-GGUF/GLM-OCR-Q8_0.gguf \
 
 `ocr4code doctor` 会检查它是否可用，并打印上面这段命令。
 
+> **低精度（Windows CPU 省内存）**：官方仓库没有 Q4；社区 `mradermacher/GLM-OCR-GGUF`
+> 的 `GLM-OCR.Q4_K_M.gguf`（548,515,136 B，MIT）已实测与自量化精度一致（25 个 `@2x`
+> 场景 24 个逐位相同，`@1x` 略好，4K 切块 56/56）：
+>
+> ```bash
+> hf download mradermacher/GLM-OCR-GGUF --include "GLM-OCR.Q4_K_M.gguf" \
+>   --local-dir ~/models/GLM-OCR-GGUF
+> llama-server -m ~/models/GLM-OCR-GGUF/GLM-OCR.Q4_K_M.gguf \
+>   --mmproj ~/models/GLM-OCR-GGUF/mmproj-GLM-OCR-Q8_0.gguf \
+>   --host 127.0.0.1 --port 8099 -ngl 0 -c 32768 -np 3
+> ```
+
+> **省内存变体**（macOS/Metal、官方 Q8 权重，实测活动 footprint 2.6 GB → 1.7 GB，
+> 空闲 5 分钟后 → 146 MB；精度 25 场景逐场景相同）：
+>
+> ```bash
+> llama-server ... -c 32768 -np 3 \
+>   -ctk q8_0 -ctv q8_0 -cram 0 --sleep-idle-seconds 300
+> ```
+>
+> Windows 内置运行时是 CPU-only，**不要加 `-ctk/-ctv q8_0`**（实测约 2× 慢）；只加
+> `-cram 0 --sleep-idle-seconds 300`。完整实测见 [docs/memory-footprint.md](docs/memory-footprint.md)。
+
 > **上下文别给太小**：一个 4K 切块的视觉 prompt 就吃掉约 **6k token**（实测 `/slots` 的
 > `n_prompt_tokens` 分别为 6395 / 5850 / 6081），再加上 `--max-tokens 3072` 的输出，
 > 单个在飞请求峰值 ≈ 9k。`-c 8192` 配 `--jobs 3` 会互相抢上下文；
-> 用 `-c 32768 -np 3` 比较稳（`-c` 是所有 slot 共享的 KV 池）。
+> 手动部署用 `-c 32768 -np 3` 比较稳（`-c` 是所有 slot 共享的 KV 池）；桌面端会按
+> `jobs`/`max_tokens` 自动算成 `-c 33024 -np 3`（默认）。
 
 ### 2.3 最常用的三条
 
@@ -244,7 +269,7 @@ rows_per_tile  = clamp(max_tokens × 0.9 / tokens_per_row, 8, 24)
 | 6 张图，tesseract | 1.62 s | — | 0.60 s |
 | **单张 4K（切 3 块）** | 71.6 s | **48.7 s** | — |
 
-VLM 的甜点区在 **jobs ≈ 3**：llama-server 默认只有 4 个 slot（`n_slots = 4`），再多人只是在排队，还多占上下文。
+VLM 的甜点区在 **jobs ≈ 3**：桌面端最多开 3 个 llama slot（`n_slots = 3`），再多人只是在排队，还多占上下文。
 tesseract 是纯 CPU，可以直接开到核数。4K 那张只有 1.5× 提升——因为 3 个切块的视觉编码都压在同一块 GPU 上。
 
 并发安全性：引擎进程之间无共享状态；切块的临时文件名带 `(pid, 序号)`，同进程多线程也不会互相覆盖。
@@ -263,6 +288,12 @@ tesseract 是纯 CPU，可以直接开到核数。4K 那张只有 1.5× 提升�
 
 内存几乎全在 server 侧：**每个在飞请求约 +100~300 MB**（KV 缓存），CLI 本身只有 8–85 MB。
 16 GB 机器完全够；真正的瓶颈是 GPU 带宽，不是内存。
+
+> 2026-10-31 用同一台 M5、b12018 复测 `-c 32768 -np 3`：空闲 **RSS 3.3 GB /
+> footprint 2.6 GB**，上表的 1748 MB 更接近 `-c 8192` 一档，应是旧上下文/旧运行时
+> 的数据。2 GiB 的 KV 是常驻大头；`-ctk q8_0 -ctv q8_0` 可减到 1.7 GB，
+> `--sleep-idle-seconds` 可把空闲压到 ~150 MB。按 `-c`/`-np` 裁剪、权重 4 bit 和
+> Ollama/LM Studio 等运行时的横向对比见 [docs/memory-footprint.md](docs/memory-footprint.md)。
 
 ## 6. 测试与基线
 
@@ -299,13 +330,14 @@ python3 bench/scenes3.py          # 极端几何（小图 / 4K / 19:1 / 1:11）
 | 兜底引擎 | `tesseract`（brew） | `winget install UB-Mannheim.TesseractOCR` |
 | 语言包 | 系统自带 | tesseract 需另装 `chi_sim` 等 |
 
-实测参考（M5，`tree@2x`，1.33B Q8）：GPU 0.07 CPU-秒/次、0.51 s 墙钟；纯 CPU 2.95 CPU-秒/次、0.75 s 墙钟。
+实测参考（M5，`tree@2x`，0.9B Q8）：GPU 0.07 CPU-秒/次、0.51 s 墙钟；纯 CPU 2.95 CPU-秒/次、0.75 s 墙钟。
 
 **内存（Windows 侧，未实测，机制说明）**：Windows 同样会把不活跃页换到 `pagefile.sys`，
 并在 Win10+ 对冷页做**内存压缩**（压缩后仍在 RAM，不落盘）。模型权重的 mmap 在 Windows 上也走
 standby list，和 macOS 的 mapped file 等价。结论一致：**不要指望靠"换到磁盘"省内存**，
-要压常驻就调 `-c` / `-np`。另外**不要关闭页文件**——关掉之后大图或 `--jobs>1` 会直接 OOM 崩溃，
-而不是变慢。
+要压常驻就调 `-c`、`-ctk/-ctv`（GPU 时）并开 `--sleep-idle-seconds`；`-np` 只是把
+`-c` 分给多个 slot，不会减少总 KV。另外**不要关闭页文件**——关掉之后大图或
+`--jobs>1` 会直接 OOM 崩溃，而不是变慢。
 
 ---
 
@@ -318,7 +350,7 @@ standby list，和 macOS 的 mapped file 等价。结论一致：**不要指望�
 5. **评测集以合成图为主**：26 个场景里只有 2 张是真的截图（TextEdit + `screencapture`）。
 6. **Windows 自绘选区**：一次只抓鼠标所在显示器，不支持跨屏拖选；GDI 对受保护内容/HDR/部分硬件加速窗口可能拿到黑帧。
    macOS 产物是 arm64，Intel Mac 需单独构建并补 `runtime/macos-x64`。
-7. **首次安装需要一次 1.43 GB 模型下载**：已在应用内做一键下载、断点续传和 SHA-256；完全离线分发可另做模型包。
+7. **首次安装需要一次 1.0–1.4 GB 模型下载**（高精度 1.43 GB / 低精度 1.03 GB）：已在应用内做一键下载、断点续传和 SHA-256；完全离线分发可另做模型包。
 8. **自动更新**：v0.1.8 起支持；更早版本需手动安装一次。更新依赖 GitHub `latest.json` 可达，且安装器未做代码签名，SmartScreen 仍可能提示。
 9. **快捷键形状**：系统全局快捷键要求组合中恰好有一个主键，因此纯修饰键（`Ctrl+Shift`）或两个普通键（`A+B`）不支持；支持 1 个主键、修饰键+主键、两个修饰键+主键。
 
@@ -339,7 +371,7 @@ standby list，和 macOS 的 mapped file 等价。结论一致：**不要指望�
 | 选区 | macOS `screencapture -i`；Windows 自绘浮层 + GDI 抓屏（鼠标所在显示器） |
 | 结果 | 成功后直接写剪贴板；窗口隐藏时不抢焦点，托盘提示已复制行数 |
 | 引擎 | 运行时随包；模型首次一键下载，自动校验、自动启动；可停止/移除/重下 |
-| 设置 | 引擎/URL/prompt/max-tokens/jobs/tesseract/几何/切块/格式/历史/界面缩放/下载代理与镜像 |
+| 设置 | 引擎/模型精度/KV 量化/空闲释放/代理/镜像/URL/prompt/max-tokens/jobs/tesseract/几何/切块/格式/历史/界面缩放；设置页侧边栏二级目录 |
 | 外观 | 默认无边框 1120×740、115% 界面缩放；macOS NSVisualEffectView / Windows Acrylic |
 | 更新 | 启动检查 GitHub Releases；签名校验、自动下载、重启安装 |
 | 历史 | 最近 N 条留在本机 localStorage，可复制/删除/清空 |
@@ -353,7 +385,7 @@ standby list，和 macOS 的 mapped file 等价。结论一致：**不要指望�
 | Visual C++ 运行库（Windows） | ~1.5 MB | **随包内置**（避免旧 `msvcp140` 导致 `0xc0000005`） |
 | 截图 | 0 | macOS 系统功能；Windows 自绘浮层 + GDI |
 | WebView2（Windows） | — | 安装器自动处理 |
-| GLM-OCR Q8_0 + mmproj | **1.43 GB** | **应用内一键下载**（断点续传 + SHA-256） |
+| GLM-OCR 高精度 Q8_0 / 低精度 Q4_K_M + mmproj | **1.43 / 1.03 GB** | **应用内一键下载**（断点续传 + SHA-256） |
 | tesseract（可选兜底） | ~50–100 MB | 不强制、不打包；系统装了才用 |
 
 用户首次启动只需点一次 **下载并配置**：应用自动下载两个模型文件、校验、启动

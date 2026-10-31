@@ -1,3 +1,4 @@
+import { formatBytes } from "./format";
 import type { EngineMode, EngineStatus } from "./types";
 
 export type StatusTone = "ok" | "warn" | "danger" | "muted";
@@ -72,7 +73,11 @@ export function engineForMode(
     return { label: "llama.cpp 启动失败", detail: "重试或重新运行设置", tone: "danger" };
   }
   if (!status.model.installed) {
-    return { label: "模型未安装", detail: "首次需要下载 1.43 GB", tone: "warn" };
+    return {
+      label: "模型未安装",
+      detail: `首次需要下载 ${formatBytes(status.setup.downloadBytes)}`,
+      tone: "warn",
+    };
   }
   return { label: "llama.cpp 未启动", detail: "启动它，或截图时自动唤醒", tone: "warn" };
 }

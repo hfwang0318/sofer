@@ -1,4 +1,13 @@
 export type EngineMode = "auto" | "llamacpp" | "tesseract";
+export type ModelQuality = "high" | "low";
+export type SettingsSection =
+  | "screenshot"
+  | "interface"
+  | "engine"
+  | "layout"
+  | "output"
+  | "updates"
+  | "about";
 export type OutputFormat = "text" | "markdown" | "json";
 export type View = "capture" | "history" | "settings";
 export type Phase = "idle" | "selecting" | "starting" | "recognizing";
@@ -8,8 +17,13 @@ export interface Settings {
   shortcut: string;
   autoCopy: boolean;
   historyLimit: number;
-  downloadProxy: string;
-  modelBase: string;
+  useMirror: boolean;
+  proxyUrl: string;
+  proxyUsername: string;
+  proxyPassword: string;
+  modelQuality: ModelQuality;
+  idleSleepSecs: number;
+  kvCacheQuant: boolean;
   uiScale: number;
   autoCheckUpdates: boolean;
   autoDownloadUpdates: boolean;
@@ -58,6 +72,7 @@ export interface ServerInfo {
   url: string | null;
   managed: boolean;
   error: string | null;
+  quality: ModelQuality | null;
 }
 
 export interface SetupInfo {

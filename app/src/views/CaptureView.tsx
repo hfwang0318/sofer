@@ -131,7 +131,7 @@ function SetupBanner({ onSetup }: { onSetup: () => void }) {
         <p className="eyebrow">本地 OCR</p>
         <h2>首次设置：下载视觉模型</h2>
         <p>
-          llama.cpp 运行时已内置。下载一次 GLM-OCR（1.43 GB，SHA-256 校验），之后完全离线。
+          llama.cpp 运行时已内置。下载一次 GLM-OCR（高精度约 1.4 GB，低精度约 1.0 GB，SHA-256 校验），之后完全离线。
         </p>
       </div>
       <button type="button" className="btn btn-primary" onClick={onSetup}>

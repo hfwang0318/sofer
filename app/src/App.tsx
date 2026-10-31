@@ -28,8 +28,8 @@ import {
 import {
   DEFAULT_SETTINGS,
   DEMO_RESULT,
-  MODEL_NAME,
-  MODEL_TOTAL_BYTES,
+  modelName,
+  modelTotalBytes,
   SETUP_DISMISSED_KEY,
 } from "./lib/defaults";
 import { fromResult, loadHistory, saveHistory } from "./lib/history";
@@ -49,6 +49,7 @@ import type {
   OcrResult,
   Phase,
   Settings,
+  SettingsSection,
   ToastMessage,
   ToastTone,
   View,
@@ -85,6 +86,8 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [status, setStatus] = useState<EngineStatus | null>(null);
   const [view, setView] = useState<View>(initialView);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("screenshot");
+  const [settingsNav, setSettingsNav] = useState(0);
   const [phase, setPhase] = useState<Phase>("idle");
   const [result, setResult] = useState<OcrResult | null>(
     demo === "result" ? DEMO_RESULT : null,
@@ -380,7 +383,7 @@ export default function App() {
           pushToast(
             "ok",
             "本地引擎已就绪",
-            `${MODEL_NAME} 已安装，服务正在运行。`,
+            `${modelName(settingsRef.current.modelQuality)} 已安装，服务正在运行。`,
           );
           void refreshStatus();
         } else if (progress.phase === "error") {
@@ -400,6 +403,16 @@ export default function App() {
       unsubscribers.forEach((unsubscribe) => unsubscribe());
     };
   }, [addHistory, pushToast, refreshStatus]);
+
+  const handleSettingsSection = useCallback((section: SettingsSection) => {
+    setSettingsSection(section);
+    setSettingsNav((value) => value + 1);
+    setView("settings");
+  }, []);
+
+  const handleSettingsActive = useCallback((section: SettingsSection) => {
+    setSettingsSection(section);
+  }, []);
 
   const handleCapture = useCallback(async () => {
     if (phaseRef.current !== "idle") return;
@@ -446,13 +459,62 @@ export default function App() {
 
   const handleSaveSettings = useCallback(
     async (draft: Settings) => {
+      const qualityChanged = draft.modelQuality !== settings.modelQuality;
+      const serverChanged =
+        qualityChanged ||
+        draft.engine !== settings.engine ||
+        draft.jobs !== settings.jobs ||
+        draft.maxTokens !== settings.maxTokens ||
+        draft.kvCacheQuant !== settings.kvCacheQuant ||
+        draft.idleSleepSecs !== settings.idleSleepSecs;
       const saved = await saveSettings(draft);
       setSettings(saved);
       setShortcutActive(true);
-      void refreshStatus();
+      if (qualityChanged) {
+        setSetupDismissed(false);
+        try {
+          localStorage.removeItem(SETUP_DISMISSED_KEY);
+        } catch {
+          /* ignore */
+        }
+      }
+      const next = await engineStatus().catch(() => null);
+      if (next) {
+        setStatus(next);
+        if (next.setup.needed && saved.engine !== "tesseract") {
+          setSetupOpen(true);
+        } else if (serverChanged && next.model.installed && saved.engine !== "tesseract") {
+          // Save already stopped the old managed server; bring the newly
+          // selected weight pack up so the next screenshot is instant.
+          setEngineBusy("start");
+          try {
+            const started = await startEngine();
+            setStatus(started);
+          } catch (cause) {
+            pushToast(
+              "error",
+              "模型切换后启动失败",
+              cause instanceof Error ? cause.message : String(cause),
+            );
+          } finally {
+            setEngineBusy(null);
+          }
+        }
+      } else {
+        void refreshStatus();
+      }
       pushToast("ok", "设置已保存", "快捷键和内核参数已生效。");
     },
-    [pushToast, refreshStatus],
+    [
+      pushToast,
+      refreshStatus,
+      settings.engine,
+      settings.modelQuality,
+      settings.jobs,
+      settings.maxTokens,
+      settings.kvCacheQuant,
+      settings.idleSleepSecs,
+    ],
   );
 
   const handleTestEngine = useCallback(async () => {
@@ -480,7 +542,7 @@ export default function App() {
       phase: "downloading",
       file: null,
       downloaded: 0,
-      total: status?.setup.downloadBytes ?? MODEL_TOTAL_BYTES,
+      total: status?.setup.downloadBytes ?? modelTotalBytes(settingsRef.current.modelQuality),
       bytesPerSec: 0,
       etaSecs: null,
       message: null,
@@ -494,7 +556,7 @@ export default function App() {
         phase: "error",
         file: null,
         downloaded: 0,
-        total: status?.setup.downloadBytes ?? MODEL_TOTAL_BYTES,
+        total: status?.setup.downloadBytes ?? modelTotalBytes(settingsRef.current.modelQuality),
         bytesPerSec: 0,
         etaSecs: null,
         message,
@@ -660,7 +722,9 @@ export default function App() {
           shortcut={settings.shortcut}
           status={status}
           historyCount={history.length}
+          settingsSection={settingsSection}
           onNavigate={setView}
+          onSettingsSection={handleSettingsSection}
           onCapture={() => void handleCapture()}
         />
         <main className="content" id="main-content">
@@ -706,6 +770,9 @@ export default function App() {
                 onCheckUpdates={() => void checkUpdates(true)}
                 onDownloadUpdate={() => void downloadNow()}
                 onInstallUpdate={() => void installNow()}
+                section={settingsSection}
+                sectionNav={settingsNav}
+                onSectionChange={handleSettingsActive}
                 onSave={handleSaveSettings}
                 onTestEngine={handleTestEngine}
                 onNotify={pushToast}
