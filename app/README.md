@@ -185,8 +185,13 @@ cd app
 pnpm install
 pnpm tauri dev          # Vite + Tauri 窗口
 pnpm build              # TS 类型检查 + 前端构建
-pnpm tauri build        # .app / .dmg / .msi / .exe
+pnpm tauri build        # 发布包；需要 Tauri updater 签名密钥
+pnpm tauri build --no-bundle  # 本地只构建可执行文件，不需要签名
 ```
+
+发布带更新签名的安装包时，需要设置 `TAURI_SIGNING_PRIVATE_KEY` 和
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（CI 已配置为 GitHub Secrets）。当前 `tauri.conf.json`
+启用了 `createUpdaterArtifacts`，未设置密钥的 `pnpm tauri build` 会在打包阶段报错。
 
 运行时二进制不提交到仓库（约 78 MB），构建前先获取：
 
