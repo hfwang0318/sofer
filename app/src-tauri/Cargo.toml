@@ -22,12 +22,12 @@ serde = { version = "1", features = ["derive"] }
 ureq = "2"
 sha2 = "0.10"
 fs2 = "0.4"
-
-[target.'cfg(unix)'.dependencies]
-signal-hook = "0.3"
 serde_json = "1"
 window-vibrancy = "0.6"
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png"] }
 arboard = "3"
 ocr4code = { path = "../.." }
+
+[target.'cfg(unix)'.dependencies]
+signal-hook = "0.3"
