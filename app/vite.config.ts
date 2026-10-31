@@ -1,5 +1,9 @@
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+
+const root = fileURLToPath(new URL(".", import.meta.url));
 
 // Tauri needs a fixed port and must not clear the terminal it shares with cargo.
 export default defineConfig({
@@ -14,5 +18,11 @@ export default defineConfig({
   build: {
     target: "safari15",
     sourcemap: false,
+    rollupOptions: {
+      input: {
+        main: resolve(root, "index.html"),
+        overlay: resolve(root, "overlay.html"),
+      },
+    },
   },
 });

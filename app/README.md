@@ -8,7 +8,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 校验 SHA-256、启动引擎。之后完全离线。
 
 > Windows 预览版安装包：
-> <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.4>
+> <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.5>
 > 由 GitHub Actions 的 `windows-latest` 构建 NSIS 安装器。
 
 | 首启向导 | 模型下载 |
@@ -30,7 +30,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 |---|---|---|---|
 | 应用本体（Tauri / React） | ~15–80 MB | **打包** | 随安装包 |
 | `llama-server` 运行时 + 动态库 | macOS ~29 MB / Windows ~49 MB | **打包** | 固定 `llama.cpp b12018`（MIT），见 [runtime/README.md](src-tauri/runtime/README.md) |
-| 截图能力 | 0 | **系统自带** | macOS `screencapture` / Windows Snipping Tool |
+| 截图能力 | 0 | **应用内实现** | macOS `screencapture`；Windows 自绘浮层 + GDI 抓屏 |
 | WebView2（Windows） | — | **安装器自动处理** | `embedBootstrapper`，无需用户手动装 |
 | GLM-OCR Q8_0 权重 + mmproj | **1.43 GB** | **应用内一键下载** | 950,433,408 + 484,403,648 bytes，MIT；不支持塞进安装包 |
 | tesseract（可选兜底） | ~50–100 MB | **不打包、不强制** | 只检测系统已安装；默认不需要，模型路径是主力 |
@@ -72,7 +72,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 |---|---|
 | 一键模型安装 | 首启向导下载 1.43 GB 模型、校验、启动服务；断点续传，可取消/重试/移除 |
 | 全局快捷键 | 默认 `⌘⇧2` / `Ctrl+Shift+2`，设置里可录制；录制期间临时注销，避免自己触发自己 |
-| 原生截图 | macOS `screencapture -i`，Windows `ms-screenclip:`；多显示器、菜单栏交给系统 |
+| 原生截图 | macOS `screencapture -i`；Windows 自绘选区浮层 + GDI 抓屏（不调用系统截屏工具） |
 | 自动识别 | 复用 `ocr4code::pipeline`：引擎 → 切块/重试 → 几何层 → 修复 → 渲染 |
 | 自动复制 | 成功后直接写剪贴板；窗口隐藏时不抢焦点，托盘提示「copied N lines」 |
 | 引擎管理 | 内置运行时、模型状态、服务状态、启动/停止、移除/重新下载，全部在设置里 |
@@ -251,16 +251,16 @@ TLS 证书使用系统信任库；如果代理/安全软件会劫持 HTTPS，需
 
 | | macOS | Windows |
 |---|---|---|
-| 选区 | `/usr/sbin/screencapture -i -x -o -t png` | `ms-screenclip:` + 轮询剪贴板图像 |
-| 取消 | Esc；再按一次全局快捷键 kill 子进程 | Esc；再按一次全局快捷键停止轮询 |
-| 权限 | 首次需要 **Screen Recording**，在系统设置 → 隐私与安全勾选后重启 | Snipping Tool 负责 |
+| 选区 | `/usr/sbin/screencapture -i -x -o -t png` | 自绘 Tauri 浮层 + GDI `BitBlt` |
+| 取消 | Esc；再按一次全局快捷键 kill 子进程 | Esc；再按一次全局快捷键关闭浮层 |
+| 权限 | 首次需要 **Screen Recording**，在系统设置 → 隐私与安全勾选后重启 | 无系统截屏权限；GDI 直接抓当前显示器 |
 | 运行时 | bundled macos-arm64（Metal） | bundled win-cpu-x64（CPU，`-ngl 0`） |
 | 材质 | `NSVisualEffectMaterial::HudWindow` | `apply_acrylic` |
 | 无边框窗口 | 自绘红黄绿 + `data-tauri-drag-region` | 自绘最小化/最大化/关闭 |
 | WebView2 | 系统自带 | 安装器 `embedBootstrapper` 自动处理 |
 
-Windows 分支按 `cfg` 条件编译编写，但没有 Windows 真机；`ms-screenclip:` 在不同
-Win10/11 版本上的行为、CPU 推理速度还需要一次真机验证。Windows 运行时是 CPU 版；
+Windows 分支按 `cfg` 条件编译编写，但没有 Windows 真机；自绘浮层和 GDI 抓屏在不同
+Win10/11 版本上的行为、多显示器/高 DPI 以及 CPU 推理速度还需要一次真机验证。Windows 运行时是 CPU 版；
 要 GPU 加速可以后续增加 Vulkan/CUDA 运行时包，或让高级用户接外部 llama-server。
 当前 macOS 产物是 arm64；Intel Mac 需要单独构建 x64 并补充 `runtime/macos-x64`。
 

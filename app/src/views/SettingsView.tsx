@@ -444,7 +444,7 @@ export function SettingsView({
               桌面层暴露的全部内核参数。更改会应用于下一次截图，OCR 内核本身保持不变。
             </p>
           </div>
-          <span className="settings-version">ocr4code 0.1.4</span>
+          <span className="settings-version">ocr4code 0.1.5</span>
         </header>
 
         <Section
@@ -853,7 +853,7 @@ export function SettingsView({
         <Section
           title="关于"
           description="ocr4code 内核的桌面外壳。"
-          meta={<span className="about-version">v0.1.4</span>}
+          meta={<span className="about-version">v0.1.5</span>}
         >
           <div className="about-grid">
             <div>
@@ -870,7 +870,7 @@ export function SettingsView({
             <div>
               <span className="about-label">截图</span>
               <span className="about-value">
-                系统原生区域选择 · {isMac ? "screencapture" : "截屏工具"}
+                {isMac ? "macOS 原生选区 · screencapture" : "Windows 自绘浮层 · GDI 抓屏"}
               </span>
             </div>
             <div>
@@ -888,7 +888,7 @@ export function SettingsView({
             <p>
               {isMac
                 ? "如果截图是空白，请在系统设置 → 隐私与安全 → 屏幕录制中启用 ocr4code，然后重启应用。"
-                : "Windows 截屏工具负责选区；ocr4code 读取它放进剪贴板的图像。"}
+                : "Windows 选区由应用自己绘制并直接用 GDI 抓屏，不调用系统截屏工具。"}
             </p>
           </div>
         </Section>

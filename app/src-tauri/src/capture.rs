@@ -1,9 +1,9 @@
 //! Global-shortcut capture flow: native region selection → kernel → clipboard.
 //!
-//! Selection itself stays with the OS on purpose. `screencapture -i` on macOS and
-//! the Snipping Tool overlay on Windows already cover every display, handle the
-//! menu bar, and do not require us to draw a full-screen window. Everything after
-//! the pixels are chosen is ours: run the kernel, copy the result, tell the UI.
+//! macOS keeps `screencapture -i`; Windows uses our own GDI capture plus an
+//! always-on-top Tauri selection window, so the Snipping Tool is never invoked.
+//! Everything after the pixels are chosen is ours: run the kernel, copy the
+//! result, tell the UI.
 
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -23,6 +23,15 @@ use ocr4code::render::{self, Format};
 
 use crate::engine;
 use crate::AppState;
+
+#[cfg(target_os = "windows")]
+mod win;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverlayInfo {
+    pub image: String,
+}
 
 /// A successful recognition, shaped for the React side.
 #[derive(Debug, Clone, Serialize)]
@@ -102,6 +111,50 @@ pub fn start(app: AppHandle) {
     });
 }
 
+#[tauri::command]
+pub fn overlay_info() -> Result<OverlayInfo, String> {
+    #[cfg(target_os = "windows")]
+    {
+        win::overlay_info()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("截图浮层仅支持 Windows".into())
+    }
+}
+
+#[tauri::command]
+pub fn overlay_finish(
+    window: tauri::WebviewWindow,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    scale: f64,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        win::overlay_finish(window, x, y, width, height, scale)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (window, x, y, width, height, scale);
+        Err("截图浮层仅支持 Windows".into())
+    }
+}
+
+#[tauri::command]
+pub fn overlay_cancel() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        win::overlay_cancel()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(())
+    }
+}
+
 fn run(app: &AppHandle) -> Result<()> {
     let settings = app
         .state::<AppState>()
@@ -119,7 +172,7 @@ fn run(app: &AppHandle) -> Result<()> {
     let cancel = &app.state::<AppState>().cancel;
 
     let _ = app.emit("ocr:phase", Phase { phase: "selecting" });
-    if let CaptureOutcome::Cancelled = interactive_capture(&path, cancel)? {
+    if let CaptureOutcome::Cancelled = interactive_capture(app, &path, cancel)? {
         let _ = std::fs::remove_file(&path);
         let _ = app.emit("ocr:phase", Phase { phase: "idle" });
         return Ok(());
@@ -290,7 +343,7 @@ fn thumbnail(path: &Path) -> Option<String> {
 // ---------------------------------------------------------------------------
 
 #[cfg(target_os = "macos")]
-fn interactive_capture(dest: &Path, cancel: &AtomicBool) -> Result<CaptureOutcome> {
+fn interactive_capture(_app: &AppHandle, dest: &Path, cancel: &AtomicBool) -> Result<CaptureOutcome> {
     use std::process::Command;
     use std::time::Instant;
 
@@ -322,68 +375,19 @@ fn interactive_capture(dest: &Path, cancel: &AtomicBool) -> Result<CaptureOutcom
 }
 
 #[cfg(target_os = "windows")]
-fn interactive_capture(dest: &Path, cancel: &AtomicBool) -> Result<CaptureOutcome> {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    use std::process::Command;
-    use std::time::Instant;
-
-    struct Clip {
-        width: usize,
-        height: usize,
-        bytes: Vec<u8>,
-        fingerprint: u64,
-    }
-
-    fn read_clipboard() -> Option<Clip> {
-        let mut clipboard = arboard::Clipboard::new().ok()?;
-        let image = clipboard.get_image().ok()?;
-        let mut hasher = DefaultHasher::new();
-        image.width.hash(&mut hasher);
-        image.height.hash(&mut hasher);
-        for i in (0..image.bytes.len()).step_by(4093) {
-            image.bytes[i].hash(&mut hasher);
-        }
-        Some(Clip {
-            width: image.width,
-            height: image.height,
-            bytes: image.bytes.into_owned(),
-            fingerprint: hasher.finish(),
-        })
-    }
-
-    let before = read_clipboard().map(|c| c.fingerprint);
-    Command::new("cmd")
-        .args(["/C", "start", "", "ms-screenclip:"])
-        .spawn()
-        .context("打开 Windows 截屏工具失败")?;
-
-    // The snipping overlay copies the selected pixels to the clipboard when it
-    // closes. Cancelling leaves the clipboard untouched, so the only signal we
-    // have is "a new image appeared"; the timeout makes Esc harmless.
-    let started = Instant::now();
-    while started.elapsed() < Duration::from_secs(120) {
-        if cancel.load(Ordering::Relaxed) {
-            return Ok(CaptureOutcome::Cancelled);
-        }
-        std::thread::sleep(Duration::from_millis(400));
-        if let Some(clip) = read_clipboard() {
-            if before != Some(clip.fingerprint) {
-                let image = image::RgbaImage::from_raw(
-                    clip.width as u32,
-                    clip.height as u32,
-                    clip.bytes,
-                )
-                .context("解码剪贴板图像失败")?;
-                image.save(dest).context("保存截图失败")?;
-                return Ok(CaptureOutcome::Selected);
-            }
-        }
-    }
-    Ok(CaptureOutcome::Cancelled)
+fn interactive_capture(
+    app: &AppHandle,
+    dest: &Path,
+    cancel: &AtomicBool,
+) -> Result<CaptureOutcome> {
+    win::interactive_capture(app, dest, cancel)
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-fn interactive_capture(_dest: &Path, _cancel: &AtomicBool) -> Result<CaptureOutcome> {
+fn interactive_capture(
+    _app: &AppHandle,
+    _dest: &Path,
+    _cancel: &AtomicBool,
+) -> Result<CaptureOutcome> {
     anyhow::bail!("截图仅支持 macOS 和 Windows")
 }

@@ -316,9 +316,9 @@ export function SetupDialog({
                 tone={status.model.installed ? "ok" : "warn"}
               />
               <CheckRow
-                title="系统截图"
-                detail="macOS screencapture / Windows 截屏工具"
-                badge="系统"
+                title="区域选择"
+                detail="macOS screencapture / Windows 自绘选区"
+                badge="可用"
                 tone="ok"
               />
             </div>

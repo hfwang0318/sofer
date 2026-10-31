@@ -1,0 +1,106 @@
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #000;
+}
+
+.region-overlay {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  cursor: crosshair;
+  user-select: none;
+  -webkit-user-select: none;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+  color: #f4f6f8;
+}
+
+.region-overlay img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+
+.region-overlay .shade {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 7, 10, 0.46);
+  pointer-events: none;
+}
+
+.region-overlay .selection {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid rgba(203, 245, 108, 0.95);
+  background: transparent;
+  box-shadow: 0 0 0 9999px rgba(5, 7, 10, 0.46);
+  pointer-events: none;
+}
+
+.region-overlay .corner {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  background: #cbf56c;
+}
+
+.region-overlay .corner-tl { left: -3px; top: -3px; }
+.region-overlay .corner-tr { right: -3px; top: -3px; }
+.region-overlay .corner-bl { left: -3px; bottom: -3px; }
+.region-overlay .corner-br { right: -3px; bottom: -3px; }
+
+.region-overlay .size {
+  position: absolute;
+  left: 0;
+  top: -28px;
+  padding: 4px 7px;
+  border-radius: 5px;
+  background: #cbf56c;
+  color: #11140d;
+  font: 600 11px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+}
+
+.region-overlay .hint {
+  position: absolute;
+  left: 50%;
+  top: 22px;
+  transform: translateX(-50%);
+  padding: 8px 13px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(12, 14, 18, 0.82);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  color: rgba(244, 246, 248, 0.86);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.region-overlay .hint kbd {
+  padding: 1px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  font: inherit;
+  color: #cbf56c;
+}
+
+.region-overlay .loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(244, 246, 248, 0.7);
+  font-size: 13px;
+}

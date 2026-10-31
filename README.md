@@ -2,7 +2,7 @@
 
 把**代码截图 / 终端输出 / 报错堆栈**转成能直接粘回去的文本。离线运行，macOS + Windows。
 
-> **Windows 预览版安装包**：[GitHub Releases](https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.4)
+> **Windows 预览版安装包**：[GitHub Releases](https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.5)
 > —— 首次启动在应用内一键下载 1.43 GB 模型；安装器自带 llama.cpp 运行时，无需另装。
 
 > 一句话架构：**文本由本地 VLM 给，版面由纯 CV 给**。缩进和列对齐从像素算，不依赖任何单平台的 OCR API，
@@ -315,7 +315,7 @@ standby list，和 macOS 的 mapped file 等价。结论一致：**不要指望�
 3. **行号槽场景放弃几何**：`editor-rust` 每行 x0 都在第 0 列，几何无效，改用模型自己的空格。
 4. **Windows 未实测**：代码无平台分支、CI 配了 macos+windows 矩阵，但没有真机跑过。
 5. **评测集以合成图为主**：26 个场景里只有 2 张是真的截图（TextEdit + `screencapture`）。
-6. **桌面壳的 Windows 截图/CPU 推理未上真机**：`ms-screenclip:` 和 Windows CPU runtime 需要一次真机验证；
+6. **桌面壳的 Windows 截图/CPU 推理未上真机**：Windows 自绘选区（GDI + Tauri 浮层）和 CPU runtime 需要一次真机验证；
    macOS 产物是 arm64，Intel Mac 需单独构建并补 `runtime/macos-x64`。
 7. **首次安装需要一次 1.43 GB 模型下载**：已在应用内做一键下载、断点续传和 SHA-256；完全离线分发可另做模型包。
 
@@ -333,7 +333,7 @@ standby list，和 macOS 的 mapped file 等价。结论一致：**不要指望�
 | | |
 |---|---|
 | 快捷键 | 默认 `⌘⇧2` / `Ctrl+Shift+2`，设置里可录制；再按一次取消选区 |
-| 选区 | macOS `screencapture -i`；Windows `ms-screenclip:` + 剪贴板图像 |
+| 选区 | macOS `screencapture -i`；Windows 自绘浮层 + GDI 抓屏 |
 | 结果 | 成功后直接写剪贴板；窗口隐藏时不抢焦点，托盘提示 copied N lines |
 | 引擎 | 运行时随包；模型首次一键下载，自动校验、自动启动；可停止/移除/重下 |
 | 设置 | 引擎/URL/prompt/max-tokens/jobs/tesseract/几何/切块/格式/history 上限 |
@@ -346,7 +346,7 @@ standby list，和 macOS 的 mapped file 等价。结论一致：**不要指望�
 |---|---|---|
 | 应用 + Tauri | ~15–80 MB | 安装包 |
 | `llama-server` 运行时（macOS arm64 / Windows x64） | ~29 / ~49 MB | **随包内置** |
-| 截图 | 0 | 系统自带（screencapture / Snipping Tool） |
+| 截图 | 0 | macOS 系统功能；Windows 自绘浮层 + GDI |
 | WebView2（Windows） | — | 安装器自动处理 |
 | GLM-OCR Q8_0 + mmproj | **1.43 GB** | **应用内一键下载**（断点续传 + SHA-256） |
 | tesseract（可选兜底） | ~50–100 MB | 不强制、不打包；系统装了才用 |
