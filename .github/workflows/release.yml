@@ -59,35 +59,27 @@ jobs:
         with:
           projectPath: app
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
-          releaseName: "ocr4code ${{ github.event.inputs.tag || github.ref_name }} — Windows preview"
+          releaseName: "ocr4code ${{ github.event.inputs.tag || github.ref_name }} — Windows 预览版"
           releaseBody: |
-            ## ocr4code — Windows preview
+            ## ocr4code — Windows 预览版
 
-            Windows preview build with a Simplified Chinese interface. The macOS app
-            exists but is not included in this release.
+            简体中文界面的 Windows 预览构建。macOS 版本存在，但不包含在此次发布中。
 
-            ### Install
-            1. Download the `.exe` installer under **Assets**.
-            2. Run it (the installer is unsigned, so SmartScreen may ask for
-               **More info → Run anyway**).
-            3. On first launch click **Download & set up**. The app downloads the
-               1.43 GB GLM-OCR model, verifies its SHA-256, and starts the bundled
-               `llama-server` automatically.
-            4. Press `Ctrl+Shift+2` and drag a region.
+            ### 安装
+            1. 在 **Assets** 下载 `.exe` 安装包。
+            2. 运行安装包（未签名，SmartScreen 可能提示；点 **更多信息 → 仍要运行**）。
+            3. 首次启动点击 **下载并配置**。应用会下载 1.43 GB 的 GLM-OCR 模型，校验 SHA-256，并自动启动内置 `llama-server`。
+            4. 按 `Ctrl+Shift+2`，拖选区域。
 
-            ### Requirements
+            ### 环境要求
             - Windows 10/11 x64
-            - ~2 GB free disk for the model
-            - Internet for the first model download (Hugging Face)
-            - WebView2: the installer handles it automatically
+            - 模型约需 2 GB 磁盘空间
+            - 首次下载模型需要联网（Hugging Face）
+            - WebView2：安装器会自动处理
 
-            The runtime is bundled (CPU build, `-ngl 0`); no llama.cpp install is
-            needed. If Hugging Face is blocked, set `HTTPS_PROXY` (or
-            `OCR4CODE_MODEL_BASE` for an internal mirror) before launching the app.
+            运行时已内置（CPU 构建，`-ngl 0`），无需安装 llama.cpp。如果 Hugging Face 无法访问，启动应用前设置 `HTTPS_PROXY`（或内部镜像使用 `OCR4CODE_MODEL_BASE`）。
 
-            Settings → Engine → Local engine shows runtime/model/server state and
-            allows stop, remove and re-download. Logs are under the app log directory;
-            please attach the relevant error text when reporting issues.
+            设置 → 引擎 → 本地引擎可查看运行时、模型和服务状态，并支持停止、移除和重新下载。日志在应用日志目录；反馈问题时请附上错误文本。
           releaseDraft: true
           prerelease: false
           args: --bundles nsis
