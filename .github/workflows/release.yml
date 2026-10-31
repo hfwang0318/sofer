@@ -58,8 +58,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: app
-          tagName: ${{ inputs.tag || github.ref_name }}
-          releaseName: "ocr4code ${{ inputs.tag || github.ref_name }} — Windows preview"
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: "ocr4code ${{ github.event.inputs.tag || github.ref_name }} — Windows preview"
           releaseBody: |
             ## ocr4code — Windows preview
 
