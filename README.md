@@ -371,7 +371,7 @@ standby list，和 macOS 的 mapped file 等价。结论一致：**不要指望�
 | 选区 | macOS `screencapture -i`；Windows 自绘浮层 + GDI 抓屏（鼠标所在显示器） |
 | 结果 | 成功后直接写剪贴板；窗口隐藏时不抢焦点，托盘提示已复制行数 |
 | 引擎 | 运行时随包；模型首次一键下载，自动校验、自动启动；可停止/移除/重下 |
-| 设置 | 引擎/模型精度/KV 量化/空闲释放/代理/镜像/URL/prompt/max-tokens/jobs/tesseract/几何/切块/格式/历史/界面缩放；设置页侧边栏二级目录 |
+| 设置 | 引擎/模型精度/KV 量化/空闲释放/代理/镜像/URL/prompt/max-tokens/jobs/tesseract/几何/切块/格式/历史/界面缩放；分通用/识别/输出/高级/关于五段 |
 | 外观 | 默认无边框 1120×740、115% 界面缩放；macOS NSVisualEffectView / Windows Acrylic |
 | 更新 | 启动检查 GitHub Releases；签名校验、自动下载、重启安装 |
 | 历史 | 最近 N 条留在本机 localStorage，可复制/删除/清空 |
@@ -403,7 +403,10 @@ pnpm tauri build               # 发布包；需要 updater 签名密钥（CI �
 
 只预览 UI（不需要模型，走 mock 数据）：`pnpm dev` 后打开
 `http://127.0.0.1:1420/?demo=result`
-（另有 `setup` / `empty` / `history` / `settings` / `error`）。
+（另有 `setup` / `permission` / `error` / `history` / `settings`）。
+
+改界面前先读 [桌面端 UI 交互与文案规范](docs/ui-guidelines.md)：状态机、阻塞态出口、
+弹窗焦点、术语表和“AI 味”对照都在里面。
 
 原生窗口：[app/docs/capture-window.webp](app/docs/capture-window.webp)；
 模型下载/校验/服务启动、更新与 Windows 自绘选区的实测记录见 [app/README.md](app/README.md)；

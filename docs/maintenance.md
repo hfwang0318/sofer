@@ -1,7 +1,8 @@
 # 维护手册
 
 面向**改这个仓库的人**。使用方法见 [README](../README.md)，设计取舍见 [选型报告](ocr4code-选型报告.md)，
-指标定义见 [基线报告](baseline.md)。
+指标定义见 [基线报告](baseline.md)，桌面端界面与提示语的规则见
+[UI 交互与文案规范](ui-guidelines.md)。
 
 ---
 
@@ -25,7 +26,7 @@ bench/
   baseline.py        走 CLI 的基线跑批
   tools/             打分器、各引擎 runner、真机截图工具
   results/           基线产物（**生成物**）
-docs/                选型报告 / 基线 / 内存实测 / 本手册
+docs/                选型报告 / 基线 / 内存实测 / UI 规范 / 本手册
 app/                 Tauri + React 桌面壳（见 app/README.md）
 CHANGELOG.md         桌面端 v0.1.0–v0.1.10 变更记录
 ```
