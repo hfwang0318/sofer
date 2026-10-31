@@ -1021,6 +1021,48 @@ pub fn health_ok(url: &str, timeout: Duration) -> bool {
 /// Many developer machines reach Hugging Face through a local proxy. `ureq`
 /// does not read the conventional environment variables itself, so honour them
 /// for the download path only (local health checks stay direct).
+/// `ureq` does not percent-decode proxy credentials. Users (and URL standards)
+/// usually encode `@` as `%40`, so decode the userinfo before handing the URL to
+/// `ureq`; its parser deliberately accepts a raw `@` in the password.
+pub(crate) fn normalize_proxy_url(raw: &str) -> String {
+    let value = raw.trim();
+    let Some((scheme, rest)) = value.split_once("://") else {
+        return value.to_string();
+    };
+    let Some(at) = rest.rfind('@') else {
+        return value.to_string();
+    };
+    let (userinfo, host) = rest.split_at(at);
+    format!("{scheme}://{}@{}", percent_decode(userinfo), &host[1..])
+}
+
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(high), Some(low)) = (hex_value(bytes[i + 1]), hex_value(bytes[i + 2])) {
+                out.push(high * 16 + low);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
 fn proxy_for_url(url: &str, override_proxy: Option<&str>) -> Option<ureq::Proxy> {
     let lower = url.to_lowercase();
     if lower.contains("://127.0.0.1") || lower.contains("://localhost") || lower.contains("://[::1]") {
@@ -1030,7 +1072,7 @@ fn proxy_for_url(url: &str, override_proxy: Option<&str>) -> Option<ureq::Proxy>
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        match ureq::Proxy::new(value) {
+        match ureq::Proxy::new(normalize_proxy_url(value)) {
             Ok(proxy) => return Some(proxy),
             Err(err) => eprintln!("引擎：忽略无效的下载代理：{err}"),
         }
@@ -1054,7 +1096,7 @@ fn proxy_from_env() -> Option<ureq::Proxy> {
         if value.is_empty() {
             continue;
         }
-        match ureq::Proxy::new(value) {
+        match ureq::Proxy::new(normalize_proxy_url(value)) {
             Ok(proxy) => return Some(proxy),
             Err(err) => eprintln!("引擎：忽略无效的代理配置 {key}：{err}"),
         }
@@ -1164,6 +1206,21 @@ mod tests {
     fn manifest_sizes_match_total() {
         assert_eq!(model_total(), MODEL_TOTAL_BYTES);
         assert!(MODEL_FILES.iter().all(|f| f.bytes > 0 && f.sha256.len() == 64));
+    }
+
+    #[test]
+    fn proxy_credentials_are_percent_decoded() {
+        let normalized = normalize_proxy_url("http://user:p%40ss@127.0.0.1:7890");
+        assert_eq!(normalized, "http://user:p@ss@127.0.0.1:7890");
+        assert!(ureq::Proxy::new(&normalized).is_ok());
+        assert_eq!(
+            normalize_proxy_url("http://user:p@ss@127.0.0.1:7890"),
+            "http://user:p@ss@127.0.0.1:7890"
+        );
+        assert_eq!(
+            normalize_proxy_url("http://127.0.0.1:7890"),
+            "http://127.0.0.1:7890"
+        );
     }
 
     #[test]

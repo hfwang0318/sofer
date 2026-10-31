@@ -32,9 +32,6 @@ export const DEFAULT_SETTINGS: Settings = {
 export const MODEL_TOTAL_BYTES = 1_434_837_056;
 export const MODEL_NAME = "GLM-OCR Q8_0";
 /** Keep in sync with `engine::MODEL_REVISION` in src-tauri/src/engine.rs. */
-export const MODEL_REVISION = "65a42de1148dbed2297e922b5dbc7d9b70c36578";
-export const HF_MIRROR_BASE =
-  `https://hf-mirror.com/ggml-org/GLM-OCR-GGUF/resolve/${MODEL_REVISION}`;
 export const MODEL_LICENSE = "MIT";
 export const SETUP_DISMISSED_KEY = "ocr4code.setup.dismissed";
 export const SETTINGS_KEY = "ocr4code.settings.v1";
@@ -115,7 +112,7 @@ export const DEMO_HISTORY: HistoryEntry[] = [
   historyEntry(
     8 * 60_000,
     `$ cargo test --workspace
-   Compiling ocr4code v0.1.2
+   Compiling ocr4code v0.1.3
     Finished test [unoptimized + debuginfo] target(s)
      Running unittests src/lib.rs
 

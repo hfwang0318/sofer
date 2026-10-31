@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { Icon } from "../components/Icon";
 import { Keycaps, Segmented, SettingRow, ShortcutRecorder, Switch } from "../components/Controls";
-import { DEFAULT_PROMPT, DEFAULT_SETTINGS, HF_MIRROR_BASE } from "../lib/defaults";
+import { DEFAULT_PROMPT, DEFAULT_SETTINGS } from "../lib/defaults";
 import { engineForMode } from "../lib/status";
 import { setShortcutEnabled } from "../lib/bridge";
 import { formatBytes, formatEta, formatSpeed } from "../lib/format";
@@ -325,7 +325,6 @@ export function SettingsView({
 
   const dirty = !sameSettings(draft, baseline);
   const engine = engineForMode(status, draft.engine);
-  const useHfMirror = draft.modelBase.trim() === HF_MIRROR_BASE;
 
   const handleRecordingChange = useCallback(
     (recording: boolean) => {
@@ -445,7 +444,7 @@ export function SettingsView({
               桌面层暴露的全部内核参数。更改会应用于下一次截图，OCR 内核本身保持不变。
             </p>
           </div>
-          <span className="settings-version">ocr4code 0.1.2</span>
+          <span className="settings-version">ocr4code 0.1.3</span>
         </header>
 
         <Section
@@ -519,7 +518,7 @@ export function SettingsView({
               <Field
                 label="下载代理（可选）"
                 error={proxyError}
-                hint="HTTP 代理，例如 http://127.0.0.1:7890。留空则读取 HTTPS_PROXY / HTTP_PROXY / ALL_PROXY；本地服务不走代理。"
+                hint="HTTP 代理，例如 http://user:pass@127.0.0.1:7890。密码中的 @ 可写成 %40，程序会自动解码；留空则读取环境变量。"
                 full
                 action={
                   draft.downloadProxy ? (
@@ -548,25 +547,14 @@ export function SettingsView({
               <Field
                 label="模型镜像（可选）"
                 error={mirrorError}
-                hint="需包含 resolve 路径；留空则跟随 OCR4CODE_MODEL_BASE，再退回 Hugging Face 官方源。"
+                hint="填包含 resolve 路径的自建镜像基址；浏览器需打开「基址/GLM-OCR-Q8_0.gguf」才能下载，只开基址会 404。留空则跟随环境变量，再退回官方源。"
                 full
-                action={
-                  <button
-                    type="button"
-                    className="link-btn"
-                    onClick={() =>
-                      update("modelBase", useHfMirror ? "" : HF_MIRROR_BASE)
-                    }
-                  >
-                    {useHfMirror ? "使用官方源" : "填入 hf-mirror.com"}
-                  </button>
-                }
               >
                 <input
                   className="input mono"
                   type="url"
                   value={draft.modelBase}
-                  placeholder={HF_MIRROR_BASE}
+                  placeholder="https://your-mirror.example/ggml-org/GLM-OCR-GGUF/resolve/<revision>"
                   spellCheck={false}
                   autoComplete="off"
                   aria-label="模型镜像地址"
@@ -865,7 +853,7 @@ export function SettingsView({
         <Section
           title="关于"
           description="ocr4code 内核的桌面外壳。"
-          meta={<span className="about-version">v0.1.2</span>}
+          meta={<span className="about-version">v0.1.3</span>}
         >
           <div className="about-grid">
             <div>

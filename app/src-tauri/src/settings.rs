@@ -7,6 +7,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
+use crate::engine::normalize_proxy_url;
 use ocr4code::engine::llamacpp;
 use ocr4code::pipeline::{Config, EngineMode};
 use ocr4code::render::Format;
@@ -166,7 +167,8 @@ pub fn validate(settings: &Settings) -> Result<(), String> {
         if !proxy.starts_with("http://") {
             return Err("下载代理必须以 http:// 开头。".into());
         }
-        ureq::Proxy::new(proxy).map_err(|e| format!("下载代理地址无效：{e}"))?;
+        ureq::Proxy::new(normalize_proxy_url(proxy))
+            .map_err(|e| format!("下载代理地址无效：{e}"))?;
     }
     let model_base = settings.model_base.trim();
     if !model_base.is_empty()
@@ -204,7 +206,7 @@ mod tests {
     #[test]
     fn download_overrides_are_validated() {
         let mut settings = Settings::default();
-        settings.download_proxy = "http://127.0.0.1:7890".into();
+        settings.download_proxy = "http://user:p%40ss@127.0.0.1:7890".into();
         settings.model_base =
             "https://hf-mirror.com/ggml-org/GLM-OCR-GGUF/resolve/abc".into();
         validate(&settings).unwrap();

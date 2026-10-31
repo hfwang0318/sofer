@@ -8,7 +8,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 校验 SHA-256、启动引擎。之后完全离线。
 
 > Windows 预览版安装包：
-> <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.2>
+> <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.3>
 > 由 GitHub Actions 的 `windows-latest` 构建 NSIS 安装器。
 
 | 首启向导 | 模型下载 |
@@ -227,8 +227,11 @@ cargo run --example engine_probe -- start
 
 在 **设置 → 引擎 → 模型下载** 中可以直接填写：
 
-- **下载代理**：HTTP 代理，例如 `http://127.0.0.1:7890`
-- **模型镜像**：包含 `resolve` 路径的基址；也可以点「填入 hf-mirror.com」
+- **下载代理**：HTTP 代理，例如 `http://user:pass@127.0.0.1:7890`
+  - 密码里的 `@` 写成 `%40`，程序会先解码再认证
+- **模型镜像**：填包含 `resolve` 路径的基址，不提供固定预设
+  - 下载器会自动拼上文件名；浏览器要打开「基址/GLM-OCR-Q8_0.gguf」才能验证，只打开基址会 404
+  - 镜像需同时提供两个 `.gguf`，且 SHA-256 与内置 manifest 一致
 
 保存后对下一次下载生效。本地健康检查（`127.0.0.1`）不走代理。
 
