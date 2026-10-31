@@ -8,7 +8,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 校验 SHA-256、启动引擎。之后完全离线。
 
 > Windows 预览版安装包：
-> <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.9>
+> <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.10>
 > 由 GitHub Actions 的 `windows-latest` 构建 NSIS 安装器。
 
 | 首启向导 | 模型下载 |
@@ -91,6 +91,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 
 - 默认启动 4 秒后检查；可在 **设置 → 更新** 关闭
 - 发现新版本后默认自动下载；安装前仍需点击「重启并安装」
+- 安装前会自动停止内置 `llama-server` 并等待文件句柄释放；NSIS 安装器还会在 preinstall 阶段兜底结束残留的 `llama-server.exe`
 - 更新包使用 Tauri/minisign 公钥校验；私钥只存在于 GitHub Actions Secrets
 - 首次支持更新的版本是 v0.1.8，更早版本需要手动安装一次
 

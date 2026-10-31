@@ -17,6 +17,7 @@ import {
   onError,
   onPhase,
   onResult,
+  prepareUpdate,
   quitApp,
   removeModel,
   saveSettings,
@@ -223,6 +224,9 @@ export default function App() {
     setUpdatePhase("installing");
     setUpdateError(null);
     try {
+      // Release the runtime directory before NSIS replaces the bundled
+      // llama-server/DLLs. Otherwise Windows reports the files as in use.
+      await prepareUpdate();
       await installUpdate(updateInfo.update);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);

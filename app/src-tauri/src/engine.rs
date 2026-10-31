@@ -857,6 +857,14 @@ impl Manager {
         self.stop_child();
     }
 
+    /// Stop the managed server and wait for Windows to release the runtime
+    /// directory before the updater starts the NSIS installer.
+    pub fn prepare_update(&self) {
+        cleanup_stale_server(&self.pid_file);
+        self.stop();
+        std::thread::sleep(Duration::from_millis(800));
+    }
+
     fn stop_child(&self) {
         let child = {
             let mut slot = self.slot.lock().unwrap();

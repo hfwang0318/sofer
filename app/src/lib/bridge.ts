@@ -260,7 +260,7 @@ export async function saveSettings(settings: Settings): Promise<Settings> {
 
 export async function appInfo(): Promise<AppInfo> {
   if (isTauri) return invoke<AppInfo>("app_info");
-  return { shortcutActive: true, shortcut: DEFAULT_SETTINGS.shortcut, version: "0.1.9" };
+  return { shortcutActive: true, shortcut: DEFAULT_SETTINGS.shortcut, version: "0.1.10" };
 }
 
 export async function engineStatus(): Promise<EngineStatus> {
@@ -304,6 +304,10 @@ export async function startEngine(): Promise<EngineStatus> {
   };
   emitPreview("engine:state", state);
   return mockEngineStatus();
+}
+
+export async function prepareUpdate(): Promise<void> {
+  if (isTauri) await invoke("prepare_update");
 }
 
 export async function stopEngine(): Promise<void> {

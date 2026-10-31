@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v0.1.9)"
+        description: "Release tag (e.g. v0.1.10)"
         required: true
-        default: "v0.1.9"
+        default: "v0.1.10"
 
 permissions:
   contents: write
@@ -90,7 +90,7 @@ jobs:
             默认窗口 1120×740，界面缩放 115%；可在 **设置 → 界面** 调整为 100%、115% 或 130%。
 
             ### 更新
-            从 **设置 → 更新** 检查并安装新版本；安装包使用 Tauri Updater 签名校验。
+            从 **设置 → 更新** 检查并安装新版本；安装包使用 Tauri Updater 签名校验。安装前会先停止内置 llama-server；NSIS 安装器还会兜底结束残留的 llama-server.exe，避免运行时文件被占用。
 
             ### 快捷键
             支持单键、2 键或 3 键组合（必须有且只有一个主键）；例如 `F8`、`Ctrl+Q`、`Ctrl+Shift+2`。

@@ -8,6 +8,9 @@
       "webviewInstallMode": {
         "type": "embedBootstrapper",
         "silent": true
+      },
+      "nsis": {
+        "installerHooks": "windows/nsis-hooks.nsh"
       }
     }
   }

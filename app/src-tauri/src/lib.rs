@@ -229,6 +229,15 @@ fn stop_engine(app: AppHandle) {
 }
 
 #[tauri::command]
+async fn prepare_update(app: AppHandle) -> Result<(), String> {
+    let manager = app.state::<Arc<EngineManager>>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || manager.prepare_update())
+        .await
+        .map_err(|e| format!("停止本地引擎失败：{e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
 async fn remove_model(app: AppHandle) -> Result<(), String> {
     let manager = app.state::<Arc<EngineManager>>().inner().clone();
     tauri::async_runtime::spawn_blocking(move || manager.remove_model().map_err(|e| e.to_string()))
@@ -388,6 +397,7 @@ pub fn run() {
             engine_status,
             setup_engine,
             cancel_engine_setup,
+            prepare_update,
             start_engine,
             stop_engine,
             remove_model,
