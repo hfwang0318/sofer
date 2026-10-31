@@ -444,7 +444,7 @@ export function SettingsView({
               桌面层暴露的全部内核参数。更改会应用于下一次截图，OCR 内核本身保持不变。
             </p>
           </div>
-          <span className="settings-version">ocr4code 0.1.5</span>
+          <span className="settings-version">ocr4code 0.1.6</span>
         </header>
 
         <Section
@@ -853,7 +853,7 @@ export function SettingsView({
         <Section
           title="关于"
           description="ocr4code 内核的桌面外壳。"
-          meta={<span className="about-version">v0.1.5</span>}
+          meta={<span className="about-version">v0.1.6</span>}
         >
           <div className="about-grid">
             <div>

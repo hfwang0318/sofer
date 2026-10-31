@@ -112,7 +112,7 @@ export const DEMO_HISTORY: HistoryEntry[] = [
   historyEntry(
     8 * 60_000,
     `$ cargo test --workspace
-   Compiling ocr4code v0.1.5
+   Compiling ocr4code v0.1.6
     Finished test [unoptimized + debuginfo] target(s)
      Running unittests src/lib.rs
 

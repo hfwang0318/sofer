@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v0.1.5)"
+        description: "Release tag (e.g. v0.1.6)"
         required: true
-        default: "v0.1.5"
+        default: "v0.1.6"
 
 permissions:
   contents: write
@@ -43,6 +43,16 @@ jobs:
       - name: Fetch bundled llama.cpp runtime
         working-directory: app
         run: python scripts/fetch-runtime.py --platform windows-x64
+
+      - name: Stage Visual C++ runtime
+        working-directory: app
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/stage-vc-runtime.ps1
+
+      - name: Smoke-test bundled llama runtime
+        working-directory: app/src-tauri/runtime/windows-x64
+        shell: pwsh
+        run: ./llama-server.exe --version
 
       - name: Install frontend dependencies
         working-directory: app
@@ -80,7 +90,7 @@ jobs:
             - 首次下载模型需要联网（Hugging Face）
             - WebView2：安装器会自动处理
 
-            运行时已内置（CPU 构建，`-ngl 0`），无需安装 llama.cpp。如果 Hugging Face 无法访问，可在 **设置 → 引擎 → 模型下载** 中填写下载代理或模型镜像；环境变量 `HTTPS_PROXY` / `OCR4CODE_MODEL_BASE` 仍然兼容。代理支持 `user:pass@host:port`，密码中的 `@` 可写成 `%40`。TLS 使用系统证书信任库；企业代理/安全软件的根证书需要安装到系统信任库。
+            运行时已内置（CPU 构建，`-ngl 0`），并内置 Visual C++ 运行库，无需安装 llama.cpp 或 VC++ Redistributable。如果 Hugging Face 无法访问，可在 **设置 → 引擎 → 模型下载** 中填写下载代理或模型镜像；环境变量 `HTTPS_PROXY` / `OCR4CODE_MODEL_BASE` 仍然兼容。代理支持 `user:pass@host:port`，密码中的 `@` 可写成 `%40`。TLS 使用系统证书信任库；企业代理/安全软件的根证书需要安装到系统信任库。
 
             设置 → 引擎 → 本地引擎可查看运行时、模型和服务状态，并支持停止、移除和重新下载。日志在应用日志目录；反馈问题时请附上错误文本。
           releaseDraft: true

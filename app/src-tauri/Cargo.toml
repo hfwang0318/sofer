@@ -1,6 +1,6 @@
 [package]
 name = "ocr4code-app"
-version = "0.1.5"
+version = "0.1.6"
 description = "Desktop UI for the ocr4code kernel"
 edition = "2021"
 rust-version = "1.77"

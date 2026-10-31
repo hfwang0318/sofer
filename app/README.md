@@ -8,7 +8,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 校验 SHA-256、启动引擎。之后完全离线。
 
 > Windows 预览版安装包：
-> <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.5>
+> <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.6>
 > 由 GitHub Actions 的 `windows-latest` 构建 NSIS 安装器。
 
 | 首启向导 | 模型下载 |
@@ -32,6 +32,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 | `llama-server` 运行时 + 动态库 | macOS ~29 MB / Windows ~49 MB | **打包** | 固定 `llama.cpp b12018`（MIT），见 [runtime/README.md](src-tauri/runtime/README.md) |
 | 截图能力 | 0 | **应用内实现** | macOS `screencapture`；Windows 自绘浮层 + GDI 抓屏 |
 | WebView2（Windows） | — | **安装器自动处理** | `embedBootstrapper`，无需用户手动装 |
+| VC++ 运行库（Windows） | ~1.5 MB | **打包** | VS 2022 x64 CRT 随运行时放在 `llama-server.exe` 旁，避免旧 `msvcp140` 导致 `0xc0000005` |
 | GLM-OCR Q8_0 权重 + mmproj | **1.43 GB** | **应用内一键下载** | 950,433,408 + 484,403,648 bytes，MIT；不支持塞进安装包 |
 | tesseract（可选兜底） | ~50–100 MB | **不打包、不强制** | 只检测系统已安装；默认不需要，模型路径是主力 |
 
@@ -183,6 +184,7 @@ pnpm tauri build        # .app / .dmg / .msi / .exe
 cd app
 python3 scripts/fetch-runtime.py --platform macos-arm64     # macOS
 python  scripts/fetch-runtime.py --platform windows-x64     # Windows
+pwsh -NoProfile -File scripts/stage-vc-runtime.ps1          # Windows：内置 VC++ CRT
 ```
 
 Windows 发布流程见 [`.github/workflows/release.yml`](../.github/workflows/release.yml)：

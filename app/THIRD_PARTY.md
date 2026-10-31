@@ -29,3 +29,14 @@ installer.
 The webview uses Tauri 2, React 19, Vite and TypeScript. Their licenses are in
 the respective packages under `node_modules`; the Rust dependency licenses are
 available via `cargo metadata`.
+
+
+## Microsoft Visual C++ Runtime
+
+The Windows installer bundles the Microsoft Visual C++ 2015–2022 x64
+redistributable runtime DLLs (`msvcp140.dll`, `vcruntime140.dll`,
+`vcruntime140_1.dll`, and related CRT files) next to `llama-server.exe`.
+
+Copyright (c) Microsoft Corporation. These files are redistributed under the
+Microsoft Visual Studio redistributable terms; the runtime folder includes the
+license file staged by `scripts/stage-vc-runtime.ps1`.

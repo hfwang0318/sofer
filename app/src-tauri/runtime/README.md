@@ -18,3 +18,11 @@ The macOS dylibs use `@rpath` with `LC_RPATH=@loader_path`, so the app spawns
 Reproduce with `scripts/fetch-runtime.py` (requires macOS `otool` for trimming
 the macOS dylib closure). The weights are **not** here; they are downloaded once
 by the app into its data directory.
+
+## Windows VC++ runtime
+
+The Windows runner stages the Visual Studio 2022 x64 CRT (`msvcp140.dll`,
+`vcruntime140.dll`, `vcruntime140_1.dll`, …) next to `llama-server.exe` before
+bundling. This avoids `0xc0000005` on machines whose system CRT is still the
+old VS 2017 14.16 build. The DLLs are not committed; CI runs
+`scripts/stage-vc-runtime.ps1` after fetching the runtime.
