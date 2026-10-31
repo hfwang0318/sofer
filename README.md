@@ -13,6 +13,7 @@
 - 可复现基线（26 场景 × 4 变体）：[docs/baseline.md](docs/baseline.md)
 - **维护手册**：[docs/maintenance.md](docs/maintenance.md)
 - 桌面外壳（Tauri + TS，截图到剪贴板）：[app/README.md](app/README.md)
+- 桌面端版本记录：[CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -313,11 +314,13 @@ standby list，和 macOS 的 mapped file 等价。结论一致：**不要指望�
 1. **框线字符**：GLM 不输出 box-drawing（`box_recall = 0`），但 `text_acc` 仍在 0.92–1.00——字全对，框线全丢。
 2. **软换行默认关闭**：像素层面无法区分"长命令恰好顶到右边距"和"真的被换行"（`tree` 是反例）。
 3. **行号槽场景放弃几何**：`editor-rust` 每行 x0 都在第 0 列，几何无效，改用模型自己的空格。
-4. **Windows 未实测**：代码无平台分支、CI 配了 macos+windows 矩阵，但没有真机跑过。
+4. **Windows 覆盖面**：桌面端已在实际 Windows 机器上验证安装、模型下载/启动和自动更新；CLI、多显示器/高 DPI 和不同 GPU 驱动仍需更多覆盖。
 5. **评测集以合成图为主**：26 个场景里只有 2 张是真的截图（TextEdit + `screencapture`）。
-6. **桌面壳的 Windows 截图/CPU 推理未上真机**：Windows 自绘选区（GDI + Tauri 浮层）和 CPU runtime 需要一次真机验证；
+6. **Windows 自绘选区**：一次只抓鼠标所在显示器，不支持跨屏拖选；GDI 对受保护内容/HDR/部分硬件加速窗口可能拿到黑帧。
    macOS 产物是 arm64，Intel Mac 需单独构建并补 `runtime/macos-x64`。
 7. **首次安装需要一次 1.43 GB 模型下载**：已在应用内做一键下载、断点续传和 SHA-256；完全离线分发可另做模型包。
+8. **自动更新**：v0.1.8 起支持；更早版本需手动安装一次。更新依赖 GitHub `latest.json` 可达，且安装器未做代码签名，SmartScreen 仍可能提示。
+9. **快捷键形状**：系统全局快捷键要求组合中恰好有一个主键，因此纯修饰键（`Ctrl+Shift`）或两个普通键（`A+B`）不支持；支持 1 个主键、修饰键+主键、两个修饰键+主键。
 
 维护这些限制的流程、以及改代码前必须知道的坑，见 [docs/maintenance.md](docs/maintenance.md)。
 
@@ -326,18 +329,19 @@ standby list，和 macOS 的 mapped file 等价。结论一致：**不要指望�
 ## 9. 桌面外壳（`app/`，可选）
 
 根 crate 仍然是纯 CLI + 库；`app/` 是它的 Tauri 2 + React + TypeScript 外层：
-**全局快捷键 → 系统原生选区 → 本地内核 → 剪贴板**，设置面板把 `pipeline::Config` 除测试用 mock 外的参数都暴露出来。
+**全局快捷键 → 区域选择（macOS 系统 / Windows 自绘） → 本地内核 → 剪贴板**，设置面板把 `pipeline::Config` 除测试用 mock 外的参数都暴露出来。
 
 ![首启一键安装](app/docs/setup-idle.webp)
 
 | | |
 |---|---|
-| 快捷键 | 默认 `⌘⇧2` / `Ctrl+Shift+2`，设置里可录制；再按一次取消选区 |
-| 选区 | macOS `screencapture -i`；Windows 自绘浮层 + GDI 抓屏 |
-| 结果 | 成功后直接写剪贴板；窗口隐藏时不抢焦点，托盘提示 copied N lines |
+| 快捷键 | 默认 `⌘⇧2` / `Ctrl+Shift+2`；支持 1 个主键、2 键或 3 键组合，设置里可录制 |
+| 选区 | macOS `screencapture -i`；Windows 自绘浮层 + GDI 抓屏（鼠标所在显示器） |
+| 结果 | 成功后直接写剪贴板；窗口隐藏时不抢焦点，托盘提示已复制行数 |
 | 引擎 | 运行时随包；模型首次一键下载，自动校验、自动启动；可停止/移除/重下 |
-| 设置 | 引擎/URL/prompt/max-tokens/jobs/tesseract/几何/切块/格式/history 上限 |
-| 外观 | 无边框 920×620 深色玻璃；macOS NSVisualEffectView / Windows Acrylic |
+| 设置 | 引擎/URL/prompt/max-tokens/jobs/tesseract/几何/切块/格式/历史/界面缩放/下载代理与镜像 |
+| 外观 | 默认无边框 1120×740、115% 界面缩放；macOS NSVisualEffectView / Windows Acrylic |
+| 更新 | 启动检查 GitHub Releases；签名校验、自动下载、重启安装 |
 | 历史 | 最近 N 条留在本机 localStorage，可复制/删除/清空 |
 
 ### 安装依赖怎么处理
@@ -346,6 +350,7 @@ standby list，和 macOS 的 mapped file 等价。结论一致：**不要指望�
 |---|---|---|
 | 应用 + Tauri | ~15–80 MB | 安装包 |
 | `llama-server` 运行时（macOS arm64 / Windows x64） | ~29 / ~49 MB | **随包内置** |
+| Visual C++ 运行库（Windows） | ~1.5 MB | **随包内置**（避免旧 `msvcp140` 导致 `0xc0000005`） |
 | 截图 | 0 | macOS 系统功能；Windows 自绘浮层 + GDI |
 | WebView2（Windows） | — | 安装器自动处理 |
 | GLM-OCR Q8_0 + mmproj | **1.43 GB** | **应用内一键下载**（断点续传 + SHA-256） |
@@ -353,13 +358,15 @@ standby list，和 macOS 的 mapped file 等价。结论一致：**不要指望�
 
 用户首次启动只需点一次 **下载并配置**：应用自动下载两个模型文件、校验、启动
 `llama-server`，完成后再按快捷键即可。无需安装 llama.cpp、无需手动放模型、无需开服务。
-详细来源/许可见 [app/THIRD_PARTY.md](app/THIRD_PARTY.md)。
+从 v0.1.8 起，应用可在 **设置 → 更新** 检查和安装后续版本；更新包经过 Tauri/minisign
+签名校验，签名在 CI 中完成。详细来源/许可见 [app/THIRD_PARTY.md](app/THIRD_PARTY.md)。
 
 ```bash
 cd app
 pnpm install
-pnpm tauri dev      # 开发
-pnpm tauri build    # 打包 .app / .dmg / .msi / .exe
+pnpm tauri dev                 # 开发
+pnpm tauri build --no-bundle   # 本地构建，不生成需要签名的更新包
+pnpm tauri build               # 发布包；需要 updater 签名密钥（CI 已配置）
 ```
 
 只预览 UI（不需要模型，走 mock 数据）：`pnpm dev` 后打开
@@ -367,7 +374,8 @@ pnpm tauri build    # 打包 .app / .dmg / .msi / .exe
 （另有 `setup` / `empty` / `history` / `settings` / `error`）。
 
 原生窗口：[app/docs/capture-window.webp](app/docs/capture-window.webp)；
-模型下载/校验/服务启动的实测记录见 [app/README.md](app/README.md)。
+模型下载/校验/服务启动、更新与 Windows 自绘选区的实测记录见 [app/README.md](app/README.md)；
+版本变更见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 

@@ -9,7 +9,8 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 
 > Windows 预览版安装包：
 > <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.10>
-> 由 GitHub Actions 的 `windows-latest` 构建 NSIS 安装器。
+> 由 GitHub Actions 的 `windows-latest` 构建 NSIS 安装器；版本记录见
+> [../CHANGELOG.md](../CHANGELOG.md)。
 
 | 首启向导 | 模型下载 |
 |---|---|
@@ -72,12 +73,13 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 | 能力 | 说明 |
 |---|---|
 | 一键模型安装 | 首启向导下载 1.43 GB 模型、校验、启动服务；断点续传，可取消/重试/移除 |
-| 全局快捷键 | 默认 `⌘⇧2` / `Ctrl+Shift+2`；支持单键、2 键或 3 键组合，设置里可录制 |
+| 全局快捷键 | 默认 `⌘⇧2` / `Ctrl+Shift+2`；支持单键、2 键或 3 键组合（必须有 1 个主键），设置里可录制 |
 | 原生截图 | macOS `screencapture -i`；Windows 自绘选区浮层 + GDI 抓屏（不调用系统截屏工具） |
 | 自动识别 | 复用 `ocr4code::pipeline`：引擎 → 切块/重试 → 几何层 → 修复 → 渲染 |
 | 自动复制 | 成功后直接写剪贴板；窗口隐藏时不抢焦点，托盘提示「copied N lines」 |
 | 引擎管理 | 内置运行时、模型状态、服务状态、启动/停止、移除/重新下载，全部在设置里 |
 | 设置面板 | 引擎、外部 server URL、prompt、token 预算、并发、tesseract 参数、版面开关、输出格式、历史条数 |
+| 界面缩放 | 默认 115%，可选 100/115/130%；窗口默认 1120×740 |
 | 历史 | 最近 N 条结果留在本机 `localStorage`，可复制/删除/清空 |
 | 深色玻璃 | 无边框窗口 + macOS `NSVisualEffectView` / Windows Acrylic + CSS 半透明层 |
 | 托盘常驻 | 关闭窗口只隐藏；托盘可截图、打开窗口、退出 |
@@ -93,7 +95,9 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 - 发现新版本后默认自动下载；安装前仍需点击「重启并安装」
 - 安装前会自动停止内置 `llama-server` 并等待文件句柄释放；NSIS 安装器还会在 preinstall 阶段兜底结束残留的 `llama-server.exe`
 - 更新包使用 Tauri/minisign 公钥校验；私钥只存在于 GitHub Actions Secrets
+- 更新端点：`https://github.com/hfwang0318/ocr4code/releases/latest/download/latest.json`
 - 首次支持更新的版本是 v0.1.8，更早版本需要手动安装一次
+- `latest.json` 由 `tauri-action` 生成；同时上传 `.exe`、`.sig` 和 `latest.json`
 
 ---
 
@@ -103,7 +107,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 快捷键 / 托盘 / 按钮
         │
         ▼
-capture.rs ──► 系统原生选区 ──► 临时 PNG
+capture.rs ──► 区域选择（macOS 系统 / Windows 自绘） ──► 临时 PNG
         │
         ▼
 engine.rs ──► 运行时/模型检查 ──► 启动/复用 llama-server ──► 健康检查
@@ -122,7 +126,8 @@ render(text/markdown/json) ──► 剪贴板
 | Web UI | `src/App.tsx`、`src/views/`、`src/components/` | 窗口 chrome、Capture / History / Settings、首启向导、快捷键录制、toast |
 | 桥接 | `src/lib/bridge.ts` | Tauri `invoke`/`listen` 的类型化封装；浏览器预览自动切 mock |
 | 引擎管理 | `src-tauri/src/engine.rs` | 模型 manifest、断点续传、SHA-256、llama-server 生命周期、端口/健康检查、下载事件 |
-| 截图 | `src-tauri/src/capture.rs` | 原生选区、取消、OCR 流程、剪贴板、托盘提示、setup-required 错误 |
+| 截图 | `src-tauri/src/capture.rs`、`src-tauri/src/capture/win.rs`、`src/overlay/` | macOS 原生选区；Windows GDI 抓屏 + Tauri 浮层选区；OCR 流程、剪贴板、托盘提示 |
+| 更新 | `src/lib/updater.ts`、`tauri-plugin-updater` | 检查/下载/安装、进度、签名校验、重启；安装前 stop 引擎 |
 | 设置 | `src-tauri/src/settings.rs` | `settings.json` 读写、校验、`Settings → pipeline::Config` |
 | Tauri | `src-tauri/src/lib.rs` | 命令、事件、托盘、窗口材质、autostart、SIGTERM/SIGINT 清理 |
 | 内核 | `../src/pipeline.rs` | 与 CLI 共用的可复用管线 |
@@ -204,7 +209,18 @@ pwsh -NoProfile -File scripts/stage-vc-runtime.ps1          # Windows：内置 V
 ```
 
 Windows 发布流程见 [`.github/workflows/release.yml`](../.github/workflows/release.yml)：
-tag push 后在 `windows-latest` 上拉取 runtime、跑后端测试、构建 NSIS 并上传到 Release。
+tag push 后在 `windows-latest` 上拉取 runtime、staging VC++ CRT、跑后端测试、构建 NSIS，
+并由 `tauri-action` 上传安装包、`.sig` 和 `latest.json`。
+
+### 更新签名 / 发布
+
+- 公钥在 `src-tauri/tauri.conf.json` 的 `plugins.updater.pubkey`；
+- 私钥由维护者生成并只保存在 GitHub Actions Secrets：
+  `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`；
+- 更新端点：`https://github.com/hfwang0318/ocr4code/releases/latest/download/latest.json`；
+- 发布前确认 release 附件包含 `*-setup.exe`、`*-setup.exe.sig`、`latest.json`；
+- v0.1.8 是首个带更新器的版本，旧版需要手动安装一次；
+- v0.1.10 起安装前先停止 `llama-server`，NSIS `PREINSTALL` hook 再兜底结束残留进程。
 
 ### 运行时资源
 
@@ -277,8 +293,8 @@ TLS 证书使用系统信任库；如果代理/安全软件会劫持 HTTPS，需
 | 无边框窗口 | 自绘红黄绿 + `data-tauri-drag-region` | 自绘最小化/最大化/关闭 |
 | WebView2 | 系统自带 | 安装器 `embedBootstrapper` 自动处理 |
 
-Windows 分支按 `cfg` 条件编译编写，但没有 Windows 真机；自绘浮层和 GDI 抓屏在不同
-Win10/11 版本上的行为、多显示器/高 DPI 以及 CPU 推理速度还需要一次真机验证。Windows 运行时是 CPU 版；
+Windows 自绘浮层和 GDI 抓屏已随 v0.1.5 发布，并在实际 Windows 机器上验证过安装、模型启动和更新；
+一次只抓鼠标所在显示器，跨屏拖选、多显示器混合 DPI、HDR/受保护内容仍需更多覆盖。Windows 运行时是 CPU 版；
 要 GPU 加速可以后续增加 Vulkan/CUDA 运行时包，或让高级用户接外部 llama-server。
 当前 macOS 产物是 arm64；Intel Mac 需要单独构建 x64 并补充 `runtime/macos-x64`。
 
@@ -290,7 +306,7 @@ Win10/11 版本上的行为、多显示器/高 DPI 以及 CPU 推理速度还需
 |---|---|
 | 设置 | macOS `~/Library/Application Support/com.ocr4code.desktop/settings.json`；Windows `%APPDATA%\com.ocr4code.desktop\settings.json` |
 | 模型 | 同级 `models/glm-ocr/`；`*.part` 为可续传临时文件 |
-| 服务日志 | macOS `~/Library/Logs/com.ocr4code.desktop/llama-server.log`；Windows 应用日志目录 |
+| 服务日志 | macOS `~/Library/Logs/com.ocr4code.desktop/llama-server.log`；Windows `%LOCALAPPDATA%\com.ocr4code.desktop\logs\llama-server.log` |
 | 历史 | WebView `localStorage`（`ocr4code.history.v1`） |
 | 临时截图 | cache 目录，识别完成/取消后删除 |
 | 设置损坏 | 改名为 `settings.json.bak`，回退默认值 |
@@ -303,23 +319,37 @@ Win10/11 版本上的行为、多显示器/高 DPI 以及 CPU 推理速度还需
 
 ```bash
 cargo test                       # 根 crate: 34 unit + 5 integration
-cd app/src-tauri && cargo test   # 桌面层: 7 tests（含 engine manifest/校验/断点续传）
+cd app/src-tauri && cargo test   # 桌面层: 12 tests（manifest/校验/断点续传/设置/快捷键形状）
 cd app && pnpm build             # tsc + vite，通过
-cd app && pnpm tauri build --debug --bundles app
+cd app && pnpm tauri build --no-bundle
 ```
+
+Windows CI（`.github/workflows/release.yml`）在 `windows-latest` 上完成：
+
+- 拉取固定 llama.cpp b12018 Windows CPU runtime；
+- 从 VS 2022 Redist 复制 x64 CRT 到 `llama-server.exe` 同目录，并跑 `--version` 冒烟；
+- 运行 12 个桌面后端测试；
+- 构建 NSIS、生成 `.sig` 和 `latest.json`，上传 GitHub Release。
 
 已在 macOS 真机验证：
 
 - 安装包内 `Resources/runtime/llama/llama-server` 可执行，资源路径解析正确；
 - 用内置 manager 从 Hugging Face 实际下载 1.43 GB 模型，SHA-256 校验通过；
 - 内置 `llama-server` 加载真实 GLM-OCR 模型，`/health` 返回 200，启动约 7–10 秒；
-- 应用 autostart 后侧栏显示「llama.cpp ready · Bundled local engine」；
+- 应用 autostart 后侧栏显示「llama.cpp 已就绪 · 内置本地引擎」；
 - 通过同一 server 跑通 CLI OCR；
-- SIGTERM 会停止子进程；异常退出留下的 pid 文件会在下次启动时清理。
+- SIGTERM 会停止子进程；异常退出留下的 pid 文件会在下次启动时清理；
+- 模型下载代理/镜像、`%40` 代理密码和系统 TLS 可工作。
 
-未验证：Windows 真机、macOS 选区 + 全局快捷键的自动化点击（自动化环境没有辅助功能权限）、
-代码签名/公证后的嵌套 dylib 签名。发行时需要把 `runtime/llama/` 里的 `llama-server` 和所有
-dylib/DLL 一并签名，否则公证/信任链可能不完整。
+Windows 实际验证：
+
+- v0.1.6 起安装包内置 VC++ runtime，解决旧 `msvcp140.dll` 14.16 导致的 `0xc0000005`；
+- v0.1.8 起自动更新可用；实际更新流程已跑通；
+- v0.1.10 修复更新时 `llama-server` 占用运行时目录的问题
+  （应用先 stop + NSIS preinstall hook 兜底 kill）；
+- 快捷键单键/2 键/3 键录制已通过浏览器交互测试；单键在系统全局快捷键上的实际注册仍需更多机器覆盖。
+
+未完全覆盖：Windows 自绘选区在多显示器混合 DPI/HDR/受保护内容上的表现、外部 llama-server 占用运行时目录的场景、代码签名/公证后的嵌套 dylib 签名；自动更新的签名链已通过 `latest.json`/`.sig` 校验，但安装器仍未做 Authenticode 签名。
 
 ---
 
@@ -327,23 +357,28 @@ dylib/DLL 一并签名，否则公证/信任链可能不完整。
 
 ```text
 app/
-├── src/                         React + TS
-│   ├── components/              SetupDialog, Icon, Logo, Controls, WindowChrome, Sidebar, Toast
+├── overlay.html                 Windows 选区浮层入口
+├── src/
+│   ├── overlay/                 Windows 自绘选区 UI
+│   ├── components/              SetupDialog, Controls, WindowChrome, Sidebar, Toast
 │   ├── views/                   CaptureView, HistoryView, SettingsView
-│   ├── lib/                     bridge, types, defaults, platform, history, status, format
-│   └── styles/                  tokens.css, shell.css, views.css
+│   ├── lib/                     bridge, updater, types, defaults, platform, history, status, format
+│   └── styles/                  tokens.css, shell.css, views.css, overlay.css
 ├── src-tauri/
 │   ├── src/lib.rs               Tauri builder / commands / tray / window material / signals
 │   ├── src/engine.rs            运行时、模型下载/校验、llama-server 生命周期
-│   ├── src/capture.rs            selection → pipeline → clipboard
+│   ├── src/capture.rs            region selection → pipeline → clipboard
+│   ├── src/capture/win.rs       Windows GDI 抓屏 + 浮层会话
 │   ├── src/settings.rs           Settings ↔ pipeline::Config
+│   ├── windows/nsis-hooks.nsh   更新/卸载前结束残留 llama-server
 │   ├── runtime/                  bundled llama.cpp（macos-arm64 / windows-x64）
 │   ├── examples/engine_probe.rs 开发用 download/start/status 探针
 │   ├── capabilities/             窗口权限
 │   ├── tauri.conf.json
 │   ├── tauri.macos.conf.json     resources: runtime
-│   └── tauri.windows.conf.json   resources + WebView2 bootstrapper
+│   └── tauri.windows.conf.json   resources + NSIS hook + WebView2 bootstrapper
 ├── scripts/fetch-runtime.py     重新获取固定版本运行时
+├── scripts/stage-vc-runtime.ps1 Windows VC++ CRT 内置
 ├── THIRD_PARTY.md               运行时与模型许可
 ├── docs/                        界面截图
 └── app-icon.png                 源图标

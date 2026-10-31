@@ -26,6 +26,8 @@ bench/
   tools/             打分器、各引擎 runner、真机截图工具
   results/           基线产物（**生成物**）
 docs/                选型报告 / 基线 / 本手册
+app/                 Tauri + React 桌面壳（见 app/README.md）
+CHANGELOG.md         桌面端 v0.1.0–v0.1.10 变更记录
 ```
 
 真机截图的采集方法见 [bench/tools/real_capture/README.md](../bench/tools/real_capture/README.md)。
@@ -175,13 +177,31 @@ done
 
 ## 6. 发布检查清单
 
-- [ ] `cargo test`（29 + 5）
+### 根 crate
+
+- [ ] `cargo test`（34 unit + 5 integration）
 - [ ] `cargo build --release` 无 warning
 - [ ] 四个变体基线跑完，达到 §5 的判据
 - [ ] `huge-4k` 手工 smoke（`--stats` 看 `tiling:` 与 `warning:`）
 - [ ] `README.md` / `docs/baseline.md` 数字已同步
 - [ ] Windows CI（`.github/workflows/ci.yml`）绿
-- [ ] 新增/变更的行为已写进 README「能力」或「已知限制」
+
+### 桌面端 / Windows Release
+
+- [ ] `cd app/src-tauri && cargo test`（12 tests）
+- [ ] `cd app && pnpm build` 通过
+- [ ] 更新 `.github/workflows/release.yml` 的版本/tag（或 workflow_dispatch）
+- [ ] GitHub Secrets 已配置 `TAURI_SIGNING_PRIVATE_KEY` 与
+      `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+- [ ] Windows runner 先 `fetch-runtime.py`，再 `stage-vc-runtime.ps1`，
+      `llama-server.exe --version` 冒烟通过
+- [ ] NSIS 产物含 `runtime/llama/msvcp140.dll` 等 CRT
+- [ ] Release 附件包含 `*-setup.exe`、`*.exe.sig`、`latest.json`
+- [ ] `latest.json` 的版本、URL、signature 正确；`releases/latest/download/latest.json`
+      可访问
+- [ ] 在上一版安装上实际走一遍“检查更新 → 下载 → 重启安装”
+- [ ] 更新前 `llama-server` 已停止；NSIS preinstall hook 存在
+- [ ] 新增/变更的行为已写进 `app/README.md`、根 `README.md` 或 `CHANGELOG.md`
 
 ---
 
@@ -200,6 +220,10 @@ done
 | `--jobs` 开着但没变快 | 看是不是超过 llama-server 的 slot 数；jobs=3 通常比 6 快 |
 | 并发时输出顺序乱了 | 不应该发生：`pool::map` 按下标回写。若出现，先查是否有新的"结果拼装"绕过了它 |
 | 结果里出现 `<|LOC_11|>` 之类 | prompt 用错了（别对 GLM-OCR 用 "Convert to markdown"），换回默认 prompt |
+| Windows 更新报文件被占用 | v0.1.10 前需手动结束 `llama-server.exe`；v0.1.10 会先 stop + NSIS preinstall hook 兜底 |
+| Windows `0xc0000005` | 先看是否旧 `msvcp140.dll`（14.16）；v0.1.6+ 安装包已内置 VS 2022 CRT |
+| 代理下载 `unknown issuer` | 代理根证书需在系统信任库；v0.1.4+ 使用 native TLS |
+| 镜像基址浏览器 404 | 基址本身不是文件；用 `<基址>/GLM-OCR-Q8_0.gguf` 验证，镜像必须提供两个文件 |
 
 ---
 
@@ -208,7 +232,8 @@ done
 | 项 | 说明 | 影响 |
 |---|---|---|
 | 框线重建 | GLM 不输出 box-drawing（`box_recall = 0`） | `tree`/表格塌成列表；可考虑从像素重建规则线 |
-| Windows 未实测 | CI 有矩阵，无真机 | Vulkan/CPU 下的耗时、WinRT 引擎都未知 |
+| Windows 覆盖有限 | 已有真机安装/更新验证，但多显示器混合 DPI/HDR/受保护内容仍未覆盖 | 自绘选区可能黑帧；CPU 推理耗时随机器变化 |
+| 快捷键非任意键 | Tauri 全局快捷键要求一个主键 | 纯修饰键/两个普通键不可用；需要底层 hook 才能扩展 |
 | 多栏阅读顺序 | 几何模型按行，双栏按栏输出 | `split-panes` 的 `indent_exact` 不代表质量 |
 | 真机样本少 | 26 个场景里只有 2 张真截图 | 再补 50–200 张（深色/中英混排/微信压缩） |
 | Powerline 图标 | 私有区字形渲染成 tofu | 需要图标映射表 |
