@@ -50,10 +50,9 @@
   align-items: center;
   gap: 7px;
   color: var(--text-3);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .hero h2 {
@@ -955,10 +954,9 @@
   gap: 10px;
   margin: 14px 0 8px;
   color: var(--text-4);
-  font-size: 8.5px;
+  font-size: 9.5px;
   font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .fallback-line {
@@ -1068,10 +1066,9 @@
 
 .about-label {
   color: var(--text-4);
-  font-size: 9px;
+  font-size: 9.5px;
   font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 .about-value {
@@ -1297,9 +1294,9 @@
 }
 
 .setup-dialog h2 {
-  max-width: 20ch;
+  max-width: 100%;
   margin: 0 0 8px;
-  font-size: 24px;
+  font-size: 23px;
   font-weight: 600;
   letter-spacing: -0.04em;
   line-height: 1.15;
@@ -1621,10 +1618,9 @@
 .runtime-label {
   display: block;
   color: var(--text-4);
-  font-size: 8.5px;
+  font-size: 9.5px;
   font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 .runtime-value {

@@ -68,8 +68,8 @@ function initialDismissed(): boolean {
 
 const DEMO_ERROR: OcrError = {
   message:
-    "The local OCR engine could not be reached. The managed llama-server is not running and no external server answered.",
-  hint: "Open Settings to check the local engine, or retry setup. The model is a one-time download.",
+    "无法连接本地 OCR 引擎。内置 llama-server 没有运行，也没有外部服务响应。",
+  hint: "请到设置中检查本地引擎，或重试初始化。模型只需下载一次。",
   code: "engine-unavailable",
 };
 
@@ -157,15 +157,15 @@ export default function App() {
         if (!info.shortcutActive) {
           pushToast(
             "error",
-            "Global shortcut unavailable",
-            `${info.shortcut} is probably owned by another app. Pick another one in Settings.`,
+            "全局快捷键不可用",
+            `${info.shortcut} 可能被其他应用占用，请到设置中换一个组合。`,
           );
         }
       } catch (cause) {
         if (!alive) return;
         pushToast(
           "error",
-          "Could not load settings",
+          "无法加载设置",
           cause instanceof Error ? cause.message : String(cause),
         );
       }
@@ -212,11 +212,11 @@ export default function App() {
         if (next.copied) {
           pushToast(
             "ok",
-            `Copied ${next.lines} ${next.lines === 1 ? "line" : "lines"}`,
-            `${next.chars.toLocaleString()} characters · ready to paste`,
+            `已复制 ${next.lines} 行`,
+            `${next.chars.toLocaleString()} 个字符 · 可以直接粘贴`,
           );
         } else {
-          pushToast("info", "Recognised — not copied", "Automatic copy is off in Settings.");
+          pushToast("info", "已识别，未自动复制", "自动复制已在设置中关闭。");
         }
       }),
     );
@@ -226,7 +226,7 @@ export default function App() {
         setError(payload);
         setView("capture");
         if (payload.code === "setup-required") setSetupOpen(true);
-        pushToast("error", "Capture failed", payload.message);
+        pushToast("error", "截图失败", payload.message);
       }),
     );
 
@@ -259,15 +259,15 @@ export default function App() {
           }
           pushToast(
             "ok",
-            "Local engine ready",
-            `${MODEL_NAME} is installed and the server is running.`,
+            "本地引擎已就绪",
+            `${MODEL_NAME} 已安装，服务正在运行。`,
           );
           void refreshStatus();
         } else if (progress.phase === "error") {
           setSetupOpen(true);
-          pushToast("error", "Engine setup failed", progress.message ?? undefined);
+          pushToast("error", "引擎设置失败", progress.message ?? undefined);
         } else if (progress.phase === "cancelled") {
-          pushToast("info", "Download cancelled", "Partial files are kept for resume.");
+          pushToast("info", "下载已取消", "已下载的部分会保留，可继续。");
           void refreshStatus();
         }
       }),
@@ -297,7 +297,7 @@ export default function App() {
     } catch (cause) {
       pushToast(
         "error",
-        "Could not start capture",
+        "无法开始截图",
         cause instanceof Error ? cause.message : String(cause),
       );
     }
@@ -307,7 +307,7 @@ export default function App() {
     async (text: string, _id?: string) => {
       try {
         await copyText(text);
-        pushToast("ok", "Copied to clipboard");
+        pushToast("ok", "已复制到剪贴板");
         if (result && text === result.text) {
           setCopied(true);
           if (copiedTimer.current) window.clearTimeout(copiedTimer.current);
@@ -316,7 +316,7 @@ export default function App() {
       } catch (cause) {
         pushToast(
           "error",
-          "Clipboard write failed",
+          "写入剪贴板失败",
           cause instanceof Error ? cause.message : String(cause),
         );
       }
@@ -330,7 +330,7 @@ export default function App() {
       setSettings(saved);
       setShortcutActive(true);
       void refreshStatus();
-      pushToast("ok", "Settings saved", "The shortcut and kernel options are live.");
+      pushToast("ok", "设置已保存", "快捷键和内核参数已生效。");
     },
     [pushToast, refreshStatus],
   );
@@ -352,7 +352,7 @@ export default function App() {
   const handleClearHistory = useCallback(() => {
     setHistory([]);
     saveHistory([]);
-    pushToast("info", "History cleared", "The engine and your settings are untouched.");
+    pushToast("info", "历史记录已清空", "引擎和设置不受影响。");
   }, [pushToast]);
 
   const handleSetupStart = useCallback(async () => {
@@ -388,7 +388,7 @@ export default function App() {
     } catch (cause) {
       pushToast(
         "error",
-        "Could not cancel setup",
+        "无法取消设置",
         cause instanceof Error ? cause.message : String(cause),
       );
     }
@@ -415,11 +415,11 @@ export default function App() {
     try {
       const next = await startEngine();
       setStatus(next);
-      pushToast("ok", "Local engine running", next.llamaUrl);
+      pushToast("ok", "本地引擎已启动", next.llamaUrl);
     } catch (cause) {
       pushToast(
         "error",
-        "Could not start the local engine",
+        "无法启动本地引擎",
         cause instanceof Error ? cause.message : String(cause),
       );
       void refreshStatus();
@@ -433,11 +433,11 @@ export default function App() {
     try {
       await stopEngine();
       await refreshStatus();
-      pushToast("info", "Local engine stopped", "It starts again on the next capture.");
+      pushToast("info", "本地引擎已停止", "下次截图会自动启动。");
     } catch (cause) {
       pushToast(
         "error",
-        "Could not stop the local engine",
+        "无法停止本地引擎",
         cause instanceof Error ? cause.message : String(cause),
       );
     } finally {
@@ -458,11 +458,11 @@ export default function App() {
       }
       await refreshStatus();
       setSetupOpen(true);
-      pushToast("info", "Model removed", "Download it again whenever you need local OCR.");
+      pushToast("info", "模型已移除", "需要本地 OCR 时重新下载即可。");
     } catch (cause) {
       pushToast(
         "error",
-        "Could not remove the model",
+        "无法移除模型",
         cause instanceof Error ? cause.message : String(cause),
       );
     } finally {

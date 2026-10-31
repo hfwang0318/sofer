@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v0.1.0)"
+        description: "Release tag (e.g. v0.1.1)"
         required: true
-        default: "v0.1.0"
+        default: "v0.1.1"
 
 permissions:
   contents: write
@@ -63,8 +63,8 @@ jobs:
           releaseBody: |
             ## ocr4code — Windows preview
 
-            This is a first Windows preview build. The macOS app exists but is not
-            included in this release.
+            Windows preview build with a Simplified Chinese interface. The macOS app
+            exists but is not included in this release.
 
             ### Install
             1. Download the `.exe` installer under **Assets**.

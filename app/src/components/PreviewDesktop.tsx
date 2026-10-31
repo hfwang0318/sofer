@@ -13,7 +13,7 @@ export function PreviewDesktop() {
           <span />
           <span />
           <span />
-          <em>session.ts — workspace</em>
+          <em>session.ts — 工作区</em>
         </div>
         <pre>
           <span className="pe-dim">1</span>{"  "}

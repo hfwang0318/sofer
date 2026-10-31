@@ -26,7 +26,7 @@ export function Toast({ toast, onDismiss }: ToastProps) {
         <strong>{toast.title}</strong>
         {toast.detail && <span>{toast.detail}</span>}
       </div>
-      <button type="button" className="toast-close" aria-label="Dismiss" onClick={onDismiss}>
+      <button type="button" className="toast-close" aria-label="关闭提示" onClick={onDismiss}>
         <Icon name="close" size={13} />
       </button>
     </div>

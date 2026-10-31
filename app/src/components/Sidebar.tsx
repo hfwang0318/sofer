@@ -14,8 +14,8 @@ interface SidebarProps {
 }
 
 const NAV = [
-  { view: "capture" as const, label: "Capture", icon: "capture" as const, hint: "1" },
-  { view: "history" as const, label: "History", icon: "history" as const, hint: "2" },
+  { view: "capture" as const, label: "截图", icon: "capture" as const, hint: "1" },
+  { view: "history" as const, label: "历史", icon: "history" as const, hint: "2" },
 ];
 
 export function Sidebar({
@@ -30,15 +30,15 @@ export function Sidebar({
 
   return (
     <aside className="sidebar">
-      <nav className="sidebar-nav" aria-label="Primary">
-        <p className="nav-label">Workspace</p>
+      <nav className="sidebar-nav" aria-label="主导航">
+        <p className="nav-label">工作区</p>
         {NAV.map((item) => (
           <button
             key={item.view}
             type="button"
             className={`nav-item ${view === item.view ? "is-active" : ""}`}
             aria-current={view === item.view ? "page" : undefined}
-            title={`${item.label} (${isMac ? "⌘" : "Ctrl"}+${item.hint})`}
+            title={`${item.label}（${isMac ? "⌘" : "Ctrl"}+${item.hint}）`}
             onClick={() => onNavigate(item.view)}
           >
             <Icon name={item.icon} size={17} />
@@ -49,16 +49,16 @@ export function Sidebar({
           </button>
         ))}
 
-        <p className="nav-label nav-label-spaced">Preferences</p>
+        <p className="nav-label nav-label-spaced">偏好设置</p>
         <button
           type="button"
           className={`nav-item ${view === "settings" ? "is-active" : ""}`}
           aria-current={view === "settings" ? "page" : undefined}
-          title="Settings (⌘,)"
+          title="设置（⌘,）"
           onClick={() => onNavigate("settings")}
         >
           <Icon name="settings" size={17} />
-          <span className="nav-label-text">Settings</span>
+          <span className="nav-label-text">设置</span>
         </button>
       </nav>
 
@@ -68,23 +68,23 @@ export function Sidebar({
         type="button"
         className="quick-capture"
         onClick={onCapture}
-        aria-label={`Capture a region (${shortcutText(shortcut)})`}
+        aria-label={`截取区域（${shortcutText(shortcut)}）`}
       >
         <span className="quick-capture-head">
-          <span className="quick-capture-title">Quick capture</span>
+          <span className="quick-capture-title">快速截图</span>
           <span className="quick-capture-icon">
             <Icon name="capture" size={14} />
           </span>
         </span>
         <Keycaps accelerator={shortcut} size="sm" />
-        <span className="quick-capture-hint">Screenshot → clipboard</span>
+        <span className="quick-capture-hint">截图 → 剪贴板</span>
       </button>
 
       <button
         type="button"
         className="engine-card"
         onClick={() => onNavigate("settings")}
-        title="Engine settings"
+        title="引擎设置"
       >
         <span className={`status-dot tone-${engine.tone}`} />
         <span className="engine-copy">
@@ -94,7 +94,7 @@ export function Sidebar({
         <Icon name="chevron-down" size={13} className="engine-chevron" />
       </button>
 
-      <p className="sidebar-footnote">v0.1.0 · runs offline</p>
+      <p className="sidebar-footnote">v0.1.1 · 完全离线</p>
     </aside>
   );
 }

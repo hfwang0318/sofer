@@ -141,23 +141,23 @@ pub fn save(app: &AppHandle, settings: &Settings) -> Result<(), String> {
 /// Cheap guard rails; the UI validates the same fields for inline feedback.
 pub fn validate(settings: &Settings) -> Result<(), String> {
     if settings.shortcut.trim().is_empty() {
-        return Err("Shortcut cannot be empty.".into());
+        return Err("快捷键不能为空。".into());
     }
     if settings.max_tokens < 128 || settings.max_tokens > 16384 {
-        return Err("Max tokens must be between 128 and 16384.".into());
+        return Err("最大 token 数应在 128 到 16384 之间。".into());
     }
     if settings.jobs == 0 || settings.jobs > 8 {
-        return Err("Concurrency must be between 1 and 8.".into());
+        return Err("并发数应在 1 到 8 之间。".into());
     }
     if settings.psm > 13 {
-        return Err("Tesseract PSM must be between 0 and 13.".into());
+        return Err("Tesseract PSM 应在 0 到 13 之间。".into());
     }
     if settings.tess_lang.trim().is_empty() {
-        return Err("Tesseract language cannot be empty (try `eng`).".into());
+        return Err("Tesseract 语言不能为空（例如 eng）。".into());
     }
     let url = settings.llama_url.trim();
     if !(url.starts_with("http://") || url.starts_with("https://")) {
-        return Err("llama.cpp URL must start with http:// or https://".into());
+        return Err("llama.cpp 地址必须以 http:// 或 https:// 开头。".into());
     }
     Ok(())
 }

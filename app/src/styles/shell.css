@@ -354,10 +354,9 @@
   margin: 2px 0 6px;
   padding: 0 10px;
   color: var(--text-3);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .nav-label-spaced {

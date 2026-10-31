@@ -21,6 +21,13 @@ function engineLabel(engine: string): string {
   return engine;
 }
 
+function formatLabel(format: string): string {
+  if (format === "text") return "纯文本";
+  if (format === "markdown") return "Markdown";
+  if (format === "json") return "JSON";
+  return format;
+}
+
 function preview(text: string): string {
   const trimmed = text.trim();
   return trimmed.length > 260 ? `${trimmed.slice(0, 260)}…` : trimmed;
@@ -47,11 +54,10 @@ export function HistoryView({
       <div className="view-scroll">
         <header className="view-head">
           <div>
-            <p className="eyebrow">Workspace</p>
-            <h1>History</h1>
+            <p className="eyebrow">工作区</p>
+            <h1>历史</h1>
             <p className="lede">
-              The last {entries.length || "few"} recognitions, kept on this device. Click
-              copy to put an older result back on the clipboard.
+              最近 {entries.length || "几"} 条识别记录，保存在本机。点击复制可把旧结果重新放回剪贴板。
             </p>
           </div>
           <div className="head-actions">
@@ -62,11 +68,11 @@ export function HistoryView({
               disabled={entries.length === 0}
             >
               <Icon name="trash" size={14} />
-              Clear all
+              清空全部
             </button>
             <button type="button" className="btn btn-primary" onClick={onCapture}>
               <Icon name="capture" size={15} />
-              Capture
+              截图
             </button>
           </div>
         </header>
@@ -76,16 +82,15 @@ export function HistoryView({
             <div className="empty-icon">
               <Icon name="history" size={24} />
             </div>
-            <h2>No captures yet</h2>
+            <h2>还没有截图记录</h2>
             <p>
-              Your recognised text will collect here — nothing leaves this machine, and
-              history is capped to keep the list useful.
+              识别结果会收集在这里。不会离开本机，并且会自动限制条数。
             </p>
             <button type="button" className="btn btn-primary" onClick={onCapture}>
-              Capture your first region
+              截取第一张截图
             </button>
             <span className="empty-shortcut">
-              or press <Keycaps accelerator={shortcut} size="sm" /> anywhere
+              或在任意界面按 <Keycaps accelerator={shortcut} size="sm" />
             </span>
           </section>
         ) : (
@@ -100,7 +105,7 @@ export function HistoryView({
                         <time dateTime={new Date(entry.capturedAt).toISOString()}>
                           {relativeTime(entry.capturedAt)}
                         </time>
-                        <span className="badge">{entry.format}</span>
+                        <span className="badge">{formatLabel(entry.format)}</span>
                         <span className="history-engine">
                           <span className="meta-dot tone-ok" />
                           {engineLabel(entry.engine)}
@@ -111,14 +116,14 @@ export function HistoryView({
                     </div>
                     <div className="history-side">
                       <span className="history-meta">
-                        {entry.lines} lines · {duration(entry.ms)}
+                        {entry.lines} 行 · {duration(entry.ms)}
                       </span>
                       <div className="history-actions">
                         <button
                           type="button"
                           className={`icon-btn ${copied ? "is-active" : ""}`}
-                          aria-label={copied ? "Copied to clipboard" : "Copy this capture"}
-                          title="Copy"
+                          aria-label={copied ? "已复制到剪贴板" : "复制这条记录"}
+                          title="复制"
                           onClick={() => {
                             onCopy(entry.text, entry.id);
                             setCopiedId(entry.id);
@@ -129,8 +134,8 @@ export function HistoryView({
                         <button
                           type="button"
                           className="icon-btn icon-btn-danger"
-                          aria-label="Delete this capture"
-                          title="Delete"
+                          aria-label="删除这条记录"
+                          title="删除"
                           onClick={() => onDelete(entry.id)}
                         >
                           <Icon name="close" size={15} />
@@ -143,8 +148,7 @@ export function HistoryView({
             </div>
             <p className="view-footnote">
               <Icon name="info" size={13} />
-              History is stored locally and limited to the most recent entries. Clear it
-              any time; the OCR engine is not affected.
+              历史记录保存在本机，只保留最近若干条。随时可以清空，不会影响 OCR 引擎。
             </p>
           </>
         )}

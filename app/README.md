@@ -8,7 +8,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 校验 SHA-256、启动引擎。之后完全离线。
 
 > Windows 预览版安装包：
-> <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.0>
+> <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.1>
 > 由 GitHub Actions 的 `windows-latest` 构建 NSIS 安装器。
 
 | 首启向导 | 模型下载 |

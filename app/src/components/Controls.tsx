@@ -18,7 +18,7 @@ export function Keycaps({ accelerator, size = "md", className = "" }: KeycapsPro
     <span
       className={`keycaps ${className}`}
       role="img"
-      aria-label={`Shortcut: ${shortcutText(accelerator)}`}
+      aria-label={`快捷键：${shortcutText(accelerator)}`}
     >
       {shortcutKeys(accelerator).map((key, index) => (
         <kbd className={`keycap keycap-${size}`} key={`${key}-${index}`}>
@@ -172,13 +172,13 @@ export function ShortcutRecorder({
       return;
     }
     if (isPlatformModifier(event.nativeEvent)) {
-      setMessage("Add a letter, number or F-key to finish.");
+      setMessage("再按一个字母、数字或功能键。");
       return;
     }
 
     const accelerator = acceleratorFromEvent(event.nativeEvent);
     if (!accelerator) {
-      setMessage("Use ⌘/Ctrl or Alt, plus a letter, number, F-key or arrow.");
+      setMessage("请用 ⌘/Ctrl 或 Alt，加上字母、数字、F 键或方向键。");
       return;
     }
 
@@ -193,7 +193,7 @@ export function ShortcutRecorder({
         ref={buttonRef}
         type="button"
         className={`shortcut-recorder ${recording ? "is-recording" : ""}`}
-        aria-label={`Global shortcut, currently ${shortcutText(value)}. Activate to record a new one.`}
+        aria-label={`全局快捷键，当前为 ${shortcutText(value)}。点击录制新组合。`}
         onClick={() => {
           setRecording(true);
           setMessage(null);
@@ -209,14 +209,14 @@ export function ShortcutRecorder({
         {recording ? (
           <span className="recording-label">
             <span className="record-dot" />
-            Press shortcut…
+            请按下快捷键…
           </span>
         ) : (
           <Keycaps accelerator={value} size="sm" />
         )}
       </button>
       <p className={`shortcut-hint ${message ? "is-error" : ""}`}>
-        {message ?? "Click, then press the new combination. Esc cancels."}
+        {message ?? "点击后按下新组合，Esc 取消。"}
       </p>
     </div>
   );

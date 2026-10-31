@@ -123,10 +123,10 @@ export function SetupDialog({
 
   const progressLabel =
     download?.phase === "verifying"
-      ? "Verifying the download"
+      ? "正在校验下载文件"
       : download?.phase === "starting"
-        ? "Starting the local engine"
-        : "Downloading the OCR model";
+        ? "正在启动本地引擎"
+        : "正在下载 OCR 模型";
 
   const eta = download ? formatEta(download.etaSecs) : "";
 
@@ -143,7 +143,7 @@ export function SetupDialog({
         <button
           type="button"
           className="setup-close"
-          aria-label="Close setup"
+          aria-label="关闭设置"
           onClick={onDismiss}
           disabled={busy}
         >
@@ -156,12 +156,12 @@ export function SetupDialog({
 
         {mode === "ready" ? (
           <>
-            <p className="eyebrow">One-time setup</p>
-            <h2 id="setup-title">The local engine is ready.</h2>
+            <p className="eyebrow">首次设置</p>
+            <h2 id="setup-title">本地引擎已就绪。</h2>
             <p className="setup-lede">
               {status.model.installed
-                ? "The model is installed and verified. Captures now run entirely on this machine."
-                : "Everything is in place. Captures now run entirely on this machine."}
+                ? "模型已安装并通过校验。之后的截图完全在本机处理。"
+                : "一切就绪。之后的截图完全在本机处理。"}
             </p>
             <div className="setup-ready-card">
               <span className="setup-ready-icon">
@@ -170,8 +170,8 @@ export function SetupDialog({
               <div>
                 <strong>{status.setup.modelName}</strong>
                 <span>
-                  {formatBytes(status.model.bytes)} · SHA-256 verified ·{" "}
-                  {status.runtime.version ?? "bundled llama.cpp"}
+                  {formatBytes(status.model.bytes)} · SHA-256 已校验 ·{" "}
+                  {status.runtime.version ?? "内置 llama.cpp"}
                 </span>
                 <span>{formatPlatform(status.runtime.platform)}</span>
               </div>
@@ -179,21 +179,21 @@ export function SetupDialog({
             <div className="setup-actions">
               <button type="button" className="btn btn-primary" onClick={onCapture}>
                 <Icon name="capture" size={15} />
-                Capture region
+                截取区域
               </button>
               <button type="button" className="btn btn-secondary" onClick={onDismiss}>
-                Done
+                完成
               </button>
             </div>
           </>
         ) : mode === "busy" ? (
           <>
-            <p className="eyebrow">One-time setup</p>
+            <p className="eyebrow">首次设置</p>
             <h2 id="setup-title">{progressLabel}</h2>
             <p className="setup-lede">
               {download?.phase === "starting"
-                ? "The first load reads 1.4 GB from disk. This usually takes 10–20 seconds."
-                : "Keep the app open. You can cancel and resume later — partial files are kept."}
+                ? "首次启动会从磁盘加载约 1.4 GB 模型，通常需要 10–20 秒。"
+                : "请保持应用开启。可以取消，之后继续下载——已下载的部分会保留。"}
             </p>
 
             <div className="setup-progress-head">
@@ -201,8 +201,8 @@ export function SetupDialog({
                 {download?.phase === "downloading" && download.file
                   ? download.file
                   : download?.phase === "verifying"
-                    ? "Checking file integrity"
-                    : "llama-server · load weights"}
+                    ? "正在校验文件完整性"
+                    : "llama-server · 加载权重"}
               </span>
               <span className="mono">
                 {download?.phase === "downloading"
@@ -214,7 +214,7 @@ export function SetupDialog({
             <div className="setup-progress-meta">
               <span>
                 {download
-                  ? `${formatBytes(download.downloaded)} of ${formatBytes(download.total)}`
+                  ? `${formatBytes(download.downloaded)} / ${formatBytes(download.total)}`
                   : ""}
               </span>
               <span>
@@ -222,7 +222,7 @@ export function SetupDialog({
                   ? `${formatSpeed(download.bytesPerSec)}${eta ? ` · ${eta}` : ""}`
                   : download?.phase === "verifying"
                     ? "SHA-256"
-                    : "Loading…"}
+                    : "加载中…"}
               </span>
             </div>
 
@@ -233,25 +233,23 @@ export function SetupDialog({
                 onClick={onCancel}
                 disabled={download?.phase !== "downloading"}
               >
-                Cancel download
+                取消下载
               </button>
             </div>
             <p className="setup-footnote">
-              Downloads from huggingface.co/ggml-org · {MODEL_LICENSE} licensed ·
-              resumable
+              下载自 huggingface.co/ggml-org · {MODEL_LICENSE} 许可 · 支持断点续传
             </p>
           </>
         ) : mode === "error" ? (
           <>
-            <p className="eyebrow">Setup failed</p>
-            <h2 id="setup-title">The model didn’t finish downloading.</h2>
+            <p className="eyebrow">设置失败</p>
+            <h2 id="setup-title">模型下载未完成。</h2>
             <p className="setup-lede">
-              Your partial download is kept, so retrying resumes instead of starting
-              from zero.
+              已下载的部分会保留，重试会从断点继续。
             </p>
             <div className="setup-error" role="alert">
               <Icon name="alert" size={16} />
-              <span>{download?.message ?? "Unknown setup error."}</span>
+              <span>{download?.message ?? "未知的设置错误。"}</span>
             </div>
             <div className="setup-actions">
               <button
@@ -261,52 +259,52 @@ export function SetupDialog({
                 onClick={onStart}
               >
                 <Icon name="refresh" size={15} />
-                Retry setup
+                重试设置
               </button>
               <button type="button" className="btn btn-secondary" onClick={onDismiss}>
-                Close
+                关闭
               </button>
             </div>
           </>
         ) : (
           <>
-            <p className="eyebrow">One-time setup</p>
+            <p className="eyebrow">首次设置</p>
             <h2 id="setup-title">
               {status.model.installed
-                ? "Start the local engine."
-                : "Give ocr4code its local eyes."}
+                ? "启动本地引擎。"
+                : "让 ocr4code 拥有本地识别能力。"}
             </h2>
             <p className="setup-lede">
               {status.model.installed
-                ? "The model is already installed. Start llama-server to finish setup — it starts automatically on the next capture too."
-                : "The app already ships the llama.cpp runtime. It only needs the GLM-OCR model once — after that every capture is fully offline."}
+                ? "模型已经安装。启动本地服务即可完成设置；下次截图也会自动启动。"
+                : "已内置 llama.cpp 运行时；模型只需下载一次，之后完全离线。"}
             </p>
 
             <div className="setup-checklist">
               <CheckRow
-                title="llama.cpp runtime"
+                title="llama.cpp 运行时"
                 detail={
                   runtimeMissing
-                    ? "Not found in this build"
-                    : `Bundled with the app · ${status.runtime.version ?? "b12018"}`
+                    ? "此构建中未找到"
+                    : `随应用内置 · ${status.runtime.version ?? "b12018"}`
                 }
-                badge={runtimeMissing ? "Missing" : "Included"}
+                badge={runtimeMissing ? "缺失" : "已内置"}
                 tone={runtimeMissing ? "danger" : "ok"}
               />
               <CheckRow
                 title={status.setup.modelName}
                 detail={
                   status.model.installed
-                    ? `${formatBytes(status.model.bytes)} · SHA-256 verified`
-                    : `${formatBytes(status.setup.downloadBytes)} download · SHA-256 verified · one-time`
+                    ? `${formatBytes(status.model.bytes)} · SHA-256 已校验`
+                    : `${formatBytes(status.setup.downloadBytes)} 下载 · SHA-256 已校验 · 仅需一次`
                 }
-                badge={status.model.installed ? "Installed" : "Required"}
+                badge={status.model.installed ? "已安装" : "需要下载"}
                 tone={status.model.installed ? "ok" : "warn"}
               />
               <CheckRow
-                title="Screen capture"
-                detail="macOS screencapture / Windows Snipping Tool"
-                badge="System"
+                title="系统截图"
+                detail="macOS screencapture / Windows 截屏工具"
+                badge="系统"
                 tone="ok"
               />
             </div>
@@ -314,7 +312,7 @@ export function SetupDialog({
             {download?.phase === "cancelled" && (
               <p className="setup-note">
                 <Icon name="info" size={13} />
-                Download cancelled. Partial files are kept, so you can resume.
+                下载已取消。已下载的部分会保留，可以继续。
               </p>
             )}
 
@@ -327,16 +325,16 @@ export function SetupDialog({
                 disabled={runtimeMissing}
               >
                 <Icon name="arrow-right" size={15} />
-                {status.model.installed ? "Start engine" : "Download & set up"}
+                {status.model.installed ? "启动引擎" : "下载并配置"}
               </button>
               <button type="button" className="btn btn-ghost" onClick={onDismiss}>
-                Not now
+                以后再说
               </button>
             </div>
             <p className="setup-footnote">
-              {status.setup.modelName} · {MODEL_LICENSE} · from huggingface.co/ggml-org
+              {status.setup.modelName} · {MODEL_LICENSE} · 来自 huggingface.co/ggml-org
               <button type="button" className="link-btn" onClick={onOpenSettings}>
-                Engine settings
+                引擎设置
               </button>
             </p>
           </>

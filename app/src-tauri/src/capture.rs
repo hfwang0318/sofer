@@ -85,7 +85,8 @@ pub fn start(app: AppHandle) {
             let message = raw
                 .replace("E_SETUP_REQUIRED: ", "")
                 .replace("E_SETUP_REQUIRED", "");
-            let hint = hint_for(&message, setup_required);
+            let hint = hint_for(&raw, setup_required);
+            let message = localize_error(&message);
             let _ = app.emit(
                 "ocr:error",
                 OcrFailure {
@@ -142,7 +143,7 @@ fn run(app: &AppHandle) -> Result<()> {
                     config.engine = EngineMode::Tesseract;
                 } else if matches!(err, engine::Error::SetupRequired) {
                     return Err(anyhow::anyhow!(
-                        "E_SETUP_REQUIRED: the local OCR model is not installed yet"
+                        "E_SETUP_REQUIRED: 本地 OCR 模型尚未安装"
                     ));
                 } else {
                     return Err(anyhow::anyhow!("{err}"));
@@ -152,7 +153,7 @@ fn run(app: &AppHandle) -> Result<()> {
     }
 
     let _ = app.emit("ocr:phase", Phase { phase: "recognizing" });
-    let engine = config.engine().context("starting the OCR engine")?;
+    let engine = config.engine().context("启动 OCR 引擎")?;
     let limiter = ocr4code::pipeline::limiter(config.jobs);
     let outcome = ocr4code::pipeline::recognize(engine.as_ref(), &path, &config, &limiter)?;
     let text = render::render(&outcome.document, config.format, config.language.as_deref());
@@ -192,7 +193,7 @@ fn run(app: &AppHandle) -> Result<()> {
         if !main_was_visible {
             if let Some(tray) = app.tray_by_id("main-tray") {
                 let _ = tray.set_tooltip(Some(format!(
-                    "ocr4code — copied {} lines",
+                    "ocr4code — 已复制 {} 行",
                     result.lines
                 )));
             }
@@ -219,7 +220,7 @@ fn capture_path(app: &AppHandle) -> Result<PathBuf> {
         .unwrap_or_else(|_| std::env::temp_dir())
         .join("captures");
     std::fs::create_dir_all(&dir)
-        .with_context(|| format!("creating capture directory {}", dir.display()))?;
+        .with_context(|| format!("创建截图目录 {}", dir.display()))?;
     Ok(dir.join(format!("capture-{}.png", now_ms())))
 }
 
@@ -239,22 +240,35 @@ fn format_name(format: Format) -> String {
     .to_string()
 }
 
+fn localize_error(message: &str) -> String {
+    let lower = message.to_lowercase();
+    if lower.contains("no engine available") {
+        "没有可用的 OCR 引擎。请启动 llama-server，或安装 tesseract。".into()
+    } else if lower.contains("not reachable") {
+        "无法连接 llama.cpp 服务。请确认服务已经启动，并检查设置中的地址。".into()
+    } else if lower.contains("tesseract failed") {
+        "Tesseract 运行失败。请检查安装和语言包。".into()
+    } else {
+        message.to_string()
+    }
+}
+
 fn hint_for(message: &str, setup_required: bool) -> String {
     if setup_required {
-        return "The local model is a one-time 1.43 GB download. Start the guided setup to enable OCR; no manual install is needed.".into();
+        return "本地模型需要一次性下载约 1.43 GB。打开引导设置即可启用 OCR，无需手动安装。".into();
     }
     let lower = message.to_lowercase();
     if lower.contains("no engine available") || lower.contains("starting the ocr engine") {
-        "Start llama-server, or install tesseract as a fallback. Then test the engine in Settings."
+        "请启动 llama-server，或安装 tesseract 作为兜底，然后在设置中检测引擎。"
             .into()
     } else if lower.contains("not reachable") || lower.contains("llama") {
-        "Check that llama-server is running and that the URL in Settings is correct."
+        "请确认 llama-server 正在运行，并检查设置中的地址是否正确。"
             .into()
     } else if lower.contains("permission") || lower.contains("screen") {
-        "Grant Screen Recording permission in System Settings → Privacy & Security, then relaunch."
+        "请在系统设置 → 隐私与安全 → 屏幕录制中授予权限，然后重启应用。"
             .into()
     } else {
-        "Open Settings to check the engine and layout options, then try again.".into()
+        "请打开设置检查引擎和版面选项，然后重试。".into()
     }
 }
 
@@ -284,7 +298,7 @@ fn interactive_capture(dest: &Path, cancel: &AtomicBool) -> Result<CaptureOutcom
         .args(["-i", "-x", "-o", "-t", "png"])
         .arg(dest)
         .spawn()
-        .context("running screencapture (is Screen Recording permission granted?)")?;
+        .context("运行 screencapture 失败（是否已授予屏幕录制权限？）")?;
 
     let started = Instant::now();
     loop {
@@ -342,7 +356,7 @@ fn interactive_capture(dest: &Path, cancel: &AtomicBool) -> Result<CaptureOutcom
     Command::new("cmd")
         .args(["/C", "start", "", "ms-screenclip:"])
         .spawn()
-        .context("opening the Windows Snipping Tool")?;
+        .context("打开 Windows 截屏工具失败")?;
 
     // The snipping overlay copies the selected pixels to the clipboard when it
     // closes. Cancelling leaves the clipboard untouched, so the only signal we
@@ -360,8 +374,8 @@ fn interactive_capture(dest: &Path, cancel: &AtomicBool) -> Result<CaptureOutcom
                     clip.height as u32,
                     clip.bytes,
                 )
-                .context("decoding the clipboard image")?;
-                image.save(dest).context("saving the screenshot")?;
+                .context("解码剪贴板图像失败")?;
+                image.save(dest).context("保存截图失败")?;
                 return Ok(CaptureOutcome::Selected);
             }
         }
@@ -371,5 +385,5 @@ fn interactive_capture(dest: &Path, cancel: &AtomicBool) -> Result<CaptureOutcom
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn interactive_capture(_dest: &Path, _cancel: &AtomicBool) -> Result<CaptureOutcome> {
-    anyhow::bail!("screen capture is only implemented for macOS and Windows")
+    anyhow::bail!("截图仅支持 macOS 和 Windows")
 }

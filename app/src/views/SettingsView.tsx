@@ -32,12 +32,12 @@ interface SettingsViewProps {
 }
 
 const PSM_OPTIONS = [
-  { value: 3, label: "3 · Fully automatic" },
-  { value: 4, label: "4 · Single column" },
-  { value: 6, label: "6 · Single block" },
-  { value: 7, label: "7 · Single line" },
-  { value: 11, label: "11 · Sparse text" },
-  { value: 13, label: "13 · Raw line" },
+  { value: 3, label: "3 · 完全自动" },
+  { value: 4, label: "4 · 单列" },
+  { value: 6, label: "6 · 单块" },
+  { value: 7, label: "7 · 单行" },
+  { value: 11, label: "11 · 稀疏文本" },
+  { value: 13, label: "13 · 原始行" },
 ];
 
 function Section({
@@ -138,13 +138,13 @@ function LocalEnginePanel({
       <div className="runtime-head">
         <div className="runtime-heading">
           <span className={`status-dot tone-${status.llama ? "ok" : model.installed ? "warn" : "danger"}`} />
-          <strong>Local engine</strong>
+          <strong>本地引擎</strong>
           <span className="badge">
-            {runtime.bundled ? "Bundled runtime" : runtime.system ? "System runtime" : "Runtime missing"}
+            {runtime.bundled ? "内置运行时" : runtime.system ? "系统运行时" : "运行时缺失"}
           </span>
           {model.installed && (
             <span className={`badge ${model.verified ? "badge-ok" : "badge-warn"}`}>
-              {model.verified ? "Verified" : "Unverified"}
+              {model.verified ? "已校验" : "未校验"}
             </span>
           )}
         </div>
@@ -152,21 +152,21 @@ function LocalEnginePanel({
           {!model.installed ? (
             <button type="button" className="btn btn-primary btn-sm" onClick={onDownloadModel} disabled={busy}>
               <Icon name="arrow-right" size={14} />
-              Download model
+              下载模型
             </button>
           ) : server.state === "starting" ? (
             <button type="button" className="btn btn-secondary btn-sm" disabled>
               <span className="btn-spinner btn-spinner-muted" />
-              Starting…
+              正在启动…
             </button>
           ) : managed && server.state === "online" ? (
             <button type="button" className="btn btn-secondary btn-sm" onClick={onStopEngine} disabled={busy}>
-              {engineBusy === "stop" ? "Stopping…" : "Stop"}
+              {engineBusy === "stop" ? "正在停止…" : "停止"}
             </button>
           ) : (
             <button type="button" className="btn btn-secondary btn-sm" onClick={onStartEngine} disabled={busy}>
               <Icon name="power" size={14} />
-              {engineBusy === "start" ? "Starting…" : "Start engine"}
+              {engineBusy === "start" ? "正在启动…" : "启动引擎"}
             </button>
           )}
         </div>
@@ -174,29 +174,29 @@ function LocalEnginePanel({
 
       <div className="runtime-grid">
         <div>
-          <span className="runtime-label">Runtime</span>
+          <span className="runtime-label">运行时</span>
           <span className="runtime-value">
-            {runtime.version ?? (runtime.bundled || runtime.system ? "llama.cpp" : "Not found")}
+            {runtime.version ?? (runtime.bundled || runtime.system ? "llama.cpp" : "未找到")}
           </span>
         </div>
         <div>
-          <span className="runtime-label">Model</span>
+          <span className="runtime-label">模型</span>
           <span className="runtime-value">
             {model.installed
-              ? `${formatBytes(model.bytes)} · ${model.verified ? "SHA-256 verified" : "not verified"}`
-              : `${formatBytes(model.total)} download`}
+              ? `${formatBytes(model.bytes)} · ${model.verified ? "SHA-256 已校验" : "未校验"}`
+              : `${formatBytes(model.total)} 待下载`}
           </span>
         </div>
         <div>
-          <span className="runtime-label">Server</span>
+          <span className="runtime-label">服务</span>
           <span className={`runtime-value tone-${server.state === "online" ? "ok" : server.state === "failed" ? "danger" : "muted"}`}>
             {server.state === "online"
-              ? `${managed ? "Managed" : "External"} · ${server.url ?? status.llamaUrl}`
+              ? `${managed ? "内置" : "外部"} · ${server.url ?? status.llamaUrl}`
               : server.state === "starting"
-                ? "Starting…"
+                ? "正在启动…"
                 : server.state === "failed"
-                  ? "Failed"
-                  : "Stopped"}
+                  ? "启动失败"
+                  : "已停止"}
           </span>
         </div>
       </div>
@@ -206,10 +206,10 @@ function LocalEnginePanel({
           <div className="runtime-download-head">
             <span>
               {download.phase === "verifying"
-                ? "Verifying SHA-256…"
+                ? "正在校验 SHA-256…"
                 : download.phase === "starting"
-                  ? "Starting llama-server…"
-                  : download.file ?? "Downloading model"}
+                  ? "正在启动 llama-server…"
+                  : download.file ?? "正在下载模型"}
             </span>
             <span className="mono">
               {download.phase === "downloading"
@@ -224,7 +224,7 @@ function LocalEnginePanel({
           </div>
           {download.phase === "downloading" && (
             <button type="button" className="link-btn" onClick={onCancelSetup}>
-              Cancel download
+              取消下载
             </button>
           )}
         </div>
@@ -233,9 +233,9 @@ function LocalEnginePanel({
       {download?.phase === "error" && (
         <p className="runtime-error">
           <Icon name="alert" size={13} />
-          {download.message ?? "Setup failed."}
+          {download.message ?? "设置失败。"}
           <button type="button" className="link-btn" onClick={onSetup}>
-            Retry
+            重试
           </button>
         </p>
       )}
@@ -249,7 +249,7 @@ function LocalEnginePanel({
 
       <div className="runtime-foot">
         <button type="button" className="link-btn" onClick={onSetup}>
-          {model.installed ? "Re-run setup" : "Open setup guide"}
+          {model.installed ? "重新运行设置" : "打开设置向导"}
         </button>
         {model.installed && (
           <button
@@ -258,17 +258,17 @@ function LocalEnginePanel({
             onClick={() => setConfirmRemove(true)}
             disabled={busy}
           >
-            Remove model
+            移除模型
           </button>
         )}
         <span className="runtime-foot-note">
-          {model.installed ? "Runs offline · no cloud" : "One-time 1.43 GB · resumable"}
+          {model.installed ? "完全离线运行" : "一次性 1.43 GB · 支持续传"}
         </span>
       </div>
 
       {confirmRemove && (
         <div className="runtime-confirm">
-          <span>Remove {formatBytes(model.bytes)} of model files?</span>
+          <span>移除 {formatBytes(model.bytes)} 的模型文件？</span>
           <div>
             <button
               type="button"
@@ -279,14 +279,14 @@ function LocalEnginePanel({
               }}
               disabled={busy}
             >
-              Remove
+              移除
             </button>
             <button
               type="button"
               className="btn btn-ghost btn-sm"
               onClick={() => setConfirmRemove(false)}
             >
-              Cancel
+              取消
             </button>
           </div>
         </div>
@@ -331,7 +331,7 @@ export function SettingsView({
       void setShortcutEnabled(!recording).catch((cause) => {
         onNotify(
           "error",
-          "Global shortcut could not be restored",
+          "全局快捷键恢复失败",
           cause instanceof Error ? cause.message : String(cause),
         );
       });
@@ -341,13 +341,13 @@ export function SettingsView({
 
   const urlError =
     !draft.llamaUrl.trim() || !/^https?:\/\//i.test(draft.llamaUrl.trim())
-      ? "Use a full http:// or https:// URL."
+      ? "请输入完整的 http:// 或 https:// 地址。"
       : null;
-  const promptError = draft.prompt.trim() ? null : "The prompt cannot be empty.";
-  const langError = draft.tessLang.trim() ? null : "Try `eng` or `eng+chi_sim`.";
+  const promptError = draft.prompt.trim() ? null : "提示词不能为空。";
+  const langError = draft.tessLang.trim() ? null : "例如 `eng` 或 `eng+chi_sim`。";
   const fenceError =
     draft.language.trim() && !/^[a-zA-Z0-9+#._-]*$/.test(draft.language.trim())
-      ? "Use a short fence name like rust, python or diff."
+      ? "请使用简短的语言名，如 rust、python、diff。"
       : null;
   const valid =
     !urlError &&
@@ -365,7 +365,7 @@ export function SettingsView({
   async function handleSave() {
     if (!dirty || saving) return;
     if (!valid) {
-      setSaveError("Some fields need attention before saving.");
+      setSaveError("有字段需要先修正。");
       return;
     }
     setSaving(true);
@@ -403,13 +403,13 @@ export function SettingsView({
         next.llama
           ? next.llamaUrl
           : next.tesseract
-            ? "llama.cpp did not answer; tesseract is available."
-            : "Start llama-server or install tesseract.",
+            ? "llama.cpp 未响应，但 tesseract 可用。"
+            : "请启动 llama-server，或安装 tesseract。",
       );
     } catch (error) {
       onNotify(
         "error",
-        "Engine check failed",
+        "引擎检测失败",
         error instanceof Error ? error.message : String(error),
       );
     } finally {
@@ -420,7 +420,7 @@ export function SettingsView({
   function resetDefaults() {
     setDraft({ ...DEFAULT_SETTINGS });
     setSaveError(null);
-    onNotify("info", "Defaults loaded", "Review them, then save to apply.");
+    onNotify("info", "已载入默认值", "确认后保存即可生效。");
   }
 
   return (
@@ -428,23 +428,22 @@ export function SettingsView({
       <div className="view-scroll">
         <header className="view-head">
           <div>
-            <p className="eyebrow">Preferences</p>
-            <h1>Settings</h1>
+            <p className="eyebrow">偏好设置</p>
+            <h1>设置</h1>
             <p className="lede">
-              Every kernel knob the desktop layer exposes. Changes apply to the next
-              capture; the OCR core itself is unchanged.
+              桌面层暴露的全部内核参数。更改会应用于下一次截图，OCR 内核本身保持不变。
             </p>
           </div>
-          <span className="settings-version">ocr4code 0.1.0</span>
+          <span className="settings-version">ocr4code 0.1.1</span>
         </header>
 
         <Section
-          title="Capture"
-          description="How the app hands a screenshot to the kernel."
+          title="截图"
+          description="应用把截图交给内核的方式。"
         >
           <SettingRow
-            title="Global shortcut"
-            description="Works from any app while ocr4code is running. The system selection follows your normal screenshot permissions."
+            title="全局快捷键"
+            description="ocr4code 运行时，在任何应用里都可以使用。选区沿用系统的截图权限。"
           >
             <ShortcutRecorder
               value={draft.shortcut}
@@ -453,20 +452,20 @@ export function SettingsView({
             />
           </SettingRow>
           <SettingRow
-            title="Copy automatically"
-            description="Write the recognised text to the clipboard as soon as it is ready."
+            title="自动复制"
+            description="识别完成后立即写入剪贴板。"
           >
             <Switch
               checked={draft.autoCopy}
               onChange={(autoCopy) => update("autoCopy", autoCopy)}
-              label="Copy automatically"
+              label="自动复制"
             />
           </SettingRow>
         </Section>
 
         <Section
-          title="Engine"
-          description="Text comes from the model; layout comes from a pure-CV geometry pass either way."
+          title="引擎"
+          description="文字来自模型；无论用哪个引擎，版面都由纯 CV 几何层重建。"
           meta={
             <div className={`engine-health tone-${engine.tone}`}>
               <span className="status-dot" />
@@ -482,7 +481,7 @@ export function SettingsView({
                   size={13}
                   className={testing ? "is-spinning" : ""}
                 />
-                {testing ? "Testing" : "Test"}
+                {testing ? "检测中" : "检测"}
               </button>
             </div>
           }
@@ -501,21 +500,21 @@ export function SettingsView({
             />
           )}
           <SettingRow
-            title="Recognition engine"
+            title="识别引擎"
             description={
               draft.engine === "auto"
-                ? "Uses llama.cpp when the server answers, then falls back to tesseract."
+                ? "优先使用能响应的 llama.cpp，不可用时回落到 tesseract。"
                 : draft.engine === "llamacpp"
-                  ? "Sends pixels to your local llama-server. Best layout and symbol fidelity."
-                  : "Runs locally with no model server. Faster, but weaker on symbols and CJK."
+                  ? "把截图发送给本地 llama-server，版面与符号保真度最好。"
+                  : "不依赖模型服务，完全本机运行；速度较快，但符号和中文较弱。"
             }
           >
             <Segmented
-              label="Recognition engine"
+              label="识别引擎"
               value={draft.engine}
               onChange={(next) => update("engine", next)}
               options={[
-                { value: "auto", label: "Auto" },
+                { value: "auto", label: "自动" },
                 { value: "llamacpp", label: "llama.cpp" },
                 { value: "tesseract", label: "tesseract" },
               ]}
@@ -525,18 +524,18 @@ export function SettingsView({
           {draft.engine !== "tesseract" && (
             <>
               <SettingRow
-                title="External server (optional)"
-                description="If a llama.cpp server is already running at this URL, ocr4code uses it instead of starting the bundled one."
+                title="外部服务（可选）"
+                description="如果这个地址已经有 llama.cpp 服务，ocr4code 会直接使用，不再启动内置服务。"
                 stack
               >
                 <div className="field-grid">
                   <Field
-                    label="External llama.cpp URL"
+                    label="外部 llama.cpp 地址"
                     error={urlError}
                     hint={
                       urlError
                         ? undefined
-                        : `Environment override: OCR4CODE_LLAMA_URL · ${draft.llamaUrl}`
+                        : `环境变量覆盖：OCR4CODE_LLAMA_URL · ${draft.llamaUrl}`
                     }
                     full
                   >
@@ -546,7 +545,7 @@ export function SettingsView({
                         type="url"
                         value={draft.llamaUrl}
                         spellCheck={false}
-                        aria-label="External llama.cpp URL"
+                        aria-label="外部 llama.cpp 地址"
                         aria-invalid={Boolean(urlError)}
                         onChange={(event) => update("llamaUrl", event.target.value)}
                       />
@@ -556,15 +555,15 @@ export function SettingsView({
                         onClick={() => void handleTest()}
                         disabled={testing}
                       >
-                        {testing ? "Testing…" : "Test"}
+                        {testing ? "检测中…" : "检测"}
                       </button>
                     </div>
                   </Field>
 
                   <Field
-                    label="Prompt"
+                    label="提示词"
                     error={promptError}
-                    hint="Prompt wording changes layout more than any other knob. The default is measured on 26 scenes."
+                    hint="提示词对版面的影响最大。默认值在 26 个场景上标定过。"
                     full
                     action={
                       <button
@@ -572,7 +571,7 @@ export function SettingsView({
                         className="link-btn"
                         onClick={() => update("prompt", DEFAULT_PROMPT)}
                       >
-                        Restore default
+                        恢复默认
                       </button>
                     }
                   >
@@ -581,15 +580,15 @@ export function SettingsView({
                       rows={3}
                       value={draft.prompt}
                       spellCheck={false}
-                      aria-label="Model prompt"
+                      aria-label="模型提示词"
                       aria-invalid={Boolean(promptError)}
                       onChange={(event) => update("prompt", event.target.value)}
                     />
                   </Field>
 
                   <Field
-                    label={`Max output tokens — ${draft.maxTokens}`}
-                    hint="Also sets the row budget for tiling. 3072 is the measured default; 8192 can over-generate."
+                    label={`最大输出 token 数 — ${draft.maxTokens}`}
+                    hint="同时决定切块的行数预算。3072 是实测默认值；8192 可能超发。"
                     full
                   >
                     <div className="range-row">
@@ -599,7 +598,7 @@ export function SettingsView({
                         max={8192}
                         step={128}
                         value={draft.maxTokens}
-                        aria-label="Max output tokens"
+                        aria-label="最大输出 token 数"
                         onChange={(event) =>
                           update("maxTokens", Number(event.target.value))
                         }
@@ -609,8 +608,8 @@ export function SettingsView({
                   </Field>
 
                   <Field
-                    label={`Parallel engine calls — ${draft.jobs}`}
-                    hint="Only used when a screenshot is tiled. 3 matches llama-server's four slots without queueing."
+                    label={`并行引擎调用数 — ${draft.jobs}`}
+                    hint="仅在长截图切块时使用。3 与 llama-server 的四个 slot 相匹配，避免排队。"
                     full
                   >
                     <div className="range-row">
@@ -620,7 +619,7 @@ export function SettingsView({
                         max={6}
                         step={1}
                         value={draft.jobs}
-                        aria-label="Parallel engine calls"
+                        aria-label="并行引擎调用数"
                         onChange={(event) => update("jobs", Number(event.target.value))}
                       />
                       <span className="range-value">{draft.jobs}</span>
@@ -635,34 +634,34 @@ export function SettingsView({
             <div className={draft.engine === "auto" ? "engine-fallback" : ""}>
               {draft.engine === "auto" && (
                 <div className="fallback-label">
-                  <span>Fallback</span>
+                  <span>兜底</span>
                   <span className="fallback-line" />
                   <span>tesseract</span>
                 </div>
               )}
               <div className="field-grid">
                 <Field
-                  label="Tesseract language"
+                  label="Tesseract 语言"
                   error={draft.engine === "tesseract" ? langError : null}
-                  hint="Install language data first, e.g. eng+chi_sim."
+                  hint="需要先安装语言包，例如 eng+chi_sim。"
                 >
                   <input
                     className="input mono"
                     value={draft.tessLang}
                     spellCheck={false}
-                    aria-label="Tesseract language"
+                    aria-label="Tesseract 语言"
                     onChange={(event) => update("tessLang", event.target.value)}
                   />
                 </Field>
                 <Field
-                  label="Page segmentation"
-                  hint="Tesseract's PSM. Single block works for most screenshots."
+                  label="页面分割模式"
+                  hint="Tesseract 的 PSM。大多数截图用单块模式即可。"
                 >
                   <div className="select-wrap">
                     <select
                       className="input select"
                       value={draft.psm}
-                      aria-label="Tesseract page segmentation mode"
+                      aria-label="Tesseract 页面分割模式"
                       onChange={(event) => update("psm", Number(event.target.value))}
                     >
                       {PSM_OPTIONS.map((option) => (
@@ -680,81 +679,81 @@ export function SettingsView({
         </Section>
 
         <Section
-          title="Layout reconstruction"
-          description="The geometry pass runs on every engine and is what keeps a paste useful."
+          title="版面重建"
+          description="几何层对每个引擎都会运行，它决定粘贴后是否还能用。"
         >
           <SettingRow
-            title="Rebuild indentation from pixels"
-            description="Compute leading spaces from the ink mask instead of trusting the model's own spacing."
+            title="从像素重建缩进"
+            description="用墨迹掩码计算行首空格，而不是相信模型输出的空格。"
           >
             <Switch
               checked={draft.geometry}
               onChange={(geometry) => update("geometry", geometry)}
-              label="Rebuild indentation from pixels"
+              label="从像素重建缩进"
             />
           </SettingRow>
           <SettingRow
-            title="Drop line-number gutters"
-            description="Detect a line-number column and remove it. Turn this off to keep the model's spacing for editor captures."
+            title="去除行号栏"
+            description="识别并移除行号列。关闭后保留编辑器截图里模型自己的空格。"
           >
             <Switch
               checked={!draft.keepGutter}
               onChange={(checked) => update("keepGutter", !checked)}
-              label="Drop line-number gutters"
+              label="去除行号栏"
             />
           </SettingRow>
           <SettingRow
-            title="Join soft-wrapped lines"
-            description="Heuristic. A long line that happens to reach the margin can be merged by mistake, so this is off by default."
+            title="合并软换行"
+            description="启发式处理。刚好顶到右边距的长行可能被误合并，因此默认关闭。"
           >
             <Switch
               checked={draft.joinWrap}
               onChange={(joinWrap) => update("joinWrap", joinWrap)}
-              label="Join soft-wrapped lines"
+              label="合并软换行"
             />
           </SettingRow>
           <SettingRow
-            title="Tile tall screenshots"
-            description="Split at blank rows when the output budget would truncate a 4K capture, then retry once if the reply is short."
+            title="长截图切块"
+            description="输出预算不足时在空白行处切块；回复过短时自动重试一次。"
           >
             <Switch
               checked={draft.tile}
               onChange={(tile) => update("tile", tile)}
-              label="Tile tall screenshots"
+              label="长截图切块"
             />
           </SettingRow>
         </Section>
 
         <Section
-          title="Output"
-          description="What gets copied, and how much history the app keeps."
+          title="输出"
+          description="复制什么，以及保留多少历史记录。"
         >
           <SettingRow
-            title="Format"
-            description="Text pastes directly; markdown adds a fenced block with a guessed language; JSON carries per-line indentation."
+            title="输出格式"
+            description="纯文本可直接粘贴；Markdown 会带语言围栏；JSON 携带逐行缩进。"
           >
             <Segmented
-              label="Output format"
+              label="输出格式"
               value={draft.format}
               onChange={(format) => update("format", format)}
               options={[
-                { value: "text", label: "Text" },
+                { value: "text", label: "纯文本" },
                 { value: "markdown", label: "Markdown" },
                 { value: "json", label: "JSON" },
               ]}
             />
           </SettingRow>
           <SettingRow
-            title="Fence language"
-            description="Used only for markdown. Leave empty to let the kernel guess from the recognised text."
+            title="围栏语言"
+            description="仅用于 Markdown。留空则由内核根据识别文字猜测。"
           >
             <input
               className="input mono input-inline"
               value={draft.language}
-              placeholder="auto"
+              placeholder="自动"
               spellCheck={false}
               disabled={draft.format !== "markdown"}
-              aria-label="Markdown fence language"
+              aria-label="Markdown 围栏语言"
               onChange={(event) => update("language", event.target.value)}
             />
           </SettingRow>
@@ -765,19 +764,19 @@ export function SettingsView({
             </p>
           )}
           <SettingRow
-            title="History limit"
-            description="Older captures are dropped from this device once the limit is reached."
+            title="历史记录上限"
+            description="超过上限后，较早的记录会从本机删除。"
           >
             <div className="select-wrap select-compact">
               <select
                 className="input select"
                 value={draft.historyLimit}
-                aria-label="History limit"
+                aria-label="历史记录上限"
                 onChange={(event) => update("historyLimit", Number(event.target.value))}
               >
                 {[5, 10, 20, 50].map((limit) => (
                   <option key={limit} value={limit}>
-                    {limit} captures
+                    {limit} 条
                   </option>
                 ))}
               </select>
@@ -787,30 +786,30 @@ export function SettingsView({
         </Section>
 
         <Section
-          title="About"
-          description="A desktop shell around the ocr4code kernel."
-          meta={<span className="about-version">v0.1.0</span>}
+          title="关于"
+          description="ocr4code 内核的桌面外壳。"
+          meta={<span className="about-version">v0.1.1</span>}
         >
           <div className="about-grid">
             <div>
-              <span className="about-label">Engine</span>
+              <span className="about-label">引擎</span>
               <span className={`about-value tone-${engine.tone}`}>
                 <span className="status-dot" />
                 {engine.label}
               </span>
             </div>
             <div>
-              <span className="about-label">Privacy</span>
-              <span className="about-value">Runs offline on this machine</span>
+              <span className="about-label">隐私</span>
+              <span className="about-value">完全在本机离线运行</span>
             </div>
             <div>
-              <span className="about-label">Capture</span>
+              <span className="about-label">截图</span>
               <span className="about-value">
-                Native region selection · {isMac ? "screencapture" : "Snipping Tool"}
+                系统原生区域选择 · {isMac ? "screencapture" : "截屏工具"}
               </span>
             </div>
             <div>
-              <span className="about-label">Shortcut</span>
+              <span className="about-label">快捷键</span>
               <span className="about-value">
                 <Keycaps accelerator={draft.shortcut} size="sm" />
               </span>
@@ -819,12 +818,12 @@ export function SettingsView({
           <div className="about-foot">
             <button type="button" className="btn btn-ghost btn-danger btn-sm" onClick={onQuit}>
               <Icon name="power" size={14} />
-              Quit ocr4code
+              退出 ocr4code
             </button>
             <p>
               {isMac
-                ? "If capture comes back empty, enable ocr4code under System Settings → Privacy & Security → Screen Recording and relaunch."
-                : "The Windows Snipping Tool handles the selection; ocr4code reads the image it puts on the clipboard."}
+                ? "如果截图是空白，请在系统设置 → 隐私与安全 → 屏幕录制中启用 ocr4code，然后重启应用。"
+                : "Windows 截屏工具负责选区；ocr4code 读取它放进剪贴板的图像。"}
             </p>
           </div>
         </Section>
@@ -840,12 +839,12 @@ export function SettingsView({
           ) : dirty ? (
             <span className="save-dirty">
               <span className="dirty-dot" />
-              Unsaved changes
+              有未保存的更改
             </span>
           ) : (
             <span className="save-clean">
               <Icon name="check" size={14} />
-              All changes saved
+              已保存
             </span>
           )}
         </div>
@@ -856,7 +855,7 @@ export function SettingsView({
             onClick={resetDefaults}
             disabled={saving}
           >
-            Reset to defaults
+            恢复默认
           </button>
           <button
             type="button"
@@ -865,7 +864,7 @@ export function SettingsView({
             disabled={!dirty || saving || !valid}
           >
             {saving ? <span className="btn-spinner" /> : <Icon name="check" size={15} />}
-            {saving ? "Saving…" : "Save changes"}
+            {saving ? "保存中…" : "保存更改"}
           </button>
         </div>
       </footer>

@@ -21,22 +21,22 @@ function TrafficLights() {
       <button
         type="button"
         className="traffic traffic-close"
-        aria-label="Hide ocr4code"
-        title="Hide"
+        aria-label="隐藏 ocr4code"
+        title="隐藏"
         onClick={() => void windowAction("hide")}
       />
       <button
         type="button"
         className="traffic traffic-min"
-        aria-label="Minimize"
-        title="Minimize"
+        aria-label="最小化"
+        title="最小化"
         onClick={() => void windowAction("minimize")}
       />
       <button
         type="button"
         className="traffic traffic-max"
-        aria-label="Zoom"
-        title="Zoom"
+        aria-label="缩放"
+        title="缩放"
         onClick={() => void windowAction("toggle-maximize")}
       />
     </div>
@@ -49,8 +49,8 @@ function WindowControls() {
       <button
         type="button"
         className="window-control"
-        aria-label="Minimize"
-        title="Minimize"
+        aria-label="最小化"
+        title="最小化"
         onClick={() => void windowAction("minimize")}
       >
         <Icon name="minus" size={15} />
@@ -58,8 +58,8 @@ function WindowControls() {
       <button
         type="button"
         className="window-control"
-        aria-label="Maximize"
-        title="Maximize"
+        aria-label="最大化"
+        title="最大化"
         onClick={() => void windowAction("toggle-maximize")}
       >
         <Icon name="maximize" size={13} />
@@ -67,8 +67,8 @@ function WindowControls() {
       <button
         type="button"
         className="window-control window-control-close"
-        aria-label="Hide to menu bar"
-        title="Hide to menu bar"
+        aria-label="隐藏到菜单栏"
+        title="隐藏到菜单栏"
         onClick={() => void windowAction("hide")}
       >
         <Icon name="close" size={15} />
@@ -98,11 +98,11 @@ export function WindowChrome({
     !engine.tesseract &&
     !setupNeeded;
   const status = setupNeeded
-    ? { label: "Setup needed", tone: "warn" as const }
+    ? { label: "需要设置", tone: "warn" as const }
     : starting
-      ? { label: "Starting engine", tone: "ok" as const }
+      ? { label: "正在启动引擎", tone: "ok" as const }
       : offline
-        ? { label: "Engine offline", tone: "danger" as const }
+        ? { label: "引擎离线", tone: "danger" as const }
         : idle;
 
   return (
@@ -112,7 +112,7 @@ export function WindowChrome({
       <div className="brand">
         <Logo size={23} />
         <span className="brand-name">ocr4code</span>
-        <span className="brand-version">0.1</span>
+        <span className="brand-version">0.1.1</span>
       </div>
 
       <div className="titlebar-spacer" />
@@ -126,8 +126,8 @@ export function WindowChrome({
         type="button"
         className="shortcut-pill"
         onClick={onOpenSettings}
-        title="Change the global shortcut"
-        aria-label={`Global shortcut ${shortcutText(shortcut)} — change in settings`}
+        title="修改全局快捷键"
+        aria-label={`全局快捷键 ${shortcutText(shortcut)}，点击修改`}
       >
         <Icon name="keyboard" size={14} />
         <Keycaps accelerator={shortcut} size="sm" />

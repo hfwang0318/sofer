@@ -161,8 +161,8 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::SetupRequired => write!(f, "the local OCR model is not installed yet"),
-            Error::Cancelled => write!(f, "setup was cancelled"),
+            Error::SetupRequired => write!(f, "本地 OCR 模型尚未安装"),
+            Error::Cancelled => write!(f, "设置已取消"),
             Error::RuntimeMissing(m) => write!(f, "{m}"),
             Error::Download(m) => write!(f, "{m}"),
             Error::Server(m) => write!(f, "{m}"),
@@ -363,7 +363,7 @@ impl Manager {
     pub fn bootstrap(&self, external_url: &str) -> Result<(), Error> {
         if !self.runtime_ready() {
             return Err(Error::RuntimeMissing(
-                "the bundled llama.cpp runtime is missing from this build".into(),
+                "此构建缺少内置 llama.cpp 运行时。".into(),
             ));
         }
 
@@ -377,7 +377,7 @@ impl Manager {
                 total: model_total(),
                 bytes_per_sec: 0,
                 eta_secs: Some(0),
-                message: Some("using the existing llama.cpp server".into()),
+                message: Some("正在使用已有的 llama.cpp 服务".into()),
             });
             return Ok(());
         }
@@ -389,7 +389,7 @@ impl Manager {
             total: model_total(),
             bytes_per_sec: 0,
             eta_secs: None,
-            message: Some("loading the local model".into()),
+            message: Some("正在加载本地模型".into()),
         });
         self.start_managed()?;
 
@@ -417,7 +417,7 @@ impl Manager {
             let needed = model_total().saturating_sub(self.model_info().bytes);
             if free < needed + 256 * 1024 * 1024 {
                 return Err(Error::Download(format!(
-                    "not enough disk space: {:.1} GB free, need {:.1} GB",
+                    "磁盘空间不足：剩余 {:.1} GB，需要 {:.1} GB",
                     free as f64 / 1e9,
                     (needed + 256 * 1024 * 1024) as f64 / 1e9
                 )));
@@ -458,7 +458,7 @@ impl Manager {
             if actual != spec.sha256 {
                 let _ = fs::remove_file(&part);
                 return Err(Error::Download(format!(
-                    "{} failed SHA-256 verification (expected {}, got {})",
+                    "{} SHA-256 校验失败（期望 {}，实际 {}）",
                     spec.name, spec.sha256, actual
                 )));
             }
@@ -470,7 +470,7 @@ impl Manager {
         write_marker(&self.paths.models)?;
         let model = self.model_info();
         if !model.installed {
-            return Err(Error::Download("model files are incomplete after download".into()));
+            return Err(Error::Download("下载后模型文件不完整。".into()));
         }
         Ok(model)
     }
@@ -532,7 +532,7 @@ impl Manager {
             }
             Err(err) => {
                 return Err(Error::Download(format!(
-                    "downloading {} failed: {err}",
+                    "下载 {} 失败：{err}",
                     spec.name
                 )))
             }
@@ -572,7 +572,7 @@ impl Manager {
                 return Err(Error::Cancelled);
             }
             let n = reader.read(&mut buf).map_err(|e| {
-                Error::Download(format!("reading {} failed: {e}", spec.name))
+                Error::Download(format!("读取 {} 失败：{e}", spec.name))
             })?;
             if n == 0 {
                 break;
@@ -610,7 +610,7 @@ impl Manager {
 
         if downloaded < spec.bytes {
             return Err(Error::Download(format!(
-                "{} is incomplete ({}/{} bytes) after {:.0}s",
+                "{} 下载不完整（{}/{} 字节，耗时 {:.0} 秒）",
                 spec.name,
                 downloaded,
                 spec.bytes,
@@ -638,7 +638,7 @@ impl Manager {
         }
         if !self.runtime_ready() {
             return Err(Error::RuntimeMissing(
-                "the local llama.cpp runtime is missing; rebuild the app with the bundled runtime"
+                "本地 llama.cpp 运行时缺失；请使用内置运行时的安装包。"
                     .into(),
             ));
         }
@@ -670,7 +670,7 @@ impl Manager {
         self.stop_child();
 
         let exe = self.runtime_executable().ok_or_else(|| {
-            Error::RuntimeMissing("the bundled llama.cpp runtime is missing".into())
+            Error::RuntimeMissing("内置 llama.cpp 运行时缺失。".into())
         })?;
         if !self.model_info().installed {
             return Err(Error::SetupRequired);
@@ -719,7 +719,7 @@ impl Manager {
 
         let child = command.spawn().map_err(|e| {
             Error::Server(format!(
-                "could not start llama-server ({}): {e}",
+                "无法启动 llama-server（{}）：{e}",
                 exe.display()
             ))
         })?;
@@ -757,8 +757,8 @@ impl Manager {
             if let Some(status) = exited {
                 let tail = log_tail(&log_path);
                 let detail = match status {
-                    Some(s) => format!("llama-server exited with {s}"),
-                    None => "llama-server exited".to_string(),
+                    Some(s) => format!("llama-server 已退出：{s}"),
+                    None => "llama-server 已退出".to_string(),
                 };
                 let message = if tail.is_empty() {
                     detail
@@ -783,7 +783,7 @@ impl Manager {
                 self.stop_child();
                 let tail = log_tail(&log_path);
                 let message = format!(
-                    "llama-server did not become ready within 180s{}",
+                    "llama-server 在 180 秒内未就绪{}",
                     if tail.is_empty() {
                         String::new()
                     } else {
@@ -1006,7 +1006,7 @@ fn proxy_from_env() -> Option<ureq::Proxy> {
         }
         match ureq::Proxy::new(value) {
             Ok(proxy) => return Some(proxy),
-            Err(err) => eprintln!("engine: ignoring invalid proxy in {key}: {err}"),
+            Err(err) => eprintln!("引擎：忽略无效的代理配置 {key}：{err}"),
         }
     }
     None

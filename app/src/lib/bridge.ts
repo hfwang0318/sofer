@@ -198,8 +198,8 @@ async function previewCapture() {
   if (!mockInstalled || mockServer !== "online") {
     emitPreview("ocr:phase", { phase: "idle" } satisfies PhasePayload);
     emitPreview("ocr:error", {
-      message: "The local OCR model is not installed yet.",
-      hint: "Use the guided setup to download it once; no manual install needed.",
+      message: "本地 OCR 模型尚未安装。",
+      hint: "打开引导设置，一次下载即可，无需手动安装。",
       code: "setup-required",
     } satisfies OcrError);
     return;
@@ -276,7 +276,7 @@ export async function cancelEngineSetup(): Promise<void> {
     "engine:download",
     mockDownload({
       phase: "cancelled",
-      message: "Download cancelled. Partial files are kept for resume.",
+      message: "下载已取消，已下载的部分会保留，可继续。",
     }),
   );
 }

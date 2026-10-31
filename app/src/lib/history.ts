@@ -42,25 +42,24 @@ export function fromResult(result: OcrResult): HistoryEntry {
 
 export function relativeTime(timestamp: number): string {
   const delta = Date.now() - timestamp;
-  if (delta < 45_000) return "just now";
-  if (delta < 3_600_000) return `${Math.max(1, Math.round(delta / 60_000))} min ago`;
+  if (delta < 45_000) return "刚刚";
+  if (delta < 3_600_000) return `${Math.max(1, Math.round(delta / 60_000))} 分钟前`;
   const date = new Date(timestamp);
   const now = new Date();
   const sameDay =
     date.getFullYear() === now.getFullYear() &&
     date.getMonth() === now.getMonth() &&
     date.getDate() === now.getDate();
-  if (sameDay) {
-    return `Today, ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-  }
-  return date.toLocaleDateString([], { month: "short", day: "numeric" }) +
-    `, ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  const clock = date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  if (sameDay) return `今天 ${clock}`;
+  const day = date.toLocaleDateString("zh-CN", { month: "long", day: "numeric" });
+  return `${day} ${clock}`;
 }
 
 export function duration(ms: number): string {
-  return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`;
+  return ms < 1000 ? `${Math.round(ms)} 毫秒` : `${(ms / 1000).toFixed(1)} 秒`;
 }
 
 export function compactNumber(value: number): string {
-  return new Intl.NumberFormat("en", { notation: "compact" }).format(value);
+  return new Intl.NumberFormat("zh-CN", { notation: "compact" }).format(value);
 }

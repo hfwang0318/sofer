@@ -13,16 +13,16 @@ export function formatSpeed(bytesPerSecond: number): string {
 
 export function formatEta(seconds: number | null): string {
   if (seconds == null) return "";
-  if (seconds <= 0) return "almost done";
-  if (seconds < 60) return `${Math.ceil(seconds)}s left`;
+  if (seconds <= 0) return "即将完成";
+  if (seconds < 60) return `剩余 ${Math.ceil(seconds)} 秒`;
   const minutes = Math.floor(seconds / 60);
   const rest = Math.round(seconds % 60);
-  return `${minutes}m ${rest.toString().padStart(2, "0")}s left`;
+  return `剩余 ${minutes} 分 ${rest.toString().padStart(2, "0")} 秒`;
 }
 
 export function formatPlatform(platform: string): string {
   return platform
-    .replace("macos-aarch64", "macOS · Apple Silicon")
+    .replace("macos-aarch64", "macOS · Apple 芯片")
     .replace("macos-x86_64", "macOS · Intel")
     .replace("windows-x86_64", "Windows · x64")
     .replace("windows-aarch64", "Windows · ARM64");

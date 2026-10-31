@@ -52,7 +52,7 @@ fn save_settings(
     if let Err(err) = shortcuts.register(settings.shortcut.as_str()) {
         let _ = shortcuts.register(old.shortcut.as_str());
         return Err(format!(
-            "Could not register “{}” as a global shortcut: {err}",
+            "无法注册快捷键“{}”：{err}",
             settings.shortcut
         ));
     }
@@ -86,7 +86,7 @@ fn set_shortcut_enabled(
             }
             Err(err) => {
                 state.shortcut_active.store(false, Ordering::SeqCst);
-                Err(format!("Could not re-register “{shortcut}”: {err}"))
+                Err(format!("无法重新注册“{shortcut}”：{err}"))
             }
         }
     } else {
@@ -107,7 +107,7 @@ fn app_info(state: State<'_, AppState>) -> AppInfo {
 fn copy_text(app: AppHandle, text: String) -> Result<(), String> {
     app.clipboard()
         .write_text(text)
-        .map_err(|e| format!("writing the clipboard: {e}"))
+        .map_err(|e| format!("写入剪贴板失败：{e}"))
 }
 
 #[tauri::command]
@@ -215,7 +215,7 @@ async fn start_engine(app: AppHandle) -> Result<engine::Status, String> {
         Ok::<_, String>(status)
     })
     .await
-    .map_err(|e| format!("engine start failed: {e}"))?
+    .map_err(|e| format!("启动引擎失败：{e}"))?
 }
 
 #[tauri::command]
@@ -228,7 +228,7 @@ async fn remove_model(app: AppHandle) -> Result<(), String> {
     let manager = app.state::<Arc<EngineManager>>().inner().clone();
     tauri::async_runtime::spawn_blocking(move || manager.remove_model().map_err(|e| e.to_string()))
         .await
-        .map_err(|e| format!("remove model failed: {e}"))?
+        .map_err(|e| format!("移除模型失败：{e}"))?
 }
 
 /// One-click setup: download both files (resuming), verify SHA-256, start the
@@ -249,7 +249,7 @@ fn setup_engine(app: AppHandle) -> Result<(), String> {
                 emit_download_phase(
                     &app,
                     "cancelled",
-                    Some("Download cancelled. Partial files are kept for resume."),
+                    Some("下载已取消，已下载的部分会保留，可继续。"),
                 );
             }
             Err(err) => {
@@ -278,7 +278,7 @@ async fn engine_status(app: AppHandle) -> Result<engine::Status, String> {
         status
     })
     .await
-    .map_err(|e| format!("engine check failed: {e}"))
+    .map_err(|e| format!("引擎检测失败：{e}"))
 }
 
 fn autostart_engine(app: &AppHandle) {
@@ -302,16 +302,16 @@ fn autostart_engine(app: &AppHandle) {
 // ---------------------------------------------------------------------------
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let capture_item = MenuItem::with_id(app, "capture", "Capture region", true, None::<&str>)?;
-    let show_item = MenuItem::with_id(app, "show", "Open ocr4code", true, None::<&str>)?;
+    let capture_item = MenuItem::with_id(app, "capture", "截取区域", true, None::<&str>)?;
+    let show_item = MenuItem::with_id(app, "show", "打开 ocr4code", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
-    let quit_item = MenuItem::with_id(app, "quit", "Quit ocr4code", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "退出 ocr4code", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&capture_item, &show_item, &separator, &quit_item])?;
 
     let mut builder = TrayIconBuilder::with_id("main-tray")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .tooltip("ocr4code — screenshot to clipboard")
+        .tooltip("ocr4code — 截图转文字")
         .on_menu_event(|app, event| match event.id.as_ref() {
             "capture" => capture::start(app.clone()),
             "show" => capture::show_main(app),
