@@ -52,6 +52,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "app/src-tauri -> target"
@@ -64,6 +68,25 @@ jobs:
       - name: Type-check and build frontend
         working-directory: app
         run: pnpm build
+
+      # The Tauri build script validates the platform resource path even for
+      # `cargo test`, so the (gitignored) bundled runtime must exist.
+      - name: Cache llama.cpp runtime
+        uses: actions/cache@v4
+        with:
+          path: app/src-tauri/runtime
+          key: llama-runtime-${{ runner.os }}-${{ hashFiles('app/scripts/fetch-runtime.py') }}
+
+      - name: Fetch bundled llama.cpp runtime
+        working-directory: app
+        shell: bash
+        run: |
+          platform="${{ runner.os == 'macOS' && 'macos-arm64' || 'windows-x64' }}"
+          if [ -f "src-tauri/runtime/$platform/VERSION" ]; then
+            echo "runtime restored from cache: $platform"
+          else
+            python scripts/fetch-runtime.py
+          fi
 
       # The desktop crate is not a workspace member, so the root job does not
       # compile or test it.
