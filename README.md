@@ -52,7 +52,7 @@
 
 ```bash
 cargo build --release        # 产物 target/release/ocr4code（约 4 MB）
-cargo test                   # 29 单元 + 5 集成
+cargo test                   # 34 单元 + 5 集成
 ```
 
 ### 2.2 启动主力引擎（llama.cpp + GLM-OCR）
@@ -298,7 +298,7 @@ tesseract 是纯 CPU，可以直接开到核数。4K 那张只有 1.5× 提升�
 ## 6. 测试与基线
 
 ```bash
-cargo test                        # 29 单元 + 5 集成
+cargo test                        # 34 单元 + 5 集成
 python3 bench/scenes.py           # 20 个合成场景
 python3 bench/scenes2.py          # 复杂场景（双栏、图标、嵌套 diff…）
 python3 bench/scenes3.py          # 极端几何（小图 / 4K / 19:1 / 1:11）

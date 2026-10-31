@@ -347,7 +347,7 @@ Windows 自绘浮层和 GDI 抓屏已随 v0.1.5 发布，并在实际 Windows �
 
 ```bash
 cargo test                       # 根 crate: 34 unit + 5 integration
-cd app/src-tauri && cargo test   # 桌面层: 12 tests（manifest/校验/断点续传/设置/快捷键形状）
+cd app/src-tauri && cargo test   # 桌面层: 24 tests（manifest/校验/断点续传/设置/快捷键形状/截图判空）
 cd app && pnpm build             # tsc + vite，通过
 cd app && pnpm tauri build --no-bundle
 ```

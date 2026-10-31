@@ -62,7 +62,7 @@ CHANGELOG.md         桌面端 v0.1.0–v0.1.10 变更记录
 
 **必须同时验证三样东西**，缺一不可：
 
-1. `cargo test`（29 单元 + 5 集成）
+1. `cargo test`（34 单元 + 5 集成）
 2. **合成场景的 mock 基线**：26 个场景 `indent_exact` 应 ≈ 1.00
 3. **两张真机截图**（`real-editor-code` / `real-editor-term`）：同样是 1.00
 
@@ -189,12 +189,13 @@ done
 - [ ] 四个变体基线跑完，达到 §5 的判据
 - [ ] `huge-4k` 手工 smoke（`--stats` 看 `tiling:` 与 `warning:`）
 - [ ] `README.md` / `docs/baseline.md` 数字已同步
-- [ ] Windows CI（`.github/workflows/ci.yml`）绿
+- [ ] CI（`.github/workflows/ci.yml`，macOS + Windows）绿
 
 ### 桌面端 / Windows Release
 
-- [ ] `cd app/src-tauri && cargo test`（12 tests）
+- [ ] `cd app/src-tauri && cargo test`（24 tests）
 - [ ] `cd app && pnpm build` 通过
+- [ ] app CI（`.github/workflows/ci.yml` 的 `app` job，macOS + Windows）绿
 - [ ] 更新 `.github/workflows/release.yml` 的版本/tag（或 workflow_dispatch）
 - [ ] GitHub Secrets 已配置 `TAURI_SIGNING_PRIVATE_KEY` 与
       `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
