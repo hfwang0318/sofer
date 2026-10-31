@@ -29,3 +29,44 @@ jobs:
       - name: doctor
         shell: bash
         run: ./target/release/ocr4code doctor || true
+
+  app:
+    name: app (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "app/src-tauri -> target"
+
+      - name: Install frontend dependencies
+        working-directory: app
+        run: pnpm install --frozen-lockfile
+
+      # Includes `tsc --noEmit` (strict + noUnused*) and the Vite build.
+      - name: Type-check and build frontend
+        working-directory: app
+        run: pnpm build
+
+      # The desktop crate is not a workspace member, so the root job does not
+      # compile or test it.
+      - name: Test desktop backend
+        working-directory: app/src-tauri
+        run: cargo test
