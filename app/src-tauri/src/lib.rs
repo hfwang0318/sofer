@@ -31,6 +31,7 @@ use settings::{AppState, Settings};
 struct AppInfo {
     shortcut_active: bool,
     shortcut: String,
+    version: String,
 }
 
 #[tauri::command]
@@ -103,6 +104,7 @@ fn app_info(state: State<'_, AppState>) -> AppInfo {
     AppInfo {
         shortcut_active: state.shortcut_active.load(Ordering::SeqCst),
         shortcut: state.settings.lock().unwrap().shortcut.clone(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
     }
 }
 
@@ -358,6 +360,8 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             capture::show_main(app);
         }))

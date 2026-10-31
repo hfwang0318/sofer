@@ -7,6 +7,7 @@ import { engineForMode } from "../lib/status";
 import { setShortcutEnabled } from "../lib/bridge";
 import { formatBytes, formatEta, formatSpeed } from "../lib/format";
 import { isMac } from "../lib/platform";
+import type { AvailableUpdate, UpdatePhase } from "../lib/updater";
 import type {
   DownloadProgress,
   EngineStatus,
@@ -19,6 +20,14 @@ interface SettingsViewProps {
   status: EngineStatus | null;
   download: DownloadProgress | null;
   engineBusy: "start" | "stop" | "remove" | null;
+  appVersion: string;
+  updateInfo: AvailableUpdate | null;
+  updatePhase: UpdatePhase;
+  updateProgress: number;
+  updateError: string | null;
+  onCheckUpdates: () => void;
+  onDownloadUpdate: () => void;
+  onInstallUpdate: () => void;
   onSave: (draft: Settings) => Promise<void>;
   onTestEngine: () => Promise<EngineStatus>;
   onNotify: (tone: ToastTone, title: string, detail?: string) => void;
@@ -300,6 +309,14 @@ export function SettingsView({
   status,
   download,
   engineBusy,
+  appVersion,
+  updateInfo,
+  updatePhase,
+  updateProgress,
+  updateError,
+  onCheckUpdates,
+  onDownloadUpdate,
+  onInstallUpdate,
   onSave,
   onTestEngine,
   onNotify,
@@ -444,7 +461,7 @@ export function SettingsView({
               桌面层暴露的全部内核参数。更改会应用于下一次截图，OCR 内核本身保持不变。
             </p>
           </div>
-          <span className="settings-version">ocr4code 0.1.7</span>
+          <span className="settings-version">ocr4code {appVersion || "—"}</span>
         </header>
 
         <Section
@@ -872,9 +889,95 @@ export function SettingsView({
         </Section>
 
         <Section
+          title="更新"
+          description="从 GitHub Releases 检查新版本；下载完成后重启安装。"
+          meta={<span className="settings-version">当前 {appVersion || "—"}</span>}
+        >
+          <SettingRow
+            title="启动时检查更新"
+            description="后台检查新版本；发现后提示，不打断当前截图。"
+          >
+            <Switch
+              checked={draft.autoCheckUpdates}
+              onChange={(autoCheckUpdates) => update("autoCheckUpdates", autoCheckUpdates)}
+              label="启动时检查更新"
+            />
+          </SettingRow>
+          <SettingRow
+            title="发现更新后自动下载"
+            description="在后台下载更新包；安装前仍需要你确认重启。"
+          >
+            <Switch
+              checked={draft.autoDownloadUpdates}
+              onChange={(autoDownloadUpdates) =>
+                update("autoDownloadUpdates", autoDownloadUpdates)
+              }
+              label="发现更新后自动下载"
+            />
+          </SettingRow>
+          <SettingRow
+            title="检查更新"
+            description={
+              updatePhase === "checking"
+                ? "正在检查 GitHub Releases…"
+                : updatePhase === "current"
+                  ? "已是最新版本。"
+                  : updatePhase === "available" && updateInfo
+                    ? `发现 v${updateInfo.version}，可以下载。`
+                    : updatePhase === "downloading" && updateInfo
+                      ? `正在下载 v${updateInfo.version}…`
+                      : updatePhase === "ready" && updateInfo
+                        ? `v${updateInfo.version} 已下载，重启后安装。`
+                        : updatePhase === "installing"
+                          ? "正在启动安装程序…"
+                          : updatePhase === "error"
+                            ? "更新失败，请重试或查看下方错误。"
+                            : "尚未检查。"
+            }
+          >
+            <div className="update-actions">
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={onCheckUpdates}
+                disabled={
+                  updatePhase === "checking" ||
+                  updatePhase === "downloading" ||
+                  updatePhase === "installing" ||
+                  updatePhase === "ready"
+                }
+              >
+                {updatePhase === "checking" ? "检查中…" : "检查更新"}
+              </button>
+              {updatePhase === "available" && (
+                <button type="button" className="btn btn-primary btn-sm" onClick={onDownloadUpdate}>
+                  下载更新
+                </button>
+              )}
+              {updatePhase === "ready" && (
+                <button type="button" className="btn btn-primary btn-sm" onClick={onInstallUpdate}>
+                  重启并安装
+                </button>
+              )}
+            </div>
+          </SettingRow>
+          {updatePhase === "downloading" && (
+            <div className="update-progress" role="status">
+              <div className="update-bar">
+                <span style={{ width: `${Math.max(0, Math.min(100, updateProgress))}%` }} />
+              </div>
+              <span>{Math.round(updateProgress)}%</span>
+            </div>
+          )}
+          {updatePhase === "error" && updateError && (
+            <p className="field-error update-error">{updateError}</p>
+          )}
+        </Section>
+
+        <Section
           title="关于"
           description="ocr4code 内核的桌面外壳。"
-          meta={<span className="about-version">v0.1.7</span>}
+          meta={<span className="about-version">v{appVersion || "—"}</span>}
         >
           <div className="about-grid">
             <div>

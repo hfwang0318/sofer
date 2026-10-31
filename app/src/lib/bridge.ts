@@ -260,7 +260,7 @@ export async function saveSettings(settings: Settings): Promise<Settings> {
 
 export async function appInfo(): Promise<AppInfo> {
   if (isTauri) return invoke<AppInfo>("app_info");
-  return { shortcutActive: true, shortcut: DEFAULT_SETTINGS.shortcut };
+  return { shortcutActive: true, shortcut: DEFAULT_SETTINGS.shortcut, version: "0.1.8" };
 }
 
 export async function engineStatus(): Promise<EngineStatus> {

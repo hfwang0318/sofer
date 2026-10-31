@@ -32,6 +32,13 @@ import {
   SETUP_DISMISSED_KEY,
 } from "./lib/defaults";
 import { fromResult, loadHistory, saveHistory } from "./lib/history";
+import {
+  checkForUpdate,
+  downloadUpdate,
+  installUpdate,
+  type AvailableUpdate,
+  type UpdatePhase,
+} from "./lib/updater";
 import { isPreview, isTauri } from "./lib/platform";
 import type {
   DownloadProgress,
@@ -90,6 +97,12 @@ export default function App() {
   const [setupOpen, setSetupOpen] = useState(false);
   const [setupDismissed, setSetupDismissed] = useState(initialDismissed);
   const [engineBusy, setEngineBusy] = useState<"start" | "stop" | "remove" | null>(null);
+  const [appVersion, setAppVersion] = useState("");
+  const [updateInfo, setUpdateInfo] = useState<AvailableUpdate | null>(null);
+  const [updatePhase, setUpdatePhase] = useState<UpdatePhase>("idle");
+  const [updateProgress, setUpdateProgress] = useState(0);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const updateBusy = useRef(false);
 
   const toastId = useRef(0);
   const copiedTimer = useRef<number | null>(null);
@@ -127,6 +140,108 @@ export default function App() {
     }
   }, []);
 
+  const beginDownloadFor = useCallback(
+    async (next: AvailableUpdate, automatic: boolean) => {
+      setUpdatePhase("downloading");
+      setUpdateProgress(0);
+      setUpdateError(null);
+      try {
+        await downloadUpdate(next.update, setUpdateProgress);
+        setUpdatePhase("ready");
+        pushToast(
+          "ok",
+          `v${next.version} 已下载`,
+          automatic ? "到 设置 → 更新 重启并安装。" : "重启应用后完成安装。",
+        );
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : String(cause);
+        setUpdatePhase("error");
+        setUpdateError(message);
+        if (!automatic) pushToast("error", "更新下载失败", message);
+      }
+    },
+    [pushToast],
+  );
+
+  const checkUpdates = useCallback(
+    async (manual: boolean) => {
+      if (!isTauri || import.meta.env.DEV) {
+        if (manual) {
+          pushToast(
+            "info",
+            "当前不检查更新",
+            isTauri ? "开发模式请使用安装版测试更新。" : "浏览器预览不会检查版本。",
+          );
+        }
+        return;
+      }
+      if (updateBusy.current) return;
+      updateBusy.current = true;
+      setUpdatePhase("checking");
+      setUpdateError(null);
+      try {
+        const next = await checkForUpdate();
+        if (!next) {
+          setUpdatePhase("current");
+          if (manual) {
+            pushToast("ok", "已是最新版本", appVersion ? `当前 v${appVersion}` : undefined);
+          }
+          return;
+        }
+        setUpdateInfo(next);
+        setUpdatePhase("available");
+        setUpdateProgress(0);
+        pushToast("info", `发现新版本 v${next.version}`, "可在 设置 → 更新 下载。");
+        if (settingsRef.current.autoDownloadUpdates) {
+          await beginDownloadFor(next, true);
+        }
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : String(cause);
+        setUpdatePhase("error");
+        setUpdateError(message);
+        if (manual) pushToast("error", "检查更新失败", message);
+      } finally {
+        updateBusy.current = false;
+      }
+    },
+    [appVersion, beginDownloadFor, pushToast],
+  );
+
+  const downloadNow = useCallback(async () => {
+    if (!updateInfo || updateBusy.current) return;
+    updateBusy.current = true;
+    try {
+      await beginDownloadFor(updateInfo, false);
+    } finally {
+      updateBusy.current = false;
+    }
+  }, [beginDownloadFor, updateInfo]);
+
+  const installNow = useCallback(async () => {
+    if (!updateInfo || updateBusy.current) return;
+    updateBusy.current = true;
+    setUpdatePhase("installing");
+    setUpdateError(null);
+    try {
+      await installUpdate(updateInfo.update);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setUpdatePhase("error");
+      setUpdateError(message);
+      pushToast("error", "更新安装失败", message);
+    } finally {
+      updateBusy.current = false;
+    }
+  }, [pushToast, updateInfo]);
+
+  useEffect(() => {
+    if (!isTauri || !settings.autoCheckUpdates) return;
+    const timer = window.setTimeout(() => {
+      void checkUpdates(false);
+    }, 4000);
+    return () => window.clearTimeout(timer);
+  }, [checkUpdates, settings.autoCheckUpdates]);
+
   const addHistory = useCallback((next: OcrResult) => {
     setHistory((current) => {
       const limit = settingsRef.current.historyLimit || 20;
@@ -154,6 +269,7 @@ export default function App() {
         setSettings(loaded);
         setStatus(engine);
         setShortcutActive(info.shortcutActive);
+        setAppVersion(info.version);
         if (!info.shortcutActive) {
           pushToast(
             "error",
@@ -578,6 +694,14 @@ export default function App() {
                 status={status}
                 download={download}
                 engineBusy={engineBusy}
+                appVersion={appVersion}
+                updateInfo={updateInfo}
+                updatePhase={updatePhase}
+                updateProgress={updateProgress}
+                updateError={updateError}
+                onCheckUpdates={() => void checkUpdates(true)}
+                onDownloadUpdate={() => void downloadNow()}
+                onInstallUpdate={() => void installNow()}
                 onSave={handleSaveSettings}
                 onTestEngine={handleTestEngine}
                 onNotify={pushToast}

@@ -8,7 +8,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 校验 SHA-256、启动引擎。之后完全离线。
 
 > Windows 预览版安装包：
-> <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.7>
+> <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.8>
 > 由 GitHub Actions 的 `windows-latest` 构建 NSIS 安装器。
 
 | 首启向导 | 模型下载 |
@@ -81,8 +81,18 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 | 历史 | 最近 N 条结果留在本机 `localStorage`，可复制/删除/清空 |
 | 深色玻璃 | 无边框窗口 + macOS `NSVisualEffectView` / Windows Acrylic + CSS 半透明层 |
 | 托盘常驻 | 关闭窗口只隐藏；托盘可截图、打开窗口、退出 |
+| 更新 | 启动时自动检查 GitHub Releases；签名校验；下载后重启安装 |
 
-刻意没做：开机自启、自动更新、多图批量、自定义框选 overlay、云同步、账号。
+刻意没做：开机自启、多图批量、云同步、账号、跨屏框选。
+
+### 自动更新
+
+应用通过 Tauri Updater 检查 GitHub Releases 的 `latest.json`：
+
+- 默认启动 4 秒后检查；可在 **设置 → 更新** 关闭
+- 发现新版本后默认自动下载；安装前仍需点击「重启并安装」
+- 更新包使用 Tauri/minisign 公钥校验；私钥只存在于 GitHub Actions Secrets
+- 首次支持更新的版本是 v0.1.8，更早版本需要手动安装一次
 
 ---
 

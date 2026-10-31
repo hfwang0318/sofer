@@ -26,6 +26,8 @@ pub struct Settings {
     pub download_proxy: String,
     pub model_base: String,
     pub ui_scale: f64,
+    pub auto_check_updates: bool,
+    pub auto_download_updates: bool,
 
     // kernel: engine
     pub engine: EngineMode,
@@ -56,6 +58,8 @@ impl Default for Settings {
             download_proxy: String::new(),
             model_base: String::new(),
             ui_scale: 1.15,
+            auto_check_updates: true,
+            auto_download_updates: true,
             engine: EngineMode::Auto,
             llama_url: llamacpp::default_url(),
             prompt: llamacpp::DEFAULT_PROMPT.into(),

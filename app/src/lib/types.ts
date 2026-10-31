@@ -11,6 +11,8 @@ export interface Settings {
   downloadProxy: string;
   modelBase: string;
   uiScale: number;
+  autoCheckUpdates: boolean;
+  autoDownloadUpdates: boolean;
   engine: EngineMode;
   llamaUrl: string;
   prompt: string;
@@ -89,6 +91,7 @@ export interface DownloadProgress {
 export interface AppInfo {
   shortcutActive: boolean;
   shortcut: string;
+  version: string;
 }
 
 /** Mirrors `OcrResult` in src-tauri/src/capture.rs. */
