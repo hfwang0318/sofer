@@ -21,6 +21,10 @@ pub struct Settings {
     pub auto_copy: bool,
     pub history_limit: u32,
 
+    // model download
+    pub download_proxy: String,
+    pub model_base: String,
+
     // kernel: engine
     pub engine: EngineMode,
     pub llama_url: String,
@@ -47,6 +51,8 @@ impl Default for Settings {
             shortcut: "CommandOrControl+Shift+2".into(),
             auto_copy: true,
             history_limit: 20,
+            download_proxy: String::new(),
+            model_base: String::new(),
             engine: EngineMode::Auto,
             llama_url: llamacpp::default_url(),
             prompt: llamacpp::DEFAULT_PROMPT.into(),
@@ -155,6 +161,21 @@ pub fn validate(settings: &Settings) -> Result<(), String> {
     if settings.tess_lang.trim().is_empty() {
         return Err("Tesseract 语言不能为空（例如 eng）。".into());
     }
+    let proxy = settings.download_proxy.trim();
+    if !proxy.is_empty() {
+        if !proxy.starts_with("http://") {
+            return Err("下载代理必须以 http:// 开头。".into());
+        }
+        ureq::Proxy::new(proxy).map_err(|e| format!("下载代理地址无效：{e}"))?;
+    }
+    let model_base = settings.model_base.trim();
+    if !model_base.is_empty()
+        && !model_base.starts_with("http://")
+        && !model_base.starts_with("https://")
+    {
+        return Err("模型镜像必须以 http:// 或 https:// 开头。".into());
+    }
+
     let url = settings.llama_url.trim();
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err("llama.cpp 地址必须以 http:// 或 https:// 开头。".into());
@@ -181,6 +202,27 @@ mod tests {
     }
 
     #[test]
+    fn download_overrides_are_validated() {
+        let mut settings = Settings::default();
+        settings.download_proxy = "http://127.0.0.1:7890".into();
+        settings.model_base =
+            "https://hf-mirror.com/ggml-org/GLM-OCR-GGUF/resolve/abc".into();
+        validate(&settings).unwrap();
+        settings.download_proxy = "127.0.0.1:7890".into();
+        assert!(validate(&settings).is_err());
+        settings.download_proxy.clear();
+        settings.model_base = "ftp://mirror.example/models".into();
+        assert!(validate(&settings).is_err());
+    }
+
+    #[test]
+    fn old_settings_without_download_fields_still_load() {
+        let settings: Settings = serde_json::from_str(r#"{"shortcut":"CommandOrControl+Shift+2"}"#).unwrap();
+        assert_eq!(settings.download_proxy, "");
+        assert_eq!(settings.model_base, "");
+    }
+
+    #[test]
     fn settings_round_trip_as_camel_case() {
         let settings = Settings::default();
         let json = serde_json::to_string(&settings).unwrap();
@@ -188,6 +230,8 @@ mod tests {
 
         assert!(json.contains("\"maxTokens\""));
         assert!(json.contains("\"autoCopy\""));
+        assert!(json.contains("\"downloadProxy\""));
+        assert!(json.contains("\"modelBase\""));
         assert_eq!(parsed.shortcut, settings.shortcut);
         assert_eq!(parsed.engine, settings.engine);
         assert_eq!(parsed.format, settings.format);

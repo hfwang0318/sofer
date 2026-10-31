@@ -241,9 +241,14 @@ fn setup_engine(app: AppHandle) -> Result<(), String> {
     }
     manager.reset_cancel();
     let url = current_engine_url(&app);
+    let settings = app.state::<AppState>().settings.lock().unwrap().clone();
+    let options = engine::DownloadOptions {
+        model_base: Some(settings.model_base),
+        proxy: Some(settings.download_proxy),
+    };
 
     std::thread::spawn(move || {
-        match manager.bootstrap(&url) {
+        match manager.bootstrap(&url, &options) {
             Ok(()) => {}
             Err(engine::Error::Cancelled) => {
                 emit_download_phase(

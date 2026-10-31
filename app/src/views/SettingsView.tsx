@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { Icon } from "../components/Icon";
 import { Keycaps, Segmented, SettingRow, ShortcutRecorder, Switch } from "../components/Controls";
-import { DEFAULT_PROMPT, DEFAULT_SETTINGS } from "../lib/defaults";
+import { DEFAULT_PROMPT, DEFAULT_SETTINGS, HF_MIRROR_BASE } from "../lib/defaults";
 import { engineForMode } from "../lib/status";
 import { setShortcutEnabled } from "../lib/bridge";
 import { formatBytes, formatEta, formatSpeed } from "../lib/format";
@@ -325,6 +325,7 @@ export function SettingsView({
 
   const dirty = !sameSettings(draft, baseline);
   const engine = engineForMode(status, draft.engine);
+  const useHfMirror = draft.modelBase.trim() === HF_MIRROR_BASE;
 
   const handleRecordingChange = useCallback(
     (recording: boolean) => {
@@ -343,6 +344,14 @@ export function SettingsView({
     !draft.llamaUrl.trim() || !/^https?:\/\//i.test(draft.llamaUrl.trim())
       ? "请输入完整的 http:// 或 https:// 地址。"
       : null;
+  const proxyError =
+    draft.downloadProxy.trim() && !/^http:\/\//i.test(draft.downloadProxy.trim())
+      ? "下载代理必须以 http:// 开头。"
+      : null;
+  const mirrorError =
+    draft.modelBase.trim() && !/^https?:\/\//i.test(draft.modelBase.trim())
+      ? "模型镜像必须以 http:// 或 https:// 开头。"
+      : null;
   const promptError = draft.prompt.trim() ? null : "提示词不能为空。";
   const langError = draft.tessLang.trim() ? null : "例如 `eng` 或 `eng+chi_sim`。";
   const fenceError =
@@ -351,6 +360,8 @@ export function SettingsView({
       : null;
   const valid =
     !urlError &&
+    !proxyError &&
+    !mirrorError &&
     !promptError &&
     !fenceError &&
     (draft.engine === "llamacpp" || !langError) &&
@@ -434,7 +445,7 @@ export function SettingsView({
               桌面层暴露的全部内核参数。更改会应用于下一次截图，OCR 内核本身保持不变。
             </p>
           </div>
-          <span className="settings-version">ocr4code 0.1.1</span>
+          <span className="settings-version">ocr4code 0.1.2</span>
         </header>
 
         <Section
@@ -499,6 +510,72 @@ export function SettingsView({
               onCancelSetup={onCancelSetup}
             />
           )}
+          <SettingRow
+            title="模型下载"
+            description="首次下载 1.43 GB 模型时使用；保存后对下一次下载生效。"
+            stack
+          >
+            <div className="field-grid">
+              <Field
+                label="下载代理（可选）"
+                error={proxyError}
+                hint="HTTP 代理，例如 http://127.0.0.1:7890。留空则读取 HTTPS_PROXY / HTTP_PROXY / ALL_PROXY；本地服务不走代理。"
+                full
+                action={
+                  draft.downloadProxy ? (
+                    <button
+                      type="button"
+                      className="link-btn"
+                      onClick={() => update("downloadProxy", "")}
+                    >
+                      清除
+                    </button>
+                  ) : undefined
+                }
+              >
+                <input
+                  className="input mono"
+                  type="text"
+                  value={draft.downloadProxy}
+                  placeholder="http://127.0.0.1:7890"
+                  spellCheck={false}
+                  autoComplete="off"
+                  aria-label="下载代理"
+                  aria-invalid={Boolean(proxyError)}
+                  onChange={(event) => update("downloadProxy", event.target.value)}
+                />
+              </Field>
+              <Field
+                label="模型镜像（可选）"
+                error={mirrorError}
+                hint="需包含 resolve 路径；留空则跟随 OCR4CODE_MODEL_BASE，再退回 Hugging Face 官方源。"
+                full
+                action={
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={() =>
+                      update("modelBase", useHfMirror ? "" : HF_MIRROR_BASE)
+                    }
+                  >
+                    {useHfMirror ? "使用官方源" : "填入 hf-mirror.com"}
+                  </button>
+                }
+              >
+                <input
+                  className="input mono"
+                  type="url"
+                  value={draft.modelBase}
+                  placeholder={HF_MIRROR_BASE}
+                  spellCheck={false}
+                  autoComplete="off"
+                  aria-label="模型镜像地址"
+                  aria-invalid={Boolean(mirrorError)}
+                  onChange={(event) => update("modelBase", event.target.value)}
+                />
+              </Field>
+            </div>
+          </SettingRow>
           <SettingRow
             title="识别引擎"
             description={
@@ -788,7 +865,7 @@ export function SettingsView({
         <Section
           title="关于"
           description="ocr4code 内核的桌面外壳。"
-          meta={<span className="about-version">v0.1.1</span>}
+          meta={<span className="about-version">v0.1.2</span>}
         >
           <div className="about-grid">
             <div>

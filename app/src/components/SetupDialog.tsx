@@ -251,6 +251,13 @@ export function SetupDialog({
               <Icon name="alert" size={16} />
               <span>{download?.message ?? "未知的设置错误。"}</span>
             </div>
+            <p className="setup-note">
+              <Icon name="info" size={13} />
+              连接失败？可在设置 → 引擎 → 模型下载中填写镜像或代理。
+              <button type="button" className="link-btn" onClick={onOpenSettings}>
+                配置下载
+              </button>
+            </p>
             <div className="setup-actions">
               <button
                 ref={primaryRef}

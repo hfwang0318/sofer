@@ -59,7 +59,7 @@ fn main() {
             let status = manager.status("http://127.0.0.1:8099");
             println!("{}", serde_json::to_string_pretty(&status).unwrap());
         }
-        "download" => match manager.ensure_model() {
+        "download" => match manager.ensure_model(&Default::default()) {
             Ok(model) => println!(
                 "model ready: {} MB verified={} at {}",
                 model.bytes / 1_000_000,
@@ -71,7 +71,7 @@ fn main() {
                 std::process::exit(1);
             }
         },
-        "bootstrap" => match manager.bootstrap("") {
+        "bootstrap" => match manager.bootstrap("", &Default::default()) {
             Ok(()) => println!("bootstrap complete: model verified + server ready"),
             Err(err) => {
                 eprintln!("bootstrap failed: {err}");

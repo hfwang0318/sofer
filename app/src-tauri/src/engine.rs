@@ -51,13 +51,32 @@ pub const MODEL_FILES: [ModelFile; 2] = [
     },
 ];
 
+/// Download overrides from the settings page. `None`/empty falls back to the
+/// matching environment variable, then to the official source.
+#[derive(Debug, Clone, Default)]
+pub struct DownloadOptions {
+    pub model_base: Option<String>,
+    pub proxy: Option<String>,
+}
+
 pub fn model_url(name: &str) -> String {
+    model_url_with_base(name, None)
+}
+
+fn model_url_with_base(name: &str, override_base: Option<&str>) -> String {
     // Escape hatch for an internal mirror / offline staging server. The base
     // must include the resolve path, e.g.
     // https://mirror.example/ggml-org/GLM-OCR-GGUF/resolve/<revision>
-    let base = std::env::var("OCR4CODE_MODEL_BASE")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
+    let base = override_base
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            std::env::var("OCR4CODE_MODEL_BASE")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        })
         .unwrap_or_else(|| HF_BASE.to_string());
     format!("{}/{}", base.trim_end_matches('/'), name)
 }
@@ -360,14 +379,14 @@ impl Manager {
 
     /// Download both weights (resuming partial files), verify them, then start the
     /// bundled server. Emits progress at every phase.
-    pub fn bootstrap(&self, external_url: &str) -> Result<(), Error> {
+    pub fn bootstrap(&self, external_url: &str, options: &DownloadOptions) -> Result<(), Error> {
         if !self.runtime_ready() {
             return Err(Error::RuntimeMissing(
                 "此构建缺少内置 llama.cpp 运行时。".into(),
             ));
         }
 
-        self.ensure_model()?;
+        self.ensure_model(options)?;
 
         if health_ok(external_url, Duration::from_millis(600)) {
             self.emit_download(DownloadProgress {
@@ -405,7 +424,7 @@ impl Manager {
         Ok(())
     }
 
-    pub fn ensure_model(&self) -> Result<ModelInfo, Error> {
+    pub fn ensure_model(&self, options: &DownloadOptions) -> Result<ModelInfo, Error> {
         let _guard = self.download_lock.lock().unwrap();
         fs::create_dir_all(&self.paths.models).map_err(io_err)?;
 
@@ -451,7 +470,7 @@ impl Manager {
                 }
             }
 
-            self.download_file(spec, &part, completed, total)?;
+            self.download_file(spec, &part, completed, total, options)?;
 
             self.emit_verifying(completed + spec.bytes, total, spec.name);
             let actual = sha256_file(&part)?;
@@ -493,11 +512,21 @@ impl Manager {
         part: &Path,
         completed_before: u64,
         total: u64,
+        options: &DownloadOptions,
     ) -> Result<(), Error> {
-        let url = model_url(spec.name);
-        self.download_file_from(&url, spec, part, completed_before, total)
+        let url = model_url_with_base(spec.name, options.model_base.as_deref());
+        self.download_file_from_with(
+            &url,
+            spec,
+            part,
+            completed_before,
+            total,
+            options.proxy.as_deref(),
+        )
     }
 
+    /// Test/helper entry point without a settings override.
+    #[cfg(test)]
     fn download_file_from(
         &self,
         url: &str,
@@ -505,6 +534,18 @@ impl Manager {
         part: &Path,
         completed_before: u64,
         total: u64,
+    ) -> Result<(), Error> {
+        self.download_file_from_with(url, spec, part, completed_before, total, None)
+    }
+
+    fn download_file_from_with(
+        &self,
+        url: &str,
+        spec: ModelFile,
+        part: &Path,
+        completed_before: u64,
+        total: u64,
+        proxy_override: Option<&str>,
     ) -> Result<(), Error> {
         let mut offset = fs::metadata(part).map(|m| m.len()).unwrap_or(0);
         if offset > spec.bytes {
@@ -516,7 +557,7 @@ impl Manager {
             .timeout_connect(Duration::from_secs(20))
             .timeout_read(Duration::from_secs(60))
             .user_agent(concat!("ocr4code/", env!("CARGO_PKG_VERSION")));
-        if let Some(proxy) = proxy_for_url(url) {
+        if let Some(proxy) = proxy_for_url(url, proxy_override) {
             agent_builder = agent_builder.proxy(proxy);
         }
         let agent = agent_builder.build();
@@ -980,10 +1021,19 @@ pub fn health_ok(url: &str, timeout: Duration) -> bool {
 /// Many developer machines reach Hugging Face through a local proxy. `ureq`
 /// does not read the conventional environment variables itself, so honour them
 /// for the download path only (local health checks stay direct).
-fn proxy_for_url(url: &str) -> Option<ureq::Proxy> {
+fn proxy_for_url(url: &str, override_proxy: Option<&str>) -> Option<ureq::Proxy> {
     let lower = url.to_lowercase();
     if lower.contains("://127.0.0.1") || lower.contains("://localhost") || lower.contains("://[::1]") {
         return None;
+    }
+    if let Some(value) = override_proxy
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        match ureq::Proxy::new(value) {
+            Ok(proxy) => return Some(proxy),
+            Err(err) => eprintln!("引擎：忽略无效的下载代理：{err}"),
+        }
     }
     proxy_from_env()
 }
@@ -1114,6 +1164,14 @@ mod tests {
     fn manifest_sizes_match_total() {
         assert_eq!(model_total(), MODEL_TOTAL_BYTES);
         assert!(MODEL_FILES.iter().all(|f| f.bytes > 0 && f.sha256.len() == 64));
+    }
+
+    #[test]
+    fn model_url_honours_the_settings_override() {
+        assert_eq!(
+            model_url_with_base("a.gguf", Some("https://mirror.example/base/")),
+            "https://mirror.example/base/a.gguf"
+        );
     }
 
     #[test]

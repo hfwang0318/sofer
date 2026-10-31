@@ -4,20 +4,20 @@
 Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，不复制管线逻辑。
 
 **用户安装后不需要装 llama.cpp，也不需要手动下载文件。**
-安装包自带推理运行时；首次启动只需点一次「Download & set up」，应用会自动下载模型、
+安装包自带推理运行时；首次启动只需点一次「下载并配置」，应用会自动下载模型、
 校验 SHA-256、启动引擎。之后完全离线。
 
 > Windows 预览版安装包：
-> <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.1>
+> <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.2>
 > 由 GitHub Actions 的 `windows-latest` 构建 NSIS 安装器。
 
 | 首启向导 | 模型下载 |
 |---|---|
-| ![One-click setup](docs/setup-idle.png) | ![Download progress](docs/setup-progress.png) |
+| ![首次设置](docs/setup-idle.png) | ![模型下载](docs/setup-progress.png) |
 
-| 识别结果 | 本地引擎设置 |
+| 识别结果 | 下载代理 / 镜像 |
 |---|---|
-| ![Capture result](docs/capture-result.png) | ![Local engine](docs/settings-engine.png) |
+| ![识别结果](docs/capture-result.png) | ![下载设置](docs/settings-download.png) |
 
 实际 macOS 窗口（无边框玻璃材质）：
 [识图](docs/capture-window.png) · [首启向导（干净机器）](docs/setup-native.png) · [已有 tesseract 时的首启横幅](docs/setup-banner-native.png)
@@ -45,7 +45,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
   └─ 首启向导：llama.cpp 运行时 ✓（已内置）
                  GLM-OCR 模型 ✗（1.43 GB）
         │
-        └─ 点击「Download & set up」
+        └─ 点击「下载并配置」
               ├─ 下载两个文件（断点续传）
               ├─ SHA-256 校验
               ├─ 启动内置 llama-server（自动选端口、健康检查）
@@ -223,15 +223,22 @@ cargo run --example engine_probe -- download
 cargo run --example engine_probe -- start
 ```
 
-### 代理
+### 下载代理与镜像
 
-模型下载会读取 `HTTPS_PROXY` / `https_proxy` / `ALL_PROXY` / `HTTP_PROXY`。
-本地健康检查（`127.0.0.1`）不走代理。Finder 启动的 App 可能不继承 shell 环境变量，
-这种情况下需要在系统级配置代理，或用命令行启动应用。
+在 **设置 → 引擎 → 模型下载** 中可以直接填写：
 
-如果使用内部镜像/离线服务，把 `OCR4CODE_MODEL_BASE` 设为包含 resolve 路径的基址，例如
-`https://mirror.example/ggml-org/GLM-OCR-GGUF/resolve/65a42de...`，文件名与 SHA-256 仍按内置
-manifest 校验。也可以直接把两个 `.gguf` 放进模型目录做离线预置。
+- **下载代理**：HTTP 代理，例如 `http://127.0.0.1:7890`
+- **模型镜像**：包含 `resolve` 路径的基址；也可以点「填入 hf-mirror.com」
+
+保存后对下一次下载生效。本地健康检查（`127.0.0.1`）不走代理。
+
+留空时仍兼容环境变量：`HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY`，以及
+`OCR4CODE_MODEL_BASE`（同样要包含 resolve 路径，例如
+`https://mirror.example/ggml-org/GLM-OCR-GGUF/resolve/65a42de...`）。Finder 启动的 App
+可能不继承 shell 环境变量，此时用界面字段最方便。
+
+镜像上的文件名必须一致，SHA-256 仍按内置 manifest 校验。也可以直接把两个 `.gguf`
+放进模型目录做离线预置。
 
 ---
 

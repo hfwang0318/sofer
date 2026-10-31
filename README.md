@@ -2,7 +2,7 @@
 
 把**代码截图 / 终端输出 / 报错堆栈**转成能直接粘回去的文本。离线运行，macOS + Windows。
 
-> **Windows 预览版安装包**：[GitHub Releases](https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.1)
+> **Windows 预览版安装包**：[GitHub Releases](https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.2)
 > —— 首次启动在应用内一键下载 1.43 GB 模型；安装器自带 llama.cpp 运行时，无需另装。
 
 > 一句话架构：**文本由本地 VLM 给，版面由纯 CV 给**。缩进和列对齐从像素算，不依赖任何单平台的 OCR API，
@@ -351,7 +351,7 @@ standby list，和 macOS 的 mapped file 等价。结论一致：**不要指望�
 | GLM-OCR Q8_0 + mmproj | **1.43 GB** | **应用内一键下载**（断点续传 + SHA-256） |
 | tesseract（可选兜底） | ~50–100 MB | 不强制、不打包；系统装了才用 |
 
-用户首次启动只需点一次 **Download & set up**：应用自动下载两个模型文件、校验、启动
+用户首次启动只需点一次 **下载并配置**：应用自动下载两个模型文件、校验、启动
 `llama-server`，完成后再按快捷键即可。无需安装 llama.cpp、无需手动放模型、无需开服务。
 详细来源/许可见 [app/THIRD_PARTY.md](app/THIRD_PARTY.md)。
 

@@ -8,6 +8,8 @@ export interface Settings {
   shortcut: string;
   autoCopy: boolean;
   historyLimit: number;
+  downloadProxy: string;
+  modelBase: string;
   engine: EngineMode;
   llamaUrl: string;
   prompt: string;
