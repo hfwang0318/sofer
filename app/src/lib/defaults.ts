@@ -14,6 +14,7 @@ export const DEFAULT_SETTINGS: Settings = {
   historyLimit: 20,
   downloadProxy: "",
   modelBase: "",
+  uiScale: 1.15,
   engine: "auto",
   llamaUrl: "http://127.0.0.1:8099",
   prompt: DEFAULT_PROMPT,
@@ -112,7 +113,7 @@ export const DEMO_HISTORY: HistoryEntry[] = [
   historyEntry(
     8 * 60_000,
     `$ cargo test --workspace
-   Compiling ocr4code v0.1.6
+   Compiling ocr4code v0.1.7
     Finished test [unoptimized + debuginfo] target(s)
      Running unittests src/lib.rs
 

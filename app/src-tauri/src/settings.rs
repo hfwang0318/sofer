@@ -25,6 +25,7 @@ pub struct Settings {
     // model download
     pub download_proxy: String,
     pub model_base: String,
+    pub ui_scale: f64,
 
     // kernel: engine
     pub engine: EngineMode,
@@ -54,6 +55,7 @@ impl Default for Settings {
             history_limit: 20,
             download_proxy: String::new(),
             model_base: String::new(),
+            ui_scale: 1.15,
             engine: EngineMode::Auto,
             llama_url: llamacpp::default_url(),
             prompt: llamacpp::DEFAULT_PROMPT.into(),
@@ -178,6 +180,10 @@ pub fn validate(settings: &Settings) -> Result<(), String> {
         return Err("模型镜像必须以 http:// 或 https:// 开头。".into());
     }
 
+    if !(1.0..=1.3).contains(&settings.ui_scale) {
+        return Err("界面缩放应在 100% 到 130% 之间。".into());
+    }
+
     let url = settings.llama_url.trim();
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err("llama.cpp 地址必须以 http:// 或 https:// 开头。".into());
@@ -222,6 +228,7 @@ mod tests {
         let settings: Settings = serde_json::from_str(r#"{"shortcut":"CommandOrControl+Shift+2"}"#).unwrap();
         assert_eq!(settings.download_proxy, "");
         assert_eq!(settings.model_base, "");
+        assert_eq!(settings.ui_scale, 1.15);
     }
 
     #[test]

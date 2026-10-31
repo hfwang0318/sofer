@@ -1,6 +1,6 @@
 [package]
 name = "ocr4code-app"
-version = "0.1.6"
+version = "0.1.7"
 description = "Desktop UI for the ocr4code kernel"
 edition = "2021"
 rust-version = "1.77"
@@ -25,7 +25,7 @@ fs2 = "0.4"
 serde_json = "1"
 window-vibrancy = "0.6"
 base64 = "0.22"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 arboard = "3"
 ocr4code = { path = "../.." }
 

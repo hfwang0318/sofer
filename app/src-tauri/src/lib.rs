@@ -64,6 +64,9 @@ fn save_settings(
 
     state.shortcut_active.store(true, Ordering::SeqCst);
     *state.settings.lock().unwrap() = settings.clone();
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_zoom(settings.ui_scale);
+    }
     Ok(settings)
 }
 
@@ -444,6 +447,7 @@ pub fn run() {
                         eprintln!("window material: {err}");
                     }
                 }
+                let _ = window.set_zoom(loaded.ui_scale.clamp(1.0, 1.3));
                 window.show()?;
             }
 

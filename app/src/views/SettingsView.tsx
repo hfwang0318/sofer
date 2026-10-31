@@ -444,7 +444,7 @@ export function SettingsView({
               桌面层暴露的全部内核参数。更改会应用于下一次截图，OCR 内核本身保持不变。
             </p>
           </div>
-          <span className="settings-version">ocr4code 0.1.6</span>
+          <span className="settings-version">ocr4code 0.1.7</span>
         </header>
 
         <Section
@@ -469,6 +469,27 @@ export function SettingsView({
               checked={draft.autoCopy}
               onChange={(autoCopy) => update("autoCopy", autoCopy)}
               label="自动复制"
+            />
+          </SettingRow>
+        </Section>
+
+        <Section
+          title="界面"
+          description="整体放大字体和控件；窗口尺寸也可以直接拖动。截图内容不受影响。"
+        >
+          <SettingRow
+            title="界面缩放"
+            description="默认 115%。觉得字体小可以调大；放大后窗口里显示的内容会相应减少。"
+          >
+            <Segmented
+              label="界面缩放"
+              value={String(draft.uiScale)}
+              onChange={(value) => update("uiScale", Number(value))}
+              options={[
+                { value: "1", label: "100%" },
+                { value: "1.15", label: "115%" },
+                { value: "1.3", label: "130%" },
+              ]}
             />
           </SettingRow>
         </Section>
@@ -853,7 +874,7 @@ export function SettingsView({
         <Section
           title="关于"
           description="ocr4code 内核的桌面外壳。"
-          meta={<span className="about-version">v0.1.6</span>}
+          meta={<span className="about-version">v0.1.7</span>}
         >
           <div className="about-grid">
             <div>

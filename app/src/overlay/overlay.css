@@ -67,7 +67,7 @@ body,
   border-radius: 5px;
   background: #cbf56c;
   color: #11140d;
-  font: 600 11px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 600 13px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
   white-space: nowrap;
 }
 
@@ -82,7 +82,7 @@ body,
   background: rgba(12, 14, 18, 0.82);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   color: rgba(244, 246, 248, 0.86);
-  font-size: 12px;
+  font-size: 15px;
   letter-spacing: 0.02em;
   pointer-events: none;
   white-space: nowrap;
@@ -102,5 +102,5 @@ body,
   display: grid;
   place-items: center;
   color: rgba(244, 246, 248, 0.7);
-  font-size: 13px;
+  font-size: 15px;
 }

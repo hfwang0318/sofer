@@ -94,7 +94,7 @@ export function Sidebar({
         <Icon name="chevron-down" size={13} className="engine-chevron" />
       </button>
 
-      <p className="sidebar-footnote">v0.1.6 · 完全离线</p>
+      <p className="sidebar-footnote">v0.1.7 · 完全离线</p>
     </aside>
   );
 }

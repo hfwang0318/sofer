@@ -230,12 +230,23 @@ async function previewCapture() {
 // Public bridge
 // ---------------------------------------------------------------------------
 
+function applyBrowserZoom(settings: Settings): void {
+  if (!isTauri) {
+    document.documentElement.style.setProperty("zoom", String(settings.uiScale));
+  }
+}
+
 export async function loadSettings(): Promise<Settings> {
   if (isTauri) return invoke<Settings>("load_settings");
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    return raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : { ...DEFAULT_SETTINGS };
+    const settings = raw
+      ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) }
+      : { ...DEFAULT_SETTINGS };
+    applyBrowserZoom(settings);
+    return settings;
   } catch {
+    applyBrowserZoom(DEFAULT_SETTINGS);
     return { ...DEFAULT_SETTINGS };
   }
 }
@@ -243,6 +254,7 @@ export async function loadSettings(): Promise<Settings> {
 export async function saveSettings(settings: Settings): Promise<Settings> {
   if (isTauri) return invoke<Settings>("save_settings", { settings });
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  applyBrowserZoom(settings);
   return settings;
 }
 

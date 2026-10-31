@@ -13,7 +13,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use image::codecs::jpeg::JpegEncoder;
 use image::{imageops, RgbaImage};
 use tauri::{
     AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
@@ -346,26 +345,26 @@ fn capture_rect(monitor: MonitorRect) -> Result<Frame> {
 }
 
 fn preview_data_url(frame: &Frame) -> Result<String> {
-    let image = RgbaImage::from_raw(frame.width, frame.height, frame.rgba.clone())
+    let mut image = RgbaImage::from_raw(frame.width, frame.height, frame.rgba.clone())
         .ok_or_else(|| anyhow!("截图尺寸不一致"))?;
-    let width = 2400u32.min(frame.width);
-    let height = ((frame.height as u64 * width as u64) / frame.width as u64).max(1) as u32;
-    let preview = if width < frame.width {
-        imageops::resize(&image, width, height, imageops::FilterType::Triangle)
-    } else {
-        image
-    };
-    let rgb = image::DynamicImage::ImageRgba8(preview).to_rgb8();
+    // Keep the preview at native resolution for 4K/5K displays; only very wide
+    // virtual screens are reduced. The crop always uses the untouched frame.
+    const MAX_PREVIEW_WIDTH: u32 = 5120;
+    if image.width() > MAX_PREVIEW_WIDTH {
+        let height = ((image.height() as u64 * MAX_PREVIEW_WIDTH as u64)
+            / image.width() as u64)
+            .max(1) as u32;
+        image = imageops::resize(
+            &image,
+            MAX_PREVIEW_WIDTH,
+            height,
+            imageops::FilterType::Lanczos3,
+        );
+    }
     let mut bytes = Cursor::new(Vec::new());
-    let mut encoder = JpegEncoder::new_with_quality(&mut bytes, 82);
-    encoder.encode(
-        rgb.as_raw(),
-        rgb.width(),
-        rgb.height(),
-        image::ExtendedColorType::Rgb8,
-    )?;
+    image.write_to(&mut bytes, image::ImageFormat::Png)?;
     Ok(format!(
-        "data:image/jpeg;base64,{}",
+        "data:image/png;base64,{}",
         STANDARD.encode(bytes.into_inner())
     ))
 }

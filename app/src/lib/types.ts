@@ -10,6 +10,7 @@ export interface Settings {
   historyLimit: number;
   downloadProxy: string;
   modelBase: string;
+  uiScale: number;
   engine: EngineMode;
   llamaUrl: string;
   prompt: string;

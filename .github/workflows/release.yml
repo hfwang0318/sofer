@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v0.1.6)"
+        description: "Release tag (e.g. v0.1.7)"
         required: true
-        default: "v0.1.6"
+        default: "v0.1.7"
 
 permissions:
   contents: write
@@ -82,7 +82,10 @@ jobs:
             4. 按 `Ctrl+Shift+2`，拖选区域。
 
             ### Windows 截图
-            Windows 端使用应用自绘的全屏选区浮层和 GDI 抓屏，不调用 Snipping Tool 或 `ms-screenclip:`。
+            Windows 端使用应用自绘的全屏选区浮层和 GDI 抓屏，不调用 Snipping Tool 或 `ms-screenclip:`；预览使用全分辨率截图，不再压缩到 2400px。
+
+            ### 界面
+            默认窗口 1120×740，界面缩放 115%；可在 **设置 → 界面** 调整为 100%、115% 或 130%。
 
             ### 环境要求
             - Windows 10/11 x64
