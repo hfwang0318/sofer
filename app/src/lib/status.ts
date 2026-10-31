@@ -1,7 +1,79 @@
 import { formatBytes } from "./format";
-import type { EngineMode, EngineStatus } from "./types";
+import type {
+  EngineMode,
+  EngineStatus,
+  Phase,
+  ReadinessState,
+  ScreenAccess,
+} from "./types";
 
 export type StatusTone = "ok" | "warn" | "danger" | "muted";
+
+export interface Readiness {
+  state: ReadinessState;
+  label: string;
+  tone: StatusTone;
+}
+
+interface ReadinessInput {
+  status: EngineStatus | null;
+  engine: EngineMode;
+  phase: Phase;
+  shortcutActive: boolean;
+  screenAccess: ScreenAccess;
+}
+
+/** One state machine for the titlebar, sidebar and capture page. */
+export function captureReadiness({
+  status,
+  engine,
+  phase,
+  shortcutActive,
+  screenAccess,
+}: ReadinessInput): Readiness {
+  if (phase === "selecting") {
+    return { state: "busy", label: "选择区域中", tone: "ok" };
+  }
+  if (phase === "starting") {
+    return { state: "starting", label: "正在启动", tone: "ok" };
+  }
+  if (phase === "recognizing") {
+    return { state: "busy", label: "正在识别", tone: "ok" };
+  }
+  if (!shortcutActive) {
+    return { state: "shortcut-unavailable", label: "快捷键不可用", tone: "warn" };
+  }
+  if (!status) {
+    return { state: "checking", label: "检查中", tone: "muted" };
+  }
+  const setupBlocking =
+    status.setup.needed && (engine === "llamacpp" || !status.tesseract);
+  if (engine !== "tesseract" && setupBlocking) {
+    return { state: "needs-setup", label: "需要下载模型", tone: "warn" };
+  }
+  if (screenAccess === "denied") {
+    return { state: "needs-permission", label: "需要授权", tone: "warn" };
+  }
+  if (engine === "tesseract") {
+    return status.tesseract
+      ? { state: "ready", label: "就绪", tone: "ok" }
+      : { state: "error", label: "备用识别不可用", tone: "danger" };
+  }
+  if (status.server.state === "starting") {
+    return { state: "starting", label: "正在启动", tone: "ok" };
+  }
+  if (status.server.state === "failed") {
+    return { state: "error", label: "识别服务出错", tone: "danger" };
+  }
+  if (!status.runtime.bundled && !status.runtime.system) {
+    return { state: "error", label: "运行时缺失", tone: "danger" };
+  }
+  if (status.llama || status.tesseract) {
+    return { state: "ready", label: "就绪", tone: "ok" };
+  }
+  // The model is installed but the server starts on demand; capture still works.
+  return { state: "ready", label: "待启动", tone: "muted" };
+}
 
 export interface EngineSummary {
   label: string;
@@ -11,41 +83,39 @@ export interface EngineSummary {
 
 export function engineSummary(status: EngineStatus | null): EngineSummary {
   if (!status) {
-    return { label: "正在检查引擎…", detail: "llama.cpp · tesseract", tone: "muted" };
+    return { label: "检查识别服务…", detail: "本地识别", tone: "muted" };
   }
   if (status.llama) {
     return {
-      label: status.server.managed && status.server.state === "online"
-        ? "llama.cpp 已就绪"
-        : "llama.cpp 在线",
-      detail: status.server.managed ? "内置本地引擎" : "外部服务",
+      label: "识别已就绪",
+      detail: status.server.managed ? "本地模型" : "外部服务",
       tone: "ok",
     };
   }
   if (status.tesseract) {
     return {
-      label: "tesseract 兜底",
-      detail: status.model.installed ? "llama.cpp 不可用" : "本地模型未安装",
+      label: "备用识别",
+      detail: status.model.installed ? "本地模型未启动" : "本地模型未下载",
       tone: "warn",
     };
   }
   if (status.setup.needed) {
     return {
-      label: "需要初始化",
-      detail: "下载本地 OCR 模型",
+      label: "未下载模型",
+      detail: "下载后即可截图",
       tone: "danger",
     };
   }
   if (!status.runtime.bundled && !status.runtime.system) {
-    return { label: "运行时缺失", detail: "此构建未内置 llama.cpp", tone: "danger" };
+    return { label: "运行时缺失", detail: "请使用完整安装包", tone: "danger" };
   }
   if (status.server.state === "starting") {
-    return { label: "正在启动引擎", detail: "正在加载本地模型", tone: "ok" };
+    return { label: "正在启动", detail: "正在加载模型", tone: "ok" };
   }
   if (status.server.state === "failed") {
-    return { label: "引擎启动失败", detail: "可在设置中重试", tone: "danger" };
+    return { label: "识别服务启动失败", detail: "可在设置中重试", tone: "danger" };
   }
-  return { label: "引擎未启动", detail: "下次截图时自动启动", tone: "warn" };
+  return { label: "待启动", detail: "截图时自动启动", tone: "warn" };
 }
 
 /** 设置页的引擎状态跟随当前选择的引擎，而不仅是健康检查结果。 */
@@ -55,41 +125,29 @@ export function engineForMode(
 ): EngineSummary {
   if (mode === "tesseract") {
     return status?.tesseract
-      ? { label: "tesseract 已就绪", detail: "本机 CPU 引擎", tone: "ok" }
-      : { label: "未安装 tesseract", detail: "安装它或切换引擎", tone: "danger" };
+      ? { label: "备用识别已就绪", detail: "Tesseract · 不需要模型", tone: "ok" }
+      : { label: "备用识别不可用", detail: "安装 tesseract，或换回本地模型", tone: "danger" };
   }
 
   if (!status) return engineSummary(null);
   if (!status.runtime.bundled && !status.runtime.system) {
-    return { label: "运行时缺失", detail: "此构建没有 llama.cpp 运行时", tone: "danger" };
+    return { label: "运行时缺失", detail: "请使用完整安装包", tone: "danger" };
   }
   if (status.llama) {
-    return { label: "llama.cpp 在线", detail: status.llamaUrl, tone: "ok" };
+    return { label: "识别已就绪", detail: status.llamaUrl, tone: "ok" };
   }
   if (status.server.state === "starting") {
-    return { label: "正在启动 llama.cpp", detail: "正在加载本地模型", tone: "ok" };
+    return { label: "正在启动", detail: "正在加载模型", tone: "ok" };
   }
   if (status.server.state === "failed") {
-    return { label: "llama.cpp 启动失败", detail: "重试或重新运行设置", tone: "danger" };
+    return { label: "识别服务启动失败", detail: "重试或重新设置", tone: "danger" };
   }
   if (!status.model.installed) {
     return {
-      label: "模型未安装",
-      detail: `首次需要下载 ${formatBytes(status.setup.downloadBytes)}`,
+      label: "未下载模型",
+      detail: `需要下载 ${formatBytes(status.setup.downloadBytes)}`,
       tone: "warn",
     };
   }
-  return { label: "llama.cpp 未启动", detail: "启动它，或截图时自动唤醒", tone: "warn" };
-}
-
-export function phaseLabel(
-  phase: "idle" | "selecting" | "starting" | "recognizing",
-  shortcutActive = true,
-): { label: string; tone: StatusTone } {
-  if (phase === "selecting") return { label: "请选择区域", tone: "ok" };
-  if (phase === "starting") return { label: "正在启动引擎", tone: "ok" };
-  if (phase === "recognizing") return { label: "正在识别", tone: "ok" };
-  return shortcutActive
-    ? { label: "就绪", tone: "ok" }
-    : { label: "快捷键不可用", tone: "warn" };
+  return { label: "待启动", detail: "截图时自动启动", tone: "warn" };
 }

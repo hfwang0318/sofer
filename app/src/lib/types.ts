@@ -1,16 +1,24 @@
 export type EngineMode = "auto" | "llamacpp" | "tesseract";
 export type ModelQuality = "high" | "low";
 export type SettingsSection =
-  | "screenshot"
-  | "interface"
-  | "engine"
-  | "layout"
+  | "general"
+  | "recognition"
   | "output"
-  | "updates"
+  | "advanced"
   | "about";
 export type OutputFormat = "text" | "markdown" | "json";
 export type View = "capture" | "history" | "settings";
 export type Phase = "idle" | "selecting" | "starting" | "recognizing";
+export type ScreenAccess = "granted" | "denied" | "not-needed" | "unknown";
+export type ReadinessState =
+  | "checking"
+  | "needs-setup"
+  | "needs-permission"
+  | "starting"
+  | "busy"
+  | "error"
+  | "shortcut-unavailable"
+  | "ready";
 
 /** Mirrors `Settings` in src-tauri/src/settings.rs. */
 export interface Settings {

@@ -344,6 +344,12 @@ select:focus-visible {
   color: #ffa3a3;
 }
 
+.btn.is-confirming {
+  border-color: rgba(255, 110, 110, 0.3);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .btn-sm {
   height: 28px;
   padding: 0 10px;

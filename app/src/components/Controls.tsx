@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 
 
 import {
   acceleratorFromEvent,
+  needsModifier,
   isModifierOnlyEvent,
   modifierCount,
   shortcutKeys,
@@ -173,17 +174,21 @@ export function ShortcutRecorder({
       return;
     }
     if (isModifierOnlyEvent(event.nativeEvent)) {
-      setMessage("还需要一个主键；支持单键、2 键或 3 键组合。");
+      setMessage("还需要一个主键。");
       return;
     }
     if (modifierCount(event.nativeEvent) > 2) {
-      setMessage("最多 3 个键：两个修饰键 + 一个主键。");
+      setMessage("最多两个修饰键加一个主键。");
       return;
     }
 
     const accelerator = acceleratorFromEvent(event.nativeEvent);
     if (!accelerator) {
-      setMessage("请按一个主键；也可以加 1–2 个修饰键。");
+      setMessage("请按一个主键，可以加修饰键。");
+      return;
+    }
+    if (needsModifier(accelerator)) {
+      setMessage("只有 F 键可以单独使用；其他键请加 ⌘/Ctrl/⌥。");
       return;
     }
 
@@ -221,7 +226,7 @@ export function ShortcutRecorder({
         )}
       </button>
       <p className={`shortcut-hint ${message ? "is-error" : ""}`}>
-        {message ?? "支持单键、2 键或 3 键组合；Esc 取消。"}
+        {message ?? "建议加 ⌘/Ctrl。F 键可以单用；Esc 取消。"}
       </p>
     </div>
   );

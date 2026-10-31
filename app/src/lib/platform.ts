@@ -127,6 +127,19 @@ export function isModifierOnlyEvent(event: KeyboardEvent): boolean {
   return isPlatformModifier(event);
 }
 
+/**
+ * A bare letter, digit, Space or arrow key would be swallowed in every app.
+ * Only function keys can be registered without a modifier.
+ */
+export function needsModifier(accelerator: string): boolean {
+  const parts = accelerator
+    .split("+")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length !== 1) return false;
+  return !/^F([1-9]|1[0-9]|2[0-4])$/.test(parts[0]);
+}
+
 export function modifierCount(event: KeyboardEvent): number {
   let count = 0;
   if (event.metaKey) count += 1;

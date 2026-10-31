@@ -33,6 +33,66 @@ pub struct OverlayInfo {
     pub image: String,
 }
 
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGPreflightScreenCaptureAccess() -> u8;
+    fn CGRequestScreenCaptureAccess() -> u8;
+}
+
+/// macOS asks for Screen Recording once per app (and only after a restart
+/// takes effect). Windows captures through GDI, so there is no permission.
+pub fn screen_access_status() -> &'static str {
+    #[cfg(target_os = "macos")]
+    {
+        if screen_recording_granted() {
+            "granted"
+        } else {
+            "denied"
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        "not-needed"
+    }
+}
+
+pub fn request_screen_access() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        unsafe { CGRequestScreenCaptureAccess() != 0 }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+
+pub fn open_screen_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+            .status()
+            .map_err(|e| format!("无法打开系统设置：{e}"))?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("屏幕录制权限仅在 macOS 上需要。".into())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn screen_recording_granted() -> bool {
+    unsafe { CGPreflightScreenCaptureAccess() != 0 }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn screen_recording_granted() -> bool {
+    true
+}
+
 /// A successful recognition, shaped for the React side.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -91,17 +151,39 @@ pub fn start(app: AppHandle) {
             let raw = format!("{err:#}");
             eprintln!("capture: {raw}");
             let setup_required = raw.contains("E_SETUP_REQUIRED");
+            let permission = raw.contains("E_PERMISSION") || raw.contains("屏幕录制权限");
+            let blank = raw.contains("E_BLANK");
             let message = raw
                 .replace("E_SETUP_REQUIRED: ", "")
-                .replace("E_SETUP_REQUIRED", "");
-            let hint = hint_for(&raw, setup_required);
+                .replace("E_SETUP_REQUIRED", "")
+                .replace("E_PERMISSION: ", "")
+                .replace("E_PERMISSION", "")
+                .replace("E_BLANK: ", "")
+                .replace("E_BLANK", "");
+            let hint = hint_for(&raw);
             let message = localize_error(&message);
+            let code = if setup_required {
+                "setup-required"
+            } else if permission {
+                "permission"
+            } else if blank {
+                "blank"
+            } else if raw.to_lowercase().contains("llama")
+                || raw.to_lowercase().contains("tesseract")
+                || raw.contains("OCR")
+                || raw.contains("识别")
+                || raw.contains("运行时")
+            {
+                "engine"
+            } else {
+                "capture"
+            };
             let _ = app.emit(
                 "ocr:error",
                 OcrFailure {
                     message,
                     hint,
-                    code: setup_required.then(|| "setup-required".to_string()),
+                    code: Some(code.to_string()),
                 },
             );
             let _ = app.emit("ocr:phase", Phase { phase: "idle" });
@@ -167,6 +249,11 @@ fn run(app: &AppHandle) -> Result<()> {
         .and_then(|w| w.is_visible().ok())
         .unwrap_or(true);
 
+    #[cfg(target_os = "macos")]
+    if !screen_recording_granted() {
+        anyhow::bail!("E_PERMISSION: macOS 还没有授予屏幕录制权限");
+    }
+
     let path = capture_path(app)?;
     let _ = std::fs::remove_file(&path);
     let cancel = &app.state::<AppState>().cancel;
@@ -176,6 +263,12 @@ fn run(app: &AppHandle) -> Result<()> {
         let _ = std::fs::remove_file(&path);
         let _ = app.emit("ocr:phase", Phase { phase: "idle" });
         return Ok(());
+    }
+
+    let inspection = inspect_capture(&path);
+    if inspection.blank {
+        let _ = std::fs::remove_file(&path);
+        anyhow::bail!("E_BLANK: 截图区域几乎是空白的");
     }
 
     let mut config = settings.config();
@@ -196,7 +289,7 @@ fn run(app: &AppHandle) -> Result<()> {
                     config.engine = EngineMode::Tesseract;
                 } else if matches!(err, engine::Error::SetupRequired) {
                     return Err(anyhow::anyhow!(
-                        "E_SETUP_REQUIRED: 本地 OCR 模型尚未安装"
+                        "E_SETUP_REQUIRED: 识别模型还没有下载"
                     ));
                 } else {
                     return Err(anyhow::anyhow!("{err}"));
@@ -206,7 +299,7 @@ fn run(app: &AppHandle) -> Result<()> {
     }
 
     let _ = app.emit("ocr:phase", Phase { phase: "recognizing" });
-    let engine = config.engine().context("启动 OCR 引擎")?;
+    let engine = config.engine().context("启动识别服务")?;
     let limiter = ocr4code::pipeline::limiter(config.jobs);
     let outcome = ocr4code::pipeline::recognize(engine.as_ref(), &path, &config, &limiter)?;
     let text = render::render(&outcome.document, config.format, config.language.as_deref());
@@ -231,7 +324,7 @@ fn run(app: &AppHandle) -> Result<()> {
         format: format_name(config.format),
         chars,
         lines: outcome.document.lines.len(),
-        thumbnail: thumbnail(&path),
+        thumbnail: inspection.thumbnail,
         captured_at,
         copied,
     };
@@ -296,46 +389,101 @@ fn format_name(format: Format) -> String {
 fn localize_error(message: &str) -> String {
     let lower = message.to_lowercase();
     if lower.contains("no engine available") {
-        "没有可用的 OCR 引擎。请启动 llama-server，或安装 tesseract。".into()
+        "没有可用的识别服务。请下载识别模型，或安装 tesseract。".into()
     } else if lower.contains("not reachable") {
-        "无法连接 llama.cpp 服务。请确认服务已经启动，并检查设置中的地址。".into()
+        "连不上本地识别服务。请检查服务地址，或重新启动。".into()
     } else if lower.contains("tesseract failed") {
-        "Tesseract 运行失败。请检查安装和语言包。".into()
+        "tesseract 运行失败。请检查安装和语言包。".into()
     } else {
         message.to_string()
     }
 }
 
-fn hint_for(message: &str, setup_required: bool) -> String {
-    if setup_required {
-        return "本地模型需要一次性下载。打开引导设置即可启用 OCR，无需手动安装。".into();
+fn hint_for(message: &str) -> String {
+    if message.contains("E_SETUP_REQUIRED") {
+        return "下载识别模型后即可截图。".into();
+    }
+    if message.contains("E_PERMISSION") || message.contains("屏幕录制权限") {
+        return "在系统设置 → 隐私与安全性 → 屏幕录制中勾选 ocr4code，然后重启应用。"
+            .into();
+    }
+    if message.contains("E_BLANK") {
+        #[cfg(target_os = "macos")]
+        return "如果框选区域本来就有文字，请检查屏幕录制权限，然后重启应用。"
+            .into();
+        #[cfg(not(target_os = "macos"))]
+        return "请重新框选包含文字的区域。".into();
     }
     let lower = message.to_lowercase();
     if lower.contains("no engine available") || lower.contains("starting the ocr engine") {
-        "请启动 llama-server，或安装 tesseract 作为兜底，然后在设置中检测引擎。"
-            .into()
+        "先下载识别模型，或安装 tesseract 后重试。".into()
     } else if lower.contains("not reachable") || lower.contains("llama") {
-        "请确认 llama-server 正在运行，并检查设置中的地址是否正确。"
-            .into()
+        "确认服务正在运行，并检查设置里的地址。".into()
     } else if lower.contains("permission") || lower.contains("screen") {
-        "请在系统设置 → 隐私与安全 → 屏幕录制中授予权限，然后重启应用。"
+        "在系统设置 → 隐私与安全性 → 屏幕录制中勾选 ocr4code，然后重启应用。"
             .into()
     } else {
-        "请打开设置检查引擎和版面选项，然后重试。".into()
+        "检查设置后重试。".into()
     }
 }
 
-fn thumbnail(path: &Path) -> Option<String> {
-    let image = image::open(path).ok()?;
+struct CaptureInspection {
+    blank: bool,
+    thumbnail: Option<String>,
+}
+
+/// A capture made without screen-recording permission is an almost uniformly
+/// colored frame. Decode once to check that and to build the result thumbnail.
+fn inspect_capture(path: &Path) -> CaptureInspection {
+    let Ok(image) = image::open(path) else {
+        return CaptureInspection {
+            blank: false,
+            thumbnail: None,
+        };
+    };
     let thumb = image.thumbnail(520, 360);
+    if is_uniform(&thumb) {
+        return CaptureInspection {
+            blank: true,
+            thumbnail: None,
+        };
+    }
     let mut bytes = Cursor::new(Vec::new());
-    thumb
+    let thumbnail = thumb
         .write_to(&mut bytes, image::ImageFormat::Png)
-        .ok()?;
-    Some(format!(
-        "data:image/png;base64,{}",
-        STANDARD.encode(bytes.into_inner())
-    ))
+        .ok()
+        .map(|()| {
+            format!(
+                "data:image/png;base64,{}",
+                STANDARD.encode(bytes.into_inner())
+            )
+        });
+    CaptureInspection {
+        blank: false,
+        thumbnail,
+    }
+}
+
+/// Only a frame with no meaningful luminance range counts as blank. A real
+/// selection containing text keeps its contrast after downscaling, so sparse
+/// text is never mistaken for an empty region.
+fn is_uniform(image: &image::DynamicImage) -> bool {
+    const UNIFORM_LUMA_RANGE: i16 = 8;
+    let luma = image.to_luma8();
+    if luma.is_empty() {
+        return true;
+    }
+    let mut min = i16::MAX;
+    let mut max = i16::MIN;
+    for pixel in luma.pixels() {
+        let value = i16::from(pixel[0]);
+        min = min.min(value);
+        max = max.max(value);
+        if max - min > UNIFORM_LUMA_RANGE {
+            return false;
+        }
+    }
+    true
 }
 
 // ---------------------------------------------------------------------------
@@ -390,4 +538,48 @@ fn interactive_capture(
     _cancel: &AtomicBool,
 ) -> Result<CaptureOutcome> {
     anyhow::bail!("截图仅支持 macOS 和 Windows")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn image_with_line(width: u32, height: u32, top: u32) -> image::DynamicImage {
+        let mut frame = image::RgbImage::from_pixel(width, height, image::Rgb([255, 255, 255]));
+        for y in top..top + 20 {
+            for x in 100..900 {
+                frame.put_pixel(x, y, image::Rgb([20, 20, 20]));
+            }
+        }
+        image::DynamicImage::ImageRgb8(frame)
+    }
+
+    #[test]
+    fn a_uniform_frame_is_blank() {
+        let frame = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+            3000,
+            2000,
+            image::Rgb([32, 32, 32]),
+        ));
+        assert!(is_uniform(&frame));
+    }
+
+    #[test]
+    fn a_single_line_of_text_is_not_blank() {
+        // One 800x20 line on a 4000x2800 frame is sparse by pixel count, but it
+        // must survive downscaling and keep the frame from looking empty.
+        assert!(!is_uniform(&image_with_line(4000, 2800, 1400)));
+        assert!(!is_uniform(&image_with_line(6016, 3384, 1700)));
+    }
+
+    #[test]
+    fn faint_gradient_counts_as_blank() {
+        let mut frame = image::RgbImage::from_pixel(800, 600, image::Rgb([128, 128, 128]));
+        for (_, y, pixel) in frame.enumerate_pixels_mut() {
+            if y == 599 {
+                *pixel = image::Rgb([133, 133, 133]);
+            }
+        }
+        assert!(is_uniform(&image::DynamicImage::ImageRgb8(frame)));
+    }
 }

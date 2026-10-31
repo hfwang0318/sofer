@@ -20,9 +20,22 @@ All notable changes to the desktop app. The root OCR kernel keeps its own
   `"modelQuality":"high"`. Servers now default to a 5-minute idle sleep, `-cram 0`,
   q8 KV on macOS (f16 on Windows CPU), and derive `-c`/`-np` and
   `--max-tokens` context from the jobs/output settings.
-- Settings now has a secondary sidebar directory (截图/界面/引擎/版面/输出/更新/关于)
-  that scrolls to the matching section and highlights the current one while
-  scrolling.
+- Reworked first-run and recovery flows: the setup dialog is skippable, keeps
+  downloading in the background, reports cancellation and full errors, and
+  distinguishes model, permission and engine failures with a direct next step.
+- Added macOS Screen Recording onboarding (`CGPreflightScreenCaptureAccess` /
+  `CGRequestScreenCaptureAccess`) with a dedicated permission dialog, a settings
+  row, automatic re-check on app focus, and a screenshot-time guard.
+- Captures that are almost entirely one colour now fail with an actionable
+  `permission`/`blank` error instead of silently producing empty text.
+- Settings is now five sections — 通用 / 识别 / 输出 / 高级 / 关于 — with engine
+  status, downloads and permission in context, and technical knobs tucked into
+  the 高级 fold and disclosure rows. The save bar reports unsaved changes.
+- Capture and history pages now share one readiness state (checking, setup,
+  permission, starting, busy, error, ready), show the first-capture tip only
+  once, confirm history clearing, and wrap long error details.
+- The region overlay explains right-click/Esc cancel and warns when a selection
+  is too small. Browser preview scaling no longer overflows the viewport.
 - Model downloads now use up to 8 parallel Range connections for large files,
   with per-chunk resume, aggregate progress/ETA, cancel support, and a
   single-stream fallback when the server ignores Range.

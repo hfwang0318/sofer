@@ -15,9 +15,9 @@ interface HistoryViewProps {
 }
 
 function engineLabel(engine: string): string {
-  if (engine.startsWith("llamacpp")) return "llama.cpp";
-  if (engine.startsWith("tesseract")) return "tesseract";
-  if (engine.startsWith("mock")) return "mock";
+  if (engine.startsWith("llamacpp")) return "本地模型";
+  if (engine.startsWith("tesseract")) return "备用识别";
+  if (engine.startsWith("mock")) return "预览";
   return engine;
 }
 
@@ -42,12 +42,23 @@ export function HistoryView({
   onCapture,
 }: HistoryViewProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
 
   useEffect(() => {
     if (!copiedId) return;
     const timer = window.setTimeout(() => setCopiedId(null), 1800);
     return () => window.clearTimeout(timer);
   }, [copiedId]);
+
+  useEffect(() => {
+    if (entries.length === 0) setConfirmClear(false);
+  }, [entries.length]);
+
+  useEffect(() => {
+    if (!confirmClear) return;
+    const timer = window.setTimeout(() => setConfirmClear(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [confirmClear]);
 
   return (
     <div className="view history-view">
@@ -57,18 +68,27 @@ export function HistoryView({
             <p className="eyebrow">工作区</p>
             <h1>历史</h1>
             <p className="lede">
-              最近 {entries.length || "几"} 条识别记录，保存在本机。点击复制可把旧结果重新放回剪贴板。
+              {entries.length > 0
+                ? `最近的 ${entries.length} 条结果。点复制可再次使用。`
+                : "截图后，结果会出现在这里。"}
             </p>
           </div>
           <div className="head-actions">
             <button
               type="button"
-              className="btn btn-ghost btn-danger"
-              onClick={onClear}
+              className={`btn btn-ghost btn-danger ${confirmClear ? "is-confirming" : ""}`}
+              onClick={() => {
+                if (confirmClear) {
+                  onClear();
+                  setConfirmClear(false);
+                } else {
+                  setConfirmClear(true);
+                }
+              }}
               disabled={entries.length === 0}
             >
               <Icon name="trash" size={14} />
-              清空全部
+              {confirmClear ? "再点一次清空" : "清空记录"}
             </button>
             <button type="button" className="btn btn-primary" onClick={onCapture}>
               <Icon name="capture" size={15} />
@@ -82,12 +102,10 @@ export function HistoryView({
             <div className="empty-icon">
               <Icon name="history" size={24} />
             </div>
-            <h2>还没有截图记录</h2>
-            <p>
-              识别结果会收集在这里。不会离开本机，并且会自动限制条数。
-            </p>
+            <h2>还没有记录</h2>
+            <p>截图后，结果会出现在这里。</p>
             <button type="button" className="btn btn-primary" onClick={onCapture}>
-              截取第一张截图
+              截第一张图
             </button>
             <span className="empty-shortcut">
               或在任意界面按 <Keycaps accelerator={shortcut} size="sm" />
@@ -148,7 +166,7 @@ export function HistoryView({
             </div>
             <p className="view-footnote">
               <Icon name="info" size={13} />
-              历史记录保存在本机，只保留最近若干条。随时可以清空，不会影响 OCR 引擎。
+              记录只保存在本机。
             </p>
           </>
         )}

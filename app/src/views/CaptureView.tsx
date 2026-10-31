@@ -1,10 +1,14 @@
 import type { ReactNode } from "react";
 
 import { Icon } from "../components/Icon";
-import { Keycaps } from "../components/Controls";
 import { duration, relativeTime } from "../lib/history";
 import { isMac, shortcutText } from "../lib/platform";
-import type { OcrError, OcrResult, Phase } from "../lib/types";
+import type {
+  OcrError,
+  OcrResult,
+  Phase,
+  SettingsSection,
+} from "../lib/types";
 
 interface CaptureViewProps {
   phase: Phase;
@@ -12,20 +16,23 @@ interface CaptureViewProps {
   result: OcrResult | null;
   error: OcrError | null;
   copied: boolean;
-  engineName: string;
+  setupBlocking: boolean;
+  permissionDenied: boolean;
+  showSteps: boolean;
+  firstCaptureTip: boolean;
   onCapture: () => void;
   onCopy: (text: string) => void;
   onOpenHistory: () => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (section?: SettingsSection) => void;
   onSetup: () => void;
-  setupNeeded: boolean;
-  setupBlocking: boolean;
+  onPermission: () => void;
+  onDismissTip: () => void;
 }
 
 function engineLabel(engine: string): string {
-  if (engine.startsWith("llamacpp")) return "llama.cpp";
-  if (engine.startsWith("tesseract")) return "tesseract";
-  if (engine.startsWith("mock")) return "mock";
+  if (engine.startsWith("llamacpp")) return "本地模型";
+  if (engine.startsWith("tesseract")) return "备用识别";
+  if (engine.startsWith("mock")) return "预览";
   return engine;
 }
 
@@ -106,16 +113,16 @@ function HeroVisual() {
   );
 }
 
-function BusyStrip({ phase, engineName }: { phase: Phase; engineName: string }) {
+function BusyStrip({ phase }: { phase: Phase }) {
   return (
     <div className="busy-strip" role="status" aria-live="polite">
       <span className="busy-ring busy-ring-sm" />
       <span className="busy-strip-text">
         {phase === "selecting"
-          ? "等待选择区域——拖选一块区域，按 Esc 取消。"
+          ? "拖选要识别的区域，按 Esc 取消。"
           : phase === "starting"
-            ? "正在启动本地引擎并加载模型…"
-            : `正在用 ${engineName} 识别截图…`}
+            ? "正在加载模型。"
+            : "正在识别截图…"}
       </span>
     </div>
   );
@@ -128,90 +135,78 @@ function SetupBanner({ onSetup }: { onSetup: () => void }) {
         <Icon name="spark" size={20} />
       </div>
       <div className="setup-banner-copy">
-        <p className="eyebrow">本地 OCR</p>
-        <h2>首次设置：下载视觉模型</h2>
-        <p>
-          llama.cpp 运行时已内置。下载一次 GLM-OCR（高精度约 1.4 GB，低精度约 1.0 GB，SHA-256 校验），之后完全离线。
-        </p>
+        <p className="eyebrow">识别模型</p>
+        <h2>先下载识别模型</h2>
+        <p>下载一次，之后截图都在本机处理。</p>
       </div>
       <button type="button" className="btn btn-primary" onClick={onSetup}>
         <Icon name="arrow-right" size={15} />
-        配置本地 OCR
+        下载模型
       </button>
     </section>
   );
 }
 
-function CaptureHero({
-  phase,
-  shortcut,
-  engineName,
-  onCapture,
-}: {
-  phase: Phase;
-  shortcut: string;
-  engineName: string;
-  onCapture: () => void;
-}) {
-  const busy = phase !== "idle";
+function PermissionBanner({ onPermission }: { onPermission: () => void }) {
   return (
-    <section className={`hero ${busy ? "is-busy" : ""}`}>
-      <div className="hero-copy">
-        <div className="hero-state">
-          <span className={`status-dot ${busy ? "is-pulsing" : ""}`} />
-          {phase === "idle"
-            ? "剪贴板就绪"
-            : phase === "selecting"
-              ? "正在选择区域"
-              : "正在识别"}
-        </div>
-        <h2>
-          从屏幕到剪贴板，
-          <br />
-          保留原始排版。
-        </h2>
-        <p className="hero-text">
-          按下快捷键并拖选区域。缩进、换行和列对齐都会保留，完全在本机处理。
-        </p>
-        <div className="hero-actions">
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={onCapture}
-            disabled={busy}
-          >
-            <Icon name="spark" size={15} />
-            {busy ? "处理中…" : "立即截图"}
-          </button>
-          <span className="hero-shortcut">
-            或按下 <Keycaps accelerator={shortcut} size="sm" />
-          </span>
-        </div>
+    <section className="panel setup-banner permission-banner">
+      <div className="setup-banner-icon tone-warn-icon">
+        <Icon name="alert" size={20} />
       </div>
-
-      <HeroVisual />
-
-      {busy && (
-        <div className="busy-veil" role="status" aria-live="polite">
-          <span className="busy-ring" />
-          <div className="busy-copy">
-            <strong>
-              {phase === "selecting"
-                ? "等待选择区域"
-                : "正在识别截图"}
-            </strong>
-            <span>
-              {phase === "selecting"
-                ? "拖选任意区域，按 Esc 取消。"
-                : phase === "starting"
-                  ? "正在加载本地模型；首次启动约需 10–20 秒。"
-                  : `${engineName} · 正在重建缩进`}
-            </span>
-          </div>
-        </div>
-      )}
+      <div className="setup-banner-copy">
+        <p className="eyebrow">屏幕录制权限</p>
+        <h2>先允许录制屏幕</h2>
+        <p>没有这项权限，截图会是空白。</p>
+      </div>
+      <button type="button" className="btn btn-primary" onClick={onPermission}>
+        <Icon name="alert" size={15} />
+        去授权
+      </button>
     </section>
   );
+}
+
+function CaptureHero({ shortcut }: { shortcut: string }) {
+  return (
+    <section className="hero hero-compact">
+      <div className="hero-copy">
+        <div className="hero-state">
+          <span className="status-dot" />
+          本地处理，不上传
+        </div>
+        <h2>截图，然后粘贴。</h2>
+        <p className="hero-text">
+          框选代码、终端输出或报错。缩进和换行会保留。
+        </p>
+        <div className="hero-shortcut-line">
+          <Icon name="capture" size={14} />
+          按 {shortcutText(shortcut)} 框选
+        </div>
+      </div>
+      <HeroVisual />
+    </section>
+  );
+}
+
+interface ErrorCopy {
+  title: string;
+  badge: string;
+  tone: "danger" | "warn";
+}
+
+function errorCopy(error: OcrError): ErrorCopy {
+  switch (error.code) {
+    case "permission":
+      return { title: "需要屏幕录制权限", badge: "需要授权", tone: "warn" };
+    case "setup-required":
+      return { title: "先下载识别模型", badge: "需要设置", tone: "warn" };
+    case "blank":
+      return { title: "截图区域是空白的", badge: "截图失败", tone: "danger" };
+    case "engine":
+      return { title: "识别没有完成", badge: "识别问题", tone: "danger" };
+    default:
+      return { title: "这次截图没有成功", badge: "截图失败", tone: "danger" };
+  }
 }
 
 function ErrorPanel({
@@ -219,13 +214,18 @@ function ErrorPanel({
   onOpenSettings,
   onCapture,
   onSetup,
+  onPermission,
 }: {
   error: OcrError;
-  onOpenSettings: () => void;
+  onOpenSettings: (section?: SettingsSection) => void;
   onCapture: () => void;
   onSetup: () => void;
+  onPermission: () => void;
 }) {
-  const needsSetup = error.code === "setup-required";
+  const copy = errorCopy(error);
+  const permission = error.code === "permission";
+  const setup = error.code === "setup-required";
+
   return (
     <section className="panel error-panel" role="alert">
       <div className="error-icon">
@@ -233,32 +233,63 @@ function ErrorPanel({
       </div>
       <div className="error-body">
         <div className="error-title-row">
-          <h2>截图未能完成</h2>
-          <span className="badge badge-danger">引擎错误</span>
+          <h2>{copy.title}</h2>
+          <span className={`badge ${copy.tone === "danger" ? "badge-danger" : "badge-warn"}`}>
+            {copy.badge}
+          </span>
         </div>
         <p className="error-message">{error.message}</p>
         <p className="error-hint">{error.hint}</p>
-        {isMac && (
+        {(permission || error.code === "blank") && isMac && (
           <p className="error-footnote">
             <Icon name="info" size={13} />
-            原生选区需要屏幕录制权限。
+            位置：系统设置 → 隐私与安全性 → 屏幕录制。
           </p>
         )}
       </div>
       <div className="error-actions">
-        <button type="button" className="btn btn-secondary btn-sm" onClick={onOpenSettings}>
-          打开设置
-        </button>
-        {needsSetup ? (
-          <button type="button" className="btn btn-primary btn-sm" onClick={onSetup}>
-            <Icon name="arrow-right" size={14} />
-            配置引擎
-          </button>
+        {permission ? (
+          <>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => onOpenSettings()}
+            >
+              打开设置
+            </button>
+            <button type="button" className="btn btn-primary btn-sm" onClick={onPermission}>
+              <Icon name="alert" size={14} />
+              去授权
+            </button>
+          </>
+        ) : setup ? (
+          <>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => onOpenSettings("recognition")}
+            >
+              打开设置
+            </button>
+            <button type="button" className="btn btn-primary btn-sm" onClick={onSetup}>
+              <Icon name="arrow-right" size={14} />
+              下载模型
+            </button>
+          </>
         ) : (
-          <button type="button" className="btn btn-primary btn-sm" onClick={onCapture}>
-            <Icon name="refresh" size={14} />
-            重试
-          </button>
+          <>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => onOpenSettings("recognition")}
+            >
+              检查设置
+            </button>
+            <button type="button" className="btn btn-primary btn-sm" onClick={onCapture}>
+              <Icon name="refresh" size={14} />
+              重试截图
+            </button>
+          </>
         )}
       </div>
     </section>
@@ -303,7 +334,7 @@ function ResultPanel({
             onClick={() => onCopy(result.text)}
           >
             <Icon name={copied ? "check" : "copy"} size={14} />
-            {copied ? "已复制" : "复制文本"}
+            {copied ? "已复制" : "复制"}
           </button>
         </div>
       </header>
@@ -313,7 +344,7 @@ function ResultPanel({
           <img
             className="result-thumb"
             src={result.thumbnail}
-            alt="发送给 OCR 引擎的截图"
+            alt="截图预览"
           />
         ) : (
           <div className="result-thumb result-thumb-empty" aria-hidden="true">
@@ -343,22 +374,50 @@ function ResultPanel({
         <span className="meta-spacer" />
         <span className="meta-note">
           <Icon name="clipboard" size={13} />
-          粘贴到任意位置：{isMac ? "⌘V" : "Ctrl+V"}
+          回编辑器按 {isMac ? "⌘V" : "Ctrl+V"}
         </span>
       </footer>
     </section>
   );
 }
 
-function StepsPanel({ shortcut, engineName }: { shortcut: string; engineName: string }) {
+function FirstCaptureTip({
+  copied,
+  shortcut,
+  onDismiss,
+}: {
+  copied: boolean;
+  shortcut: string;
+  onDismiss: () => void;
+}) {
+  return (
+    <section className="first-capture-tip" role="status">
+      <span className="first-capture-icon">
+        <Icon name="check" size={16} />
+      </span>
+      <div>
+        <strong>{copied ? "已复制，可以粘贴了。" : "识别完成，点复制后粘贴。"}</strong>
+        <p>
+          回到编辑器按 {isMac ? "⌘V" : "Ctrl+V"}。关闭窗口不会退出，
+          {shortcutText(shortcut)} 随时可以再截。
+        </p>
+      </div>
+      <button type="button" className="btn btn-ghost btn-sm" onClick={onDismiss}>
+        知道了
+      </button>
+    </section>
+  );
+}
+
+function StepsPanel({ shortcut }: { shortcut: string }) {
   return (
     <section className="panel steps-panel" aria-label="截图流程">
       <div className="step">
         <span className="step-number">01</span>
         <div>
-          <h3>选择</h3>
+          <h3>框选</h3>
           <p>
-            按 <span className="inline-shortcut">{shortcutText(shortcut)}</span> 并拖选区域。系统原生选择，支持所有显示器。
+            按 <span className="inline-shortcut">{shortcutText(shortcut)}</span> 拖选代码。
           </p>
         </div>
       </div>
@@ -366,21 +425,14 @@ function StepsPanel({ shortcut, engineName }: { shortcut: string; engineName: st
         <span className="step-number">02</span>
         <div>
           <h3>识别</h3>
-          <p>
-            {engineName === "llama.cpp"
-              ? "本地视觉模型读取文字。"
-              : "当前引擎读取文字。"}{" "}
-            几何层恢复原有排版。
-          </p>
+          <p>本地模型读取文字，缩进和换行会保留。</p>
         </div>
       </div>
       <div className="step">
         <span className="step-number">03</span>
         <div>
           <h3>粘贴</h3>
-          <p>
-            结果已经在剪贴板中。切回原应用直接粘贴，不需要中转窗口。
-          </p>
+          <p>结果已在剪贴板。回到编辑器按 {isMac ? "⌘V" : "Ctrl+V"}。</p>
         </div>
       </div>
     </section>
@@ -393,17 +445,23 @@ export function CaptureView({
   result,
   error,
   copied,
-  engineName,
+  setupBlocking,
+  permissionDenied,
+  showSteps,
+  firstCaptureTip,
   onCapture,
   onCopy,
   onOpenHistory,
   onOpenSettings,
   onSetup,
-  setupNeeded,
-  setupBlocking,
+  onPermission,
+  onDismissTip,
 }: CaptureViewProps) {
   const busy = phase !== "idle";
   const showResult = !error && Boolean(result);
+  const blocking = setupBlocking || permissionDenied;
+  const showBlockingBanner = !error && blocking;
+  const headerLabel = busy ? "处理中…" : "截图";
 
   return (
     <div className="view capture-view">
@@ -412,22 +470,32 @@ export function CaptureView({
           <div>
             <p className="eyebrow">工作区</p>
             <h1>截图</h1>
-            <p className="lede">
-              截取代码、终端或报错堆栈。文字会从像素中重建版面，然后直接放进剪贴板。
-            </p>
+            <p className="lede">截代码、终端输出或报错。结果直接进剪贴板。</p>
           </div>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={setupBlocking ? onSetup : onCapture}
-            disabled={busy && !setupBlocking}
-          >
-            <Icon name={setupBlocking ? "spark" : "capture"} size={15} />
-            {setupBlocking ? "配置引擎" : busy ? "处理中…" : "截取区域"}
-          </button>
+          {!error &&
+            (blocking ? (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={setupBlocking ? onSetup : onPermission}
+              >
+                <Icon name={setupBlocking ? "arrow-right" : "alert"} size={15} />
+                {setupBlocking ? "下载模型" : "去授权"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={onCapture}
+                disabled={busy}
+              >
+                <Icon name={busy ? "spark" : "capture"} size={15} />
+                {headerLabel}
+              </button>
+            ))}
         </header>
 
-        {busy && showResult && <BusyStrip phase={phase} engineName={engineName} />}
+        {busy && showResult && <BusyStrip phase={phase} />}
 
         {error && (
           <ErrorPanel
@@ -435,30 +503,38 @@ export function CaptureView({
             onOpenSettings={onOpenSettings}
             onCapture={onCapture}
             onSetup={onSetup}
+            onPermission={onPermission}
           />
         )}
 
         {showResult && result && (
-          <ResultPanel
-            result={result}
-            copied={copied}
-            onCopy={onCopy}
-            onOpenHistory={onOpenHistory}
-          />
+          <>
+            {firstCaptureTip && (
+              <FirstCaptureTip
+                copied={result.copied || copied}
+                shortcut={shortcut}
+                onDismiss={onDismissTip}
+              />
+            )}
+            <ResultPanel
+              result={result}
+              copied={copied}
+              onCopy={onCopy}
+              onOpenHistory={onOpenHistory}
+            />
+          </>
         )}
 
-        {!error && !result && setupNeeded && <SetupBanner onSetup={onSetup} />}
-
-        {!error && !result && (!setupNeeded || !setupBlocking) && (
-          <CaptureHero
-            phase={phase}
-            shortcut={shortcut}
-            engineName={engineName}
-            onCapture={onCapture}
-          />
+        {showBlockingBanner && setupBlocking && <SetupBanner onSetup={onSetup} />}
+        {showBlockingBanner && !setupBlocking && permissionDenied && (
+          <PermissionBanner onPermission={onPermission} />
         )}
 
-        {!error && <StepsPanel shortcut={shortcut} engineName={engineName} />}
+        {!error && !result && !showBlockingBanner && (
+          <CaptureHero shortcut={shortcut} />
+        )}
+
+        {!error && showSteps && <StepsPanel shortcut={shortcut} />}
       </div>
     </div>
   );

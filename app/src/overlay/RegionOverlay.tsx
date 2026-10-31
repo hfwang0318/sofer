@@ -37,6 +37,7 @@ export function RegionOverlay() {
   const [error, setError] = useState<string | null>(null);
   const [start, setStart] = useState<Point | null>(null);
   const [current, setCurrent] = useState<Point | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const pointerId = useRef<number | null>(null);
   const finished = useRef(false);
 
@@ -71,6 +72,7 @@ export function RegionOverlay() {
     }
     event.preventDefault();
     const point = { x: event.clientX, y: event.clientY };
+    setNotice(null);
     setStart(point);
     setCurrent(point);
     pointerId.current = event.pointerId;
@@ -95,6 +97,7 @@ export function RegionOverlay() {
     if (rect.width < 4 || rect.height < 4) {
       setStart(null);
       setCurrent(null);
+      setNotice("区域太小，请重新拖选");
       return;
     }
     finished.current = true;
@@ -144,14 +147,23 @@ export function RegionOverlay() {
           <span className="corner corner-tr" />
           <span className="corner corner-bl" />
           <span className="corner corner-br" />
-          <span className="size">
+          <span
+            className="size"
+            style={selection.y < 36 ? { top: 6, left: 6 } : undefined}
+          >
             {Math.round(selection.width)} × {Math.round(selection.height)}
           </span>
         </div>
       )}
 
+      {notice && (
+        <div className="notice" role="status">
+          {notice}
+        </div>
+      )}
+
       <div className="hint">
-        拖动选择区域 · <kbd>Esc</kbd> 取消
+        拖动选择区域 · 右键或 <kbd>Esc</kbd> 取消
       </div>
     </div>
   );

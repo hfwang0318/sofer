@@ -2,16 +2,13 @@ import { Icon } from "./Icon";
 import { Keycaps } from "./Controls";
 import { Logo } from "./Logo";
 import { isMac, shortcutText } from "../lib/platform";
-import { phaseLabel } from "../lib/status";
-import type { EngineStatus, Phase } from "../lib/types";
+import type { Readiness } from "../lib/status";
 import { windowAction } from "../lib/bridge";
 
 interface WindowChromeProps {
-  phase: Phase;
   shortcut: string;
-  status: EngineStatus | null;
-  shortcutActive: boolean;
-  setupNeeded: boolean;
+  readiness: Readiness;
+  version: string;
   onOpenSettings: () => void;
 }
 
@@ -67,8 +64,8 @@ function WindowControls() {
       <button
         type="button"
         className="window-control window-control-close"
-        aria-label="隐藏到菜单栏"
-        title="隐藏到菜单栏"
+        aria-label="最小化到托盘"
+        title="最小化到托盘"
         onClick={() => void windowAction("hide")}
       >
         <Icon name="close" size={15} />
@@ -78,33 +75,11 @@ function WindowControls() {
 }
 
 export function WindowChrome({
-  phase,
   shortcut,
-  status: engine,
-  shortcutActive,
-  setupNeeded: setupRequired,
+  readiness,
+  version,
   onOpenSettings,
 }: WindowChromeProps) {
-  const idle = phaseLabel(phase, shortcutActive);
-  const setupNeeded =
-    phase === "idle" && shortcutActive && setupRequired;
-  const starting =
-    phase === "idle" && engine?.server.state === "starting" && !setupNeeded;
-  const offline =
-    phase === "idle" &&
-    shortcutActive &&
-    engine &&
-    !engine.llama &&
-    !engine.tesseract &&
-    !setupNeeded;
-  const status = setupNeeded
-    ? { label: "需要设置", tone: "warn" as const }
-    : starting
-      ? { label: "正在启动引擎", tone: "ok" as const }
-      : offline
-        ? { label: "引擎离线", tone: "danger" as const }
-        : idle;
-
   return (
     <header className="titlebar">
       <div className="titlebar-drag" data-tauri-drag-region aria-hidden="true" />
@@ -112,14 +87,14 @@ export function WindowChrome({
       <div className="brand">
         <Logo size={23} />
         <span className="brand-name">ocr4code</span>
-        <span className="brand-version">0.1.10</span>
+        <span className="brand-version">{version || "—"}</span>
       </div>
 
       <div className="titlebar-spacer" />
 
-      <div className={`phase-pill tone-${status.tone}`} aria-live="polite">
+      <div className={`phase-pill tone-${readiness.tone}`} aria-live="polite">
         <span className="status-dot" />
-        <span>{status.label}</span>
+        <span>{readiness.label}</span>
       </div>
 
       <button

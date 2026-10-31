@@ -124,14 +124,21 @@
   );
 }
 
+html.preview-zoom body {
+  width: calc(100% / var(--preview-scale, 1));
+  height: calc(100% / var(--preview-scale, 1));
+  transform: scale(var(--preview-scale, 1));
+  transform-origin: top left;
+}
+
 .app {
   position: relative;
   z-index: 1;
   display: grid;
   grid-template-rows: 52px minmax(0, 1fr);
   grid-template-columns: 208px minmax(0, 1fr);
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.085);
   border-radius: 16px;
@@ -411,6 +418,26 @@
 
 .nav-label-text {
   flex: 1;
+}
+
+.nav-shortcut {
+  display: inline-flex;
+  flex: none;
+  margin-left: auto;
+  opacity: 0.62;
+  transition: opacity 0.15s var(--ease);
+}
+
+.nav-item:hover .nav-shortcut,
+.nav-item.is-active .nav-shortcut {
+  opacity: 0.92;
+}
+
+.nav-shortcut .keycap {
+  min-width: 16px;
+  height: 17px;
+  padding: 0 4px;
+  font-size: 9px;
 }
 
 .nav-count {
@@ -740,11 +767,11 @@
 }
 
 .toast-copy span {
-  overflow: hidden;
   color: var(--text-3);
   font-size: 10.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  user-select: text;
 }
 
 .toast-close {

@@ -1808,3 +1808,313 @@
 .settings-section {
   scroll-margin-top: 14px;
 }
+
+/* ---- first-run capture guidance --------------------------------------- */
+
+.hero-compact {
+  min-height: 224px;
+  grid-template-columns: minmax(0, 1fr) 232px;
+  padding: 22px 24px;
+}
+
+.hero-compact h2 {
+  margin: 12px 0 8px;
+  font-size: 23px;
+}
+
+.hero-shortcut-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 16px;
+  color: var(--text-3);
+  font-size: 10.5px;
+}
+
+.first-capture-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(143, 227, 168, 0.2);
+  border-radius: 12px;
+  background:
+    radial-gradient(120% 160% at 0% 0%, rgba(143, 227, 168, 0.09), transparent 62%),
+    rgba(255, 255, 255, 0.018);
+}
+
+.first-capture-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 8px;
+  background: rgba(143, 227, 168, 0.12);
+  color: var(--ok);
+}
+
+.first-capture-tip > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.first-capture-tip strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.first-capture-tip p {
+  margin: 3px 0 0;
+  color: var(--text-3);
+  font-size: 10.5px;
+  line-height: 1.55;
+}
+
+.first-capture-tip .btn {
+  flex: none;
+  align-self: center;
+}
+
+.permission-banner {
+  border-color: rgba(242, 200, 107, 0.24);
+  background:
+    radial-gradient(100% 160% at 100% 0%, rgba(242, 200, 107, 0.1), transparent 55%),
+    linear-gradient(150deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.014));
+}
+
+.tone-warn-icon {
+  border-color: rgba(242, 200, 107, 0.28);
+  background: rgba(242, 200, 107, 0.1);
+  color: var(--warn);
+}
+
+/* ---- settings: grouping and disclosures -------------------------------- */
+
+.permission-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.setting-group-label {
+  margin-top: 14px;
+  padding: 14px 0 2px;
+  border-top: 1px solid var(--line-faint);
+  color: var(--text-4);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.settings-disclosure {
+  margin: 8px 0 12px;
+  border: 1px solid var(--line-faint);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.settings-disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 12px;
+  color: var(--text-3);
+  font-size: 11px;
+  cursor: pointer;
+  list-style: none;
+  transition: color 0.15s var(--ease);
+}
+
+.settings-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-disclosure > summary::before {
+  color: var(--text-4);
+  content: "›";
+  font-size: 14px;
+  line-height: 1;
+  transition: transform 0.16s var(--ease);
+}
+
+.settings-disclosure[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.settings-disclosure > summary:hover {
+  color: var(--text-2);
+}
+
+.disclosure-body {
+  padding: 0 12px 12px;
+}
+
+.about-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.about-foot .about-actions {
+  flex: none;
+}
+
+.about-grid .keycaps {
+  transform: translateY(-1px);
+}
+
+.save-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+/* ---- setup / permission dialogs ---------------------------------------- */
+
+.setup-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 16px 0 0;
+  padding: 10px;
+  border: 1px solid var(--line-faint);
+  border-radius: 11px;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.setup-steps > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-2);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.setup-step-number {
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.setup-details {
+  margin: 14px 0 0;
+}
+
+.setup-details > summary {
+  color: var(--text-4);
+  font-size: 10.5px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.setup-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.setup-details > summary::before {
+  content: "› ";
+}
+
+.setup-details[open] > summary::before {
+  content: "⌄ ";
+}
+
+.setup-details > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 7px;
+  color: var(--text-3);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.setup-details > div span {
+  overflow-wrap: anywhere;
+}
+
+.setup-error-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.setup-actions-wrap {
+  flex-wrap: wrap;
+}
+
+.setup-actions-wrap .btn-primary {
+  min-width: 148px;
+}
+
+.permission-foot {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.permission-dialog {
+  width: min(520px, calc(100vw - 44px));
+}
+
+.permission-dialog .setup-checklist {
+  margin-top: 16px;
+}
+
+.permission-dialog .setup-row {
+  align-items: flex-start;
+}
+
+.permission-dialog .setup-row-copy {
+  padding-top: 2px;
+}
+
+.setup-row .link-btn {
+  flex: none;
+  margin-left: auto;
+}
+
+@media (max-width: 620px) {
+  .setup-steps {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .about-foot {
+    flex-direction: column;
+  }
+
+  .permission-inline {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 900px) {
+  .hero-compact {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.section-body .update-progress,
+.section-body .update-error {
+  padding-right: 0;
+  padding-left: 0;
+}

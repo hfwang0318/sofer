@@ -12,6 +12,7 @@ mod settings;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -137,6 +138,39 @@ fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+#[tauri::command]
+fn restart_app(app: AppHandle) {
+    app.restart();
+}
+
+#[tauri::command]
+fn screen_access() -> String {
+    capture::screen_access_status().to_string()
+}
+
+#[tauri::command]
+fn request_screen_access() -> bool {
+    capture::request_screen_access()
+}
+
+#[tauri::command]
+fn open_screen_settings() -> Result<(), String> {
+    capture::open_screen_settings()
+}
+
+#[tauri::command]
+async fn probe_engine(url: String) -> Result<bool, String> {
+    let url = url.trim().to_string();
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("请输入完整的 http:// 或 https:// 地址。".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        engine::health_ok(&url, Duration::from_millis(1200))
+    })
+    .await
+    .map_err(|e| format!("检测失败：{e}"))
+}
+
 // ---------------------------------------------------------------------------
 // Engine / model lifecycle
 // ---------------------------------------------------------------------------
@@ -244,7 +278,7 @@ async fn start_engine(app: AppHandle) -> Result<engine::Status, String> {
         Ok::<_, String>(status)
     })
     .await
-    .map_err(|e| format!("启动引擎失败：{e}"))?
+    .map_err(|e| format!("无法启动识别服务：{e}"))?
 }
 
 #[tauri::command]
@@ -257,7 +291,7 @@ async fn prepare_update(app: AppHandle) -> Result<(), String> {
     let manager = app.state::<Arc<EngineManager>>().inner().clone();
     tauri::async_runtime::spawn_blocking(move || manager.prepare_update())
         .await
-        .map_err(|e| format!("停止本地引擎失败：{e}"))?;
+        .map_err(|e| format!("无法停止识别服务：{e}"))?;
     Ok(())
 }
 
@@ -333,7 +367,7 @@ async fn engine_status(app: AppHandle) -> Result<engine::Status, String> {
         status
     })
     .await
-    .map_err(|e| format!("引擎检测失败：{e}"))
+    .map_err(|e| format!("无法检查识别状态：{e}"))
 }
 
 fn autostart_engine(app: &AppHandle) {
@@ -358,7 +392,7 @@ fn autostart_engine(app: &AppHandle) {
 // ---------------------------------------------------------------------------
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let capture_item = MenuItem::with_id(app, "capture", "截取区域", true, None::<&str>)?;
+    let capture_item = MenuItem::with_id(app, "capture", "截图", true, None::<&str>)?;
     let show_item = MenuItem::with_id(app, "show", "打开 ocr4code", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let quit_item = MenuItem::with_id(app, "quit", "退出 ocr4code", true, None::<&str>)?;
@@ -428,6 +462,11 @@ pub fn run() {
             set_shortcut_enabled,
             copy_text,
             capture_now,
+            restart_app,
+            screen_access,
+            request_screen_access,
+            open_screen_settings,
+            probe_engine,
             capture::overlay_info,
             capture::overlay_finish,
             capture::overlay_cancel,

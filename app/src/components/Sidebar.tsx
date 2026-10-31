@@ -1,18 +1,27 @@
 import { Icon } from "./Icon";
 import { Keycaps } from "./Controls";
 import { engineSummary } from "../lib/status";
-import { isMac, shortcutText } from "../lib/platform";
-import type { EngineStatus, SettingsSection, View } from "../lib/types";
+import { formatBytes } from "../lib/format";
+import { isMac } from "../lib/platform";
+import type {
+  DownloadProgress,
+  EngineMode,
+  EngineStatus,
+  SettingsSection,
+  View,
+} from "../lib/types";
 
 interface SidebarProps {
   view: View;
   shortcut: string;
   status: EngineStatus | null;
+  engineMode: EngineMode;
+  download: DownloadProgress | null;
   historyCount: number;
   settingsSection: SettingsSection;
+  version: string;
   onNavigate: (view: View) => void;
   onSettingsSection: (section: SettingsSection) => void;
-  onCapture: () => void;
 }
 
 const NAV = [
@@ -21,26 +30,58 @@ const NAV = [
 ];
 
 const SETTINGS_NAV: Array<{ id: SettingsSection; label: string }> = [
-  { id: "screenshot", label: "截图" },
-  { id: "interface", label: "界面" },
-  { id: "engine", label: "引擎" },
-  { id: "layout", label: "版面" },
+  { id: "general", label: "通用" },
+  { id: "recognition", label: "识别" },
   { id: "output", label: "输出" },
-  { id: "updates", label: "更新" },
+  { id: "advanced", label: "高级" },
   { id: "about", label: "关于" },
 ];
+
+function downloadSummary(download: DownloadProgress): {
+  label: string;
+  detail: string;
+  tone: "ok" | "warn";
+} {
+  const percent =
+    download.total > 0
+      ? Math.round((download.downloaded / download.total) * 100)
+      : 0;
+  if (download.phase === "starting") {
+    return { label: "正在加载模型", detail: "通常 10–20 秒", tone: "ok" };
+  }
+  if (download.phase === "verifying") {
+    return { label: "正在校验文件", detail: "下载已完成", tone: "ok" };
+  }
+  return {
+    label: "正在下载模型",
+    detail: `${percent}% · ${formatBytes(download.downloaded)} / ${formatBytes(download.total)}`,
+    tone: "ok",
+  };
+}
 
 export function Sidebar({
   view,
   shortcut,
   status,
+  engineMode,
+  download,
   historyCount,
   settingsSection,
+  version,
   onNavigate,
   onSettingsSection,
-  onCapture,
 }: SidebarProps) {
-  const engine = engineSummary(status);
+  const downloading = Boolean(
+    download && ["downloading", "verifying", "starting"].includes(download.phase),
+  );
+  const engine =
+    downloading && download
+      ? downloadSummary(download)
+      : engineMode === "tesseract"
+        ? status?.tesseract
+          ? { label: "备用识别已就绪", detail: "Tesseract · 不需要模型", tone: "ok" as const }
+          : { label: "备用识别不可用", detail: "请安装 tesseract", tone: "danger" as const }
+        : engineSummary(status);
 
   return (
     <aside className="sidebar">
@@ -57,13 +98,17 @@ export function Sidebar({
           >
             <Icon name={item.icon} size={17} />
             <span className="nav-label-text">{item.label}</span>
-            {item.view === "history" && historyCount > 0 && (
+            {item.view === "capture" ? (
+              <span className="nav-shortcut">
+                <Keycaps accelerator={shortcut} size="sm" />
+              </span>
+            ) : historyCount > 0 ? (
               <span className="nav-count">{historyCount}</span>
-            )}
+            ) : null}
           </button>
         ))}
 
-        <p className="nav-label nav-label-spaced">偏好设置</p>
+        <p className="nav-label nav-label-spaced">设置</p>
         <button
           type="button"
           className={`nav-item ${view === "settings" ? "is-active" : ""}`}
@@ -96,35 +141,19 @@ export function Sidebar({
 
       <button
         type="button"
-        className="quick-capture"
-        onClick={onCapture}
-        aria-label={`截取区域（${shortcutText(shortcut)}）`}
-      >
-        <span className="quick-capture-head">
-          <span className="quick-capture-title">快速截图</span>
-          <span className="quick-capture-icon">
-            <Icon name="capture" size={14} />
-          </span>
-        </span>
-        <Keycaps accelerator={shortcut} size="sm" />
-        <span className="quick-capture-hint">截图 → 剪贴板</span>
-      </button>
-
-      <button
-        type="button"
         className="engine-card"
-        onClick={() => onSettingsSection("engine")}
-        title="引擎设置"
+        onClick={() => onSettingsSection("recognition")}
+        title="识别设置"
       >
         <span className={`status-dot tone-${engine.tone}`} />
         <span className="engine-copy">
           <span className="engine-label">{engine.label}</span>
           <span className="engine-detail">{engine.detail}</span>
         </span>
-        <Icon name="chevron-down" size={13} className="engine-chevron" />
+        <Icon name="arrow-right" size={13} className="engine-chevron" />
       </button>
 
-      <p className="sidebar-footnote">v0.1.10 · 完全离线</p>
+      <p className="sidebar-footnote">{version || "—"} · 本地处理</p>
     </aside>
   );
 }

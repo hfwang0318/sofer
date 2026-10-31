@@ -18,6 +18,7 @@ import type {
   OcrError,
   OcrResult,
   PhasePayload,
+  ScreenAccess,
   ServerInfo,
   ServerState,
   Settings,
@@ -56,6 +57,8 @@ const demo = isTauri
 let mockInstalled = demo !== "setup";
 let mockServer: ServerState = mockInstalled ? "online" : "stopped";
 let mockTesseract = demo !== "setup" && demo !== "error";
+let mockScreenAccess: ScreenAccess =
+  demo === "permission" ? "denied" : "granted";
 let mockSetupRunning = false;
 let mockSetupCancelled = false;
 let mockSetupInterval: number | null = null;
@@ -217,8 +220,8 @@ async function previewCapture() {
   if (!mockInstalled || mockServer !== "online") {
     emitPreview("ocr:phase", { phase: "idle" } satisfies PhasePayload);
     emitPreview("ocr:error", {
-      message: "本地 OCR 模型尚未安装。",
-      hint: "打开引导设置，一次下载即可，无需手动安装。",
+      message: "识别模型还没有下载。",
+      hint: "下载一次即可，之后截图都在本机处理。",
       code: "setup-required",
     } satisfies OcrError);
     return;
@@ -250,9 +253,12 @@ async function previewCapture() {
 // ---------------------------------------------------------------------------
 
 function applyBrowserZoom(settings: Settings): void {
-  if (!isTauri) {
-    document.documentElement.style.setProperty("zoom", String(settings.uiScale));
-  }
+  if (isTauri) return;
+  // Zooming the root element makes 100vw overflow the viewport. Scale the body
+  // instead and give it the inverse size, so the preview still fills the window.
+  const root = document.documentElement;
+  root.style.setProperty("--preview-scale", String(settings.uiScale));
+  root.classList.add("preview-zoom");
 }
 
 export async function loadSettings(): Promise<Settings> {
@@ -285,6 +291,30 @@ export async function appInfo(): Promise<AppInfo> {
 export async function engineStatus(): Promise<EngineStatus> {
   if (isTauri) return invoke<EngineStatus>("engine_status");
   return mockEngineStatus();
+}
+
+export async function screenAccess(): Promise<ScreenAccess> {
+  if (isTauri) return invoke<ScreenAccess>("screen_access");
+  return mockScreenAccess;
+}
+
+export async function requestScreenAccess(): Promise<boolean> {
+  if (isTauri) return invoke<boolean>("request_screen_access");
+  mockScreenAccess = "granted";
+  return true;
+}
+
+export async function openScreenSettings(): Promise<void> {
+  if (isTauri) await invoke("open_screen_settings");
+}
+
+export async function restartApp(): Promise<void> {
+  if (isTauri) await invoke("restart_app");
+}
+
+export async function probeEngine(url: string): Promise<boolean> {
+  if (isTauri) return invoke<boolean>("probe_engine", { url });
+  return url.trim().length > 0;
 }
 
 export async function setupEngine(): Promise<void> {

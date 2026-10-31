@@ -12,6 +12,7 @@ import type { AvailableUpdate, UpdatePhase } from "../lib/updater";
 import type {
   DownloadProgress,
   EngineStatus,
+  ScreenAccess,
   Settings,
   SettingsSection,
   ToastTone,
@@ -23,6 +24,7 @@ interface SettingsViewProps {
   download: DownloadProgress | null;
   engineBusy: "start" | "stop" | "remove" | null;
   appVersion: string;
+  screenAccess: ScreenAccess;
   updateInfo: AvailableUpdate | null;
   updatePhase: UpdatePhase;
   updateProgress: number;
@@ -32,6 +34,7 @@ interface SettingsViewProps {
   onInstallUpdate: () => void;
   onSave: (draft: Settings) => Promise<void>;
   onTestEngine: () => Promise<EngineStatus>;
+  onProbeEngine: (url: string) => Promise<boolean>;
   onNotify: (tone: ToastTone, title: string, detail?: string) => void;
   onQuit: () => void;
   onSetup: () => void;
@@ -40,18 +43,19 @@ interface SettingsViewProps {
   onStopEngine: () => void;
   onRemoveModel: () => void;
   onCancelSetup: () => void;
+  onRequestPermission: () => void;
+  onOpenPermissionSettings: () => void;
+  onResetOnboarding: () => void;
   section: SettingsSection;
   sectionNav: number;
   onSectionChange: (section: SettingsSection) => void;
 }
 
 const SECTION_IDS: SettingsSection[] = [
-  "screenshot",
-  "interface",
-  "engine",
-  "layout",
+  "general",
+  "recognition",
   "output",
-  "updates",
+  "advanced",
   "about",
 ];
 
@@ -123,7 +127,11 @@ function Field({
 }
 
 function sameSettings(a: Settings, b: Settings): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  const keys = Object.keys(a) as Array<keyof Settings>;
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((key) => a[key] === b[key])
+  );
 }
 
 function LocalEnginePanel({
@@ -149,14 +157,22 @@ function LocalEnginePanel({
 }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const { runtime, model, server } = status;
+
+  useEffect(() => {
+    if (!confirmRemove) return;
+    const timer = window.setTimeout(() => setConfirmRemove(false), 5000);
+    return () => window.clearTimeout(timer);
+  }, [confirmRemove]);
+  const busyPhase = download?.phase;
   const downloading = Boolean(
-    download && ["downloading", "verifying", "starting"].includes(download.phase),
+    busyPhase && ["downloading", "verifying", "starting"].includes(busyPhase),
   );
   const percent =
     download && download.total > 0
       ? Math.min(100, (download.downloaded / download.total) * 100)
       : 0;
   const managed = server.managed;
+  const externalOnline = !managed && server.state === "online";
   const busy = engineBusy !== null;
 
   return (
@@ -164,7 +180,7 @@ function LocalEnginePanel({
       <div className="runtime-head">
         <div className="runtime-heading">
           <span className={`status-dot tone-${status.llama ? "ok" : model.installed ? "warn" : "danger"}`} />
-          <strong>本地引擎</strong>
+          <strong>本地识别</strong>
           <span className="badge">
             {runtime.bundled ? "内置运行时" : runtime.system ? "系统运行时" : "运行时缺失"}
           </span>
@@ -175,7 +191,17 @@ function LocalEnginePanel({
           )}
         </div>
         <div className="runtime-actions">
-          {!model.installed ? (
+          {downloading ? (
+            <span className="badge">
+              {busyPhase === "verifying"
+                ? "校验中"
+                : busyPhase === "starting"
+                  ? "加载中"
+                  : "下载中"}
+            </span>
+          ) : externalOnline ? (
+            <span className="badge badge-ok">外部服务</span>
+          ) : !model.installed ? (
             <button type="button" className="btn btn-primary btn-sm" onClick={onDownloadModel} disabled={busy}>
               <Icon name="arrow-right" size={14} />
               下载模型
@@ -192,7 +218,7 @@ function LocalEnginePanel({
           ) : (
             <button type="button" className="btn btn-secondary btn-sm" onClick={onStartEngine} disabled={busy}>
               <Icon name="power" size={14} />
-              {engineBusy === "start" ? "正在启动…" : "启动引擎"}
+              {engineBusy === "start" ? "正在启动…" : "启动"}
             </button>
           )}
         </div>
@@ -208,17 +234,20 @@ function LocalEnginePanel({
         <div>
           <span className="runtime-label">模型</span>
           <span className="runtime-value">
-            {status.setup.modelName} ·{" "}
-            {model.installed
-              ? `${formatBytes(model.bytes)} · ${model.verified ? "SHA-256 已校验" : "未校验"}`
-              : `${formatBytes(model.total)} 待下载`}
+            {externalOnline && !model.installed
+              ? "未下载 · 当前使用外部服务"
+              : `${status.setup.modelName} · ${
+                  model.installed
+                    ? `${formatBytes(model.bytes)} · ${model.verified ? "已校验" : "未校验"}`
+                    : `${formatBytes(model.total)} 待下载`
+                }`}
           </span>
         </div>
         <div>
           <span className="runtime-label">服务</span>
           <span className={`runtime-value tone-${server.state === "online" ? "ok" : server.state === "failed" ? "danger" : "muted"}`}>
             {server.state === "online"
-              ? `${managed ? "内置" : "外部"} · ${server.url ?? status.llamaUrl}`
+              ? `${managed ? "本地" : "外部"} · ${server.url ?? status.llamaUrl}`
               : server.state === "starting"
                 ? "正在启动…"
                 : server.state === "failed"
@@ -233,9 +262,9 @@ function LocalEnginePanel({
           <div className="runtime-download-head">
             <span>
               {download.phase === "verifying"
-                ? "正在校验 SHA-256…"
+                ? "正在校验文件…"
                 : download.phase === "starting"
-                  ? "正在启动 llama-server…"
+                  ? "正在加载模型…"
                   : download.file ?? "正在下载模型"}
             </span>
             <span className="mono">
@@ -249,10 +278,12 @@ function LocalEnginePanel({
           <div className="runtime-bar">
             <span style={{ width: `${download.phase === "starting" ? 100 : percent}%` }} />
           </div>
-          {download.phase === "downloading" && (
+          {download.phase === "downloading" ? (
             <button type="button" className="link-btn" onClick={onCancelSetup}>
               取消下载
             </button>
+          ) : (
+            <span className="runtime-foot-note">完成后会自动继续</span>
           )}
         </div>
       )}
@@ -260,7 +291,7 @@ function LocalEnginePanel({
       {download?.phase === "error" && (
         <p className="runtime-error">
           <Icon name="alert" size={13} />
-          {download.message ?? "设置失败。"}
+          {download.message ?? "没有完成。"}
           <button type="button" className="link-btn" onClick={onSetup}>
             重试
           </button>
@@ -276,7 +307,7 @@ function LocalEnginePanel({
 
       <div className="runtime-foot">
         <button type="button" className="link-btn" onClick={onSetup}>
-          {model.installed ? "重新运行设置" : "打开设置向导"}
+          {model.installed ? "重新设置" : "打开设置向导"}
         </button>
         {model.installed && (
           <button
@@ -289,15 +320,17 @@ function LocalEnginePanel({
           </button>
         )}
         <span className="runtime-foot-note">
-          {model.installed
-            ? "完全离线运行"
-            : `一次性 ${formatBytes(model.total)} · 支持续传`}
+          {externalOnline
+            ? "当前使用外部服务"
+            : model.installed
+              ? "本地处理"
+              : `下载 ${formatBytes(model.total)} · 支持续传`}
         </span>
       </div>
 
       {confirmRemove && (
         <div className="runtime-confirm">
-          <span>移除当前精度（{status.setup.modelName}）的模型文件？</span>
+          <span>移除当前模型？下次截图前需要重新下载。</span>
           <div>
             <button
               type="button"
@@ -330,6 +363,7 @@ export function SettingsView({
   download,
   engineBusy,
   appVersion,
+  screenAccess,
   updateInfo,
   updatePhase,
   updateProgress,
@@ -339,6 +373,7 @@ export function SettingsView({
   onInstallUpdate,
   onSave,
   onTestEngine,
+  onProbeEngine,
   onNotify,
   onQuit,
   onSetup,
@@ -347,6 +382,9 @@ export function SettingsView({
   onStopEngine,
   onRemoveModel,
   onCancelSetup,
+  onRequestPermission,
+  onOpenPermissionSettings,
+  onResetOnboarding,
   section,
   sectionNav,
   onSectionChange,
@@ -356,13 +394,25 @@ export function SettingsView({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
+  const [testingUrl, setTestingUrl] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastNav = useRef<number | null>(null);
+  const mounted = useRef(false);
 
   useEffect(() => {
-    // Only scroll on an explicit sidebar click (or first mount). The scroll
-    // observer also updates `section`; without this guard the two would fight.
-    if (lastNav.current === sectionNav) return;
+    // The first section sits directly under the page title: do not scroll the
+    // header out of view just because the user opened Settings.
+    if (!mounted.current) {
+      mounted.current = true;
+      if (section === "general") {
+        lastNav.current = sectionNav;
+        return;
+      }
+    } else if (lastNav.current === sectionNav) {
+      // Only scroll on an explicit sidebar click. The scroll observer also
+      // updates `section`; without this guard the two would fight.
+      return;
+    }
     lastNav.current = sectionNav;
     const target = document.getElementById(`settings-${section}`);
     if (!target) return;
@@ -403,7 +453,7 @@ export function SettingsView({
       void setShortcutEnabled(!recording).catch((cause) => {
         onNotify(
           "error",
-          "全局快捷键恢复失败",
+          "快捷键恢复失败",
           cause instanceof Error ? cause.message : String(cause),
         );
       });
@@ -417,28 +467,29 @@ export function SettingsView({
       : null;
   const proxyAddress = draft.proxyUrl.trim();
   const proxyError = proxyAddress.includes("@")
-    ? "代理地址里不要再写用户名/密码，请填到下面的认证字段。"
+    ? "地址里不要写用户名或密码。"
     : proxyAddress && !/^(http:\/\/)?[^\s/]+$/i.test(proxyAddress)
-      ? "请填写 host:port，或 http://host:port。"
+      ? "请填 host:port，或 http://host:port。"
       : null;
   const proxyAuthError =
     !proxyAddress && (draft.proxyUsername || draft.proxyPassword)
-      ? "填写代理认证前，请先填写代理地址。"
+      ? "先填代理地址。"
       : !draft.proxyUsername && draft.proxyPassword
-        ? "填写代理密码前，请先填写用户名。"
+        ? "先填用户名。"
         : null;
   const promptError = draft.prompt.trim() ? null : "提示词不能为空。";
-  const langError = draft.tessLang.trim() ? null : "例如 `eng` 或 `eng+chi_sim`。";
+  const langError = draft.tessLang.trim() ? null : "例如 eng 或 eng+chi_sim。";
   const fenceError =
     draft.language.trim() && !/^[a-zA-Z0-9+#._-]*$/.test(draft.language.trim())
       ? "请使用简短的语言名，如 rust、python、diff。"
       : null;
+  const usesModel = draft.engine !== "tesseract";
+  const fenceActive = draft.format === "markdown" && Boolean(draft.language.trim());
   const valid =
-    !urlError &&
+    (!usesModel || (!urlError && !promptError)) &&
+    (!fenceActive || !fenceError) &&
     !proxyError &&
     !proxyAuthError &&
-    !promptError &&
-    !fenceError &&
     (draft.engine === "llamacpp" || !langError) &&
     draft.maxTokens >= 128 &&
     draft.maxTokens <= 16384;
@@ -469,6 +520,9 @@ export function SettingsView({
   useEffect(() => {
     function onKeyDown(event: globalThis.KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        const target = event.target as HTMLElement | null;
+        // Let the shortcut recorder capture Cmd/Ctrl+S instead of saving.
+        if (target?.closest(".shortcut-recorder")) return;
         event.preventDefault();
         void handleSave();
       }
@@ -489,13 +543,13 @@ export function SettingsView({
         next.llama
           ? next.llamaUrl
           : next.tesseract
-            ? "llama.cpp 未响应，但 tesseract 可用。"
-            : "请启动 llama-server，或安装 tesseract。",
+            ? "本地模型没有响应，但备用识别可用。"
+            : "先下载模型，或安装 tesseract。",
       );
     } catch (error) {
       onNotify(
         "error",
-        "引擎检测失败",
+        "检测失败",
         error instanceof Error ? error.message : String(error),
       );
     } finally {
@@ -503,34 +557,68 @@ export function SettingsView({
     }
   }
 
+  async function handleTestUrl() {
+    if (testingUrl) return;
+    setTestingUrl(true);
+    try {
+      const ok = await onProbeEngine(draft.llamaUrl);
+      onNotify(
+        ok ? "ok" : "error",
+        ok ? "地址可用" : "连不上这个地址",
+        ok ? draft.llamaUrl : "确认服务已经启动，或换一个地址。",
+      );
+    } catch (error) {
+      onNotify(
+        "error",
+        "检测失败",
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      setTestingUrl(false);
+    }
+  }
+
   function resetDefaults() {
     setDraft({ ...DEFAULT_SETTINGS });
     setSaveError(null);
-    onNotify("info", "已载入默认值", "确认后保存即可生效。");
+    onNotify("info", "已载入默认值", "保存后生效。");
   }
+
+  const updateDescription =
+    updatePhase === "checking"
+      ? "正在检查更新…"
+      : updatePhase === "current"
+        ? "已是最新版本。"
+        : updatePhase === "available" && updateInfo
+          ? `有新版 v${updateInfo.version} 可以下载。`
+          : updatePhase === "downloading" && updateInfo
+            ? `正在下载 v${updateInfo.version}…`
+            : updatePhase === "ready" && updateInfo
+              ? `v${updateInfo.version} 已下载，重启后安装。`
+              : updatePhase === "installing"
+                ? "正在启动安装程序…"
+                : updatePhase === "error"
+                  ? "更新失败，请重试。"
+                  : "尚未检查。";
 
   return (
     <div className="view settings-view">
       <div className="view-scroll" ref={scrollRef}>
         <header className="view-head">
           <div>
-            <p className="eyebrow">偏好设置</p>
+            <p className="eyebrow">设置</p>
             <h1>设置</h1>
             <p className="lede">
-              桌面层暴露的全部内核参数。更改会应用于下一次截图，OCR 内核本身保持不变。
+              调整截图、识别和输出的方式。修改后点保存；模型的启动和下载会立即生效。
             </p>
           </div>
           <span className="settings-version">ocr4code {appVersion || "—"}</span>
         </header>
 
-        <Section
-          id="screenshot"
-          title="截图"
-          description="应用把截图交给内核的方式。"
-        >
+        <Section id="general" title="通用" description="截图方式、快捷键和界面大小。">
           <SettingRow
             title="全局快捷键"
-            description="ocr4code 运行时，在任何应用里都可以使用。支持单键、2 键或 3 键组合（必须有 1 个主键）。"
+            description="在任何应用里都能截图。只有 F 键能单独使用；其他键请搭配 ⌘/Ctrl/⌥。"
           >
             <ShortcutRecorder
               value={draft.shortcut}
@@ -540,7 +628,7 @@ export function SettingsView({
           </SettingRow>
           <SettingRow
             title="自动复制"
-            description="识别完成后立即写入剪贴板。"
+            description="识别完成后直接放进剪贴板。"
           >
             <Switch
               checked={draft.autoCopy}
@@ -548,16 +636,9 @@ export function SettingsView({
               label="自动复制"
             />
           </SettingRow>
-        </Section>
-
-        <Section
-          id="interface"
-          title="界面"
-          description="整体放大字体和控件；窗口尺寸也可以直接拖动。截图内容不受影响。"
-        >
           <SettingRow
             title="界面缩放"
-            description="默认 115%。觉得字体小可以调大；放大后窗口里显示的内容会相应减少。"
+            description="调整窗口内的字号和控件大小。"
           >
             <Segmented
               label="界面缩放"
@@ -570,12 +651,46 @@ export function SettingsView({
               ]}
             />
           </SettingRow>
+          {isMac && (
+            <SettingRow
+              title="屏幕录制权限"
+              description={
+                screenAccess === "granted"
+                  ? "已授权，可以正常截图。"
+                  : "未授权时截图会是空白。授权后如果状态没变，请重启应用。"
+              }
+            >
+              <div className="permission-inline">
+                <span className={`badge ${screenAccess === "granted" ? "badge-ok" : "badge-warn"}`}>
+                  {screenAccess === "granted" ? "已授权" : "待授权"}
+                </span>
+                {screenAccess !== "granted" && (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={onRequestPermission}
+                    >
+                      去授权
+                    </button>
+                    <button
+                      type="button"
+                      className="link-btn"
+                      onClick={onOpenPermissionSettings}
+                    >
+                      系统设置
+                    </button>
+                  </>
+                )}
+              </div>
+            </SettingRow>
+          )}
         </Section>
 
         <Section
-          id="engine"
-          title="引擎"
-          description="文字来自模型；无论用哪个引擎，版面都由纯 CV 几何层重建。"
+          id="recognition"
+          title="识别"
+          description="截图交给哪个模型，以及模型放在哪里。"
           meta={
             <div className={`engine-health tone-${engine.tone}`}>
               <span className="status-dot" />
@@ -591,7 +706,7 @@ export function SettingsView({
                   size={13}
                   className={testing ? "is-spinning" : ""}
                 />
-                {testing ? "检测中" : "检测"}
+                {testing ? "检测中" : "刷新状态"}
               </button>
             </div>
           }
@@ -611,104 +726,21 @@ export function SettingsView({
           )}
           <SettingRow
             title="模型精度"
-            description="高精度用官方 Q8_0（约 1.43 GB），低精度用 Q4_K_M（约 1.03 GB）；两者共用同一个 mmproj。Windows 内置 CPU 运行时建议低精度。保存后生效；对应模型未下载时会引导下载。"
+            description="标准更准，约 1.4 GB；轻量更省内存，约 1.0 GB。Windows 建议轻量。切换后可能需要下载。"
           >
             <Segmented
               label="模型精度"
               value={draft.modelQuality}
               onChange={(next) => update("modelQuality", next)}
               options={[
-                { value: "high", label: "高精度 Q8_0" },
-                { value: "low", label: "低精度 Q4_K_M" },
+                { value: "high", label: "标准" },
+                { value: "low", label: "轻量" },
               ]}
             />
           </SettingRow>
           <SettingRow
-            title="模型下载"
-            description="代理和镜像只影响模型下载；保存后对下一次下载生效。"
-            stack
-          >
-            <div className="field-grid">
-              <Field
-                label="代理地址（可选）"
-                error={proxyError}
-                hint="例如 http://127.0.0.1:7897；只填 host:port 时按 http 处理。留空则读取环境变量。"
-                full
-                action={
-                  draft.proxyUrl || draft.proxyUsername || draft.proxyPassword ? (
-                    <button
-                      type="button"
-                      className="link-btn"
-                      onClick={() => {
-                        update("proxyUrl", "");
-                        update("proxyUsername", "");
-                        update("proxyPassword", "");
-                      }}
-                    >
-                      清除
-                    </button>
-                  ) : undefined
-                }
-              >
-                <input
-                  className="input mono"
-                  type="text"
-                  value={draft.proxyUrl}
-                  placeholder="http://127.0.0.1:7897"
-                  spellCheck={false}
-                  autoComplete="off"
-                  aria-label="下载代理地址"
-                  aria-invalid={Boolean(proxyError)}
-                  onChange={(event) => update("proxyUrl", event.target.value)}
-                />
-              </Field>
-              <Field
-                label="代理用户名（可选）"
-                error={proxyAuthError}
-                hint="支持任意字符；保存时会自动做 URL 编码。"
-              >
-                <input
-                  className="input mono"
-                  type="text"
-                  value={draft.proxyUsername}
-                  spellCheck={false}
-                  autoComplete="username"
-                  aria-label="代理用户名"
-                  onChange={(event) => update("proxyUsername", event.target.value)}
-                />
-              </Field>
-              <Field
-                label="代理密码（可选）"
-                hint="输入原字符即可，例如 p@ss:word；应用会编码成 p%40ss%3Aword，密码框不会显示明文。"
-              >
-                <input
-                  className="input mono"
-                  type="password"
-                  value={draft.proxyPassword}
-                  spellCheck={false}
-                  autoComplete="new-password"
-                  aria-label="代理密码"
-                  onChange={(event) => update("proxyPassword", event.target.value)}
-                />
-              </Field>
-              <div className="field field-full">
-                <div className="field-head">
-                  <span className="field-label">使用镜像</span>
-                  <Switch
-                    checked={draft.useMirror}
-                    onChange={(useMirror) => update("useMirror", useMirror)}
-                    label="使用 hf-mirror.com 镜像"
-                  />
-                </div>
-                <span className="field-hint">
-                  通过 hf-mirror.com 加速下载；无法直连 Hugging Face 时开启。
-                </span>
-              </div>
-            </div>
-          </SettingRow>
-          <SettingRow
             title="空闲释放内存"
-            description="空闲后卸载模型，常驻内存从 GB 级降到约 100 MB；下次首张截图会多等 0.2–0.7 秒。"
+            description="闲置后释放内存。下次截图会稍慢一点。"
           >
             <Segmented
               label="空闲释放内存"
@@ -722,24 +754,206 @@ export function SettingsView({
               ]}
             />
           </SettingRow>
+
+          <details className="settings-disclosure">
+            <summary>下载设置（镜像、代理）</summary>
+            <div className="disclosure-body">
+              <div className="field-grid">
+                <Field
+                  label="代理地址（可选）"
+                  error={proxyError}
+                  hint="例如 http://127.0.0.1:7897。留空则读取系统代理。"
+                  full
+                  action={
+                    draft.proxyUrl || draft.proxyUsername || draft.proxyPassword ? (
+                      <button
+                        type="button"
+                        className="link-btn"
+                        onClick={() => {
+                          update("proxyUrl", "");
+                          update("proxyUsername", "");
+                          update("proxyPassword", "");
+                        }}
+                      >
+                        清除
+                      </button>
+                    ) : undefined
+                  }
+                >
+                  <input
+                    className="input mono"
+                    type="text"
+                    value={draft.proxyUrl}
+                    placeholder="http://127.0.0.1:7897"
+                    spellCheck={false}
+                    autoComplete="off"
+                    aria-label="下载代理地址"
+                    aria-invalid={Boolean(proxyError)}
+                    onChange={(event) => update("proxyUrl", event.target.value)}
+                  />
+                </Field>
+                <Field
+                  label="代理用户名（可选）"
+                  error={proxyAuthError}
+                  hint="保存时会自动编码。"
+                >
+                  <input
+                    className="input mono"
+                    type="text"
+                    value={draft.proxyUsername}
+                    spellCheck={false}
+                    autoComplete="username"
+                    aria-label="代理用户名"
+                    onChange={(event) => update("proxyUsername", event.target.value)}
+                  />
+                </Field>
+                <Field
+                  label="代理密码（可选）"
+                  hint="输入原字符即可，不会显示明文。"
+                >
+                  <input
+                    className="input mono"
+                    type="password"
+                    value={draft.proxyPassword}
+                    spellCheck={false}
+                    autoComplete="new-password"
+                    aria-label="代理密码"
+                    onChange={(event) => update("proxyPassword", event.target.value)}
+                  />
+                </Field>
+                <div className="field field-full">
+                  <div className="field-head">
+                    <span className="field-label">使用镜像</span>
+                    <Switch
+                      checked={draft.useMirror}
+                      onChange={(useMirror) => update("useMirror", useMirror)}
+                      label="使用 hf-mirror.com 镜像"
+                    />
+                  </div>
+                  <span className="field-hint">无法直连 Hugging Face 时开启。</span>
+                </div>
+              </div>
+            </div>
+          </details>
+        </Section>
+
+        <Section
+          id="output"
+          title="输出"
+          description="复制什么，以及保留多少记录。"
+        >
           <SettingRow
-            title="KV 缓存量化"
-            description="q8_0 把 32k 上下文的 KV 从 2 GiB 降到 1 GiB，实测精度不变；macOS 默认开，Windows CPU 会慢约 2×，默认关。"
+            title="输出格式"
+            description="纯文本适合直接粘贴；Markdown 带代码围栏；JSON 给脚本用。"
           >
-            <Switch
-              checked={draft.kvCacheQuant}
-              onChange={(kvCacheQuant) => update("kvCacheQuant", kvCacheQuant)}
-              label="KV 缓存量化"
+            <Segmented
+              label="输出格式"
+              value={draft.format}
+              onChange={(format) => update("format", format)}
+              options={[
+                { value: "text", label: "纯文本" },
+                { value: "markdown", label: "Markdown" },
+                { value: "json", label: "JSON" },
+              ]}
             />
           </SettingRow>
+          <SettingRow
+            title="围栏语言"
+            description="仅用于 Markdown。留空则自动判断。"
+          >
+            <input
+              className="input mono input-inline"
+              value={draft.language}
+              placeholder="自动"
+              spellCheck={false}
+              disabled={draft.format !== "markdown"}
+              aria-label="Markdown 围栏语言"
+              onChange={(event) => update("language", event.target.value)}
+            />
+          </SettingRow>
+          {fenceError && (
+            <p className="row-error">
+              <Icon name="alert" size={13} />
+              {fenceError}
+            </p>
+          )}
+          <SettingRow
+            title="历史记录上限"
+            description="只保留最近的记录。"
+          >
+            <div className="select-wrap select-compact">
+              <select
+                className="input select"
+                value={draft.historyLimit}
+                aria-label="历史记录上限"
+                onChange={(event) => update("historyLimit", Number(event.target.value))}
+              >
+                {[5, 10, 20, 50].map((limit) => (
+                  <option key={limit} value={limit}>
+                    {limit} 条
+                  </option>
+                ))}
+              </select>
+              <Icon name="chevron-down" size={14} className="select-chevron" />
+            </div>
+          </SettingRow>
+
+          <div className="setting-group-label">版面</div>
+          <SettingRow
+            title="从像素重建缩进"
+            description="按像素重新计算缩进，避免空格错位。"
+          >
+            <Switch
+              checked={draft.geometry}
+              onChange={(geometry) => update("geometry", geometry)}
+              label="从像素重建缩进"
+            />
+          </SettingRow>
+          <SettingRow
+            title="去除行号栏"
+            description="识别并移除编辑器截图里的行号列。"
+          >
+            <Switch
+              checked={!draft.keepGutter}
+              onChange={(checked) => update("keepGutter", !checked)}
+              label="去除行号栏"
+            />
+          </SettingRow>
+          <SettingRow
+            title="合并软换行"
+            description="合并被窗口折行的长行。偶尔会误合并，默认关闭。"
+          >
+            <Switch
+              checked={draft.joinWrap}
+              onChange={(joinWrap) => update("joinWrap", joinWrap)}
+              label="合并软换行"
+            />
+          </SettingRow>
+          <SettingRow
+            title="长截图切块"
+            description="长图在空白行处切块；回复过短时自动重试。"
+          >
+            <Switch
+              checked={draft.tile}
+              onChange={(tile) => update("tile", tile)}
+              label="长截图切块"
+            />
+          </SettingRow>
+        </Section>
+
+        <Section
+          id="advanced"
+          title="高级"
+          description="影响识别质量和内存占用。一般保持默认。"
+        >
           <SettingRow
             title="识别引擎"
             description={
               draft.engine === "auto"
-                ? "优先使用能响应的 llama.cpp，不可用时回落到 tesseract。"
+                ? "优先用本地模型，不可用时回落到 tesseract。"
                 : draft.engine === "llamacpp"
-                  ? "把截图发送给本地 llama-server，版面与符号保真度最好。"
-                  : "不依赖模型服务，完全本机运行；速度较快，但符号和中文较弱。"
+                  ? "只用本地模型，符号和中文更准。"
+                  : "不加载模型，速度较快，但符号和中文较弱。"
             }
           >
             <Segmented
@@ -758,45 +972,41 @@ export function SettingsView({
             <>
               <SettingRow
                 title="外部服务（可选）"
-                description="如果这个地址已经有 llama.cpp 服务，ocr4code 会直接使用，不再启动内置服务。"
+                description="已有 llama.cpp 服务时直接使用，不再启动内置服务。"
                 stack
               >
                 <div className="field-grid">
                   <Field
-                    label="外部 llama.cpp 地址"
+                    label="服务地址"
                     error={urlError}
-                    hint={
-                      urlError
-                        ? undefined
-                        : `环境变量覆盖：OCR4CODE_LLAMA_URL · ${draft.llamaUrl}`
-                    }
+                    hint={urlError ? undefined : `环境变量可覆盖：OCR4CODE_LLAMA_URL`}
                     full
-                  >
-                    <div className="input-with-action">
-                      <input
-                        className="input mono"
-                        type="url"
-                        value={draft.llamaUrl}
-                        spellCheck={false}
-                        aria-label="外部 llama.cpp 地址"
-                        aria-invalid={Boolean(urlError)}
-                        onChange={(event) => update("llamaUrl", event.target.value)}
-                      />
+                    action={
                       <button
                         type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => void handleTest()}
-                        disabled={testing}
+                        className="link-btn"
+                        onClick={() => void handleTestUrl()}
+                        disabled={testingUrl}
                       >
-                        {testing ? "检测中…" : "检测"}
+                        {testingUrl ? "检测中…" : "检测此地址"}
                       </button>
-                    </div>
+                    }
+                  >
+                    <input
+                      className="input mono"
+                      type="url"
+                      value={draft.llamaUrl}
+                      spellCheck={false}
+                      aria-label="llama.cpp 服务地址"
+                      aria-invalid={Boolean(urlError)}
+                      onChange={(event) => update("llamaUrl", event.target.value)}
+                    />
                   </Field>
 
                   <Field
                     label="提示词"
                     error={promptError}
-                    hint="提示词对版面的影响最大。默认值在 26 个场景上标定过。"
+                    hint="影响版面保留程度。默认值已按常见代码截图调过。"
                     full
                     action={
                       <button
@@ -820,8 +1030,8 @@ export function SettingsView({
                   </Field>
 
                   <Field
-                    label={`最大输出 token 数 — ${draft.maxTokens}`}
-                    hint={`同时决定切块的行数预算。3072 是实测默认值；8192 可能超发。当前会启动 -c ${context} -np ${slots}（每槽 ${slotCtx} token），调大输出会同步增加 KV 内存。`}
+                    label={`最大输出长度 — ${draft.maxTokens}`}
+                    hint={`长截图需要更大的值。当前 -c ${context} -np ${slots}（每槽 ${slotCtx} token）。`}
                     full
                   >
                     <div className="range-row">
@@ -841,8 +1051,8 @@ export function SettingsView({
                   </Field>
 
                   <Field
-                    label={`并行引擎调用数 — ${draft.jobs}`}
-                    hint={`仅在长截图切块时使用。llama.cpp 最多 3 个 slot（当前 -np ${slots}），更多请求会排队；tesseract 不受此限制。`}
+                    label={`并行识别数 — ${draft.jobs}`}
+                    hint={`只在长截图切块时使用。${slots} 个并行的结果会排队处理。`}
                     full
                   >
                     <div className="range-row">
@@ -852,7 +1062,7 @@ export function SettingsView({
                         max={6}
                         step={1}
                         value={draft.jobs}
-                        aria-label="并行引擎调用数"
+                        aria-label="并行识别数"
                         onChange={(event) => update("jobs", Number(event.target.value))}
                       />
                       <span className="range-value">{draft.jobs}</span>
@@ -863,11 +1073,22 @@ export function SettingsView({
             </>
           )}
 
+          <SettingRow
+            title="压缩识别缓存"
+            description="减少内存占用；Windows 上可能变慢。"
+          >
+            <Switch
+              checked={draft.kvCacheQuant}
+              onChange={(kvCacheQuant) => update("kvCacheQuant", kvCacheQuant)}
+              label="压缩识别缓存"
+            />
+          </SettingRow>
+
           {draft.engine !== "llamacpp" && (
             <div className={draft.engine === "auto" ? "engine-fallback" : ""}>
               {draft.engine === "auto" && (
                 <div className="fallback-label">
-                  <span>兜底</span>
+                  <span>备用识别</span>
                   <span className="fallback-line" />
                   <span>tesseract</span>
                 </div>
@@ -888,7 +1109,7 @@ export function SettingsView({
                 </Field>
                 <Field
                   label="页面分割模式"
-                  hint="Tesseract 的 PSM。大多数截图用单块模式即可。"
+                  hint="大多数截图用单块模式即可。"
                 >
                   <div className="select-wrap">
                     <select
@@ -912,123 +1133,41 @@ export function SettingsView({
         </Section>
 
         <Section
-          id="layout"
-          title="版面重建"
-          description="几何层对每个引擎都会运行，它决定粘贴后是否还能用。"
+          id="about"
+          title="关于"
+          description="版本、更新和退出。"
+          meta={<span className="about-version">v{appVersion || "—"}</span>}
         >
-          <SettingRow
-            title="从像素重建缩进"
-            description="用墨迹掩码计算行首空格，而不是相信模型输出的空格。"
-          >
-            <Switch
-              checked={draft.geometry}
-              onChange={(geometry) => update("geometry", geometry)}
-              label="从像素重建缩进"
-            />
-          </SettingRow>
-          <SettingRow
-            title="去除行号栏"
-            description="识别并移除行号列。关闭后保留编辑器截图里模型自己的空格。"
-          >
-            <Switch
-              checked={!draft.keepGutter}
-              onChange={(checked) => update("keepGutter", !checked)}
-              label="去除行号栏"
-            />
-          </SettingRow>
-          <SettingRow
-            title="合并软换行"
-            description="启发式处理。刚好顶到右边距的长行可能被误合并，因此默认关闭。"
-          >
-            <Switch
-              checked={draft.joinWrap}
-              onChange={(joinWrap) => update("joinWrap", joinWrap)}
-              label="合并软换行"
-            />
-          </SettingRow>
-          <SettingRow
-            title="长截图切块"
-            description="输出预算不足时在空白行处切块；回复过短时自动重试一次。"
-          >
-            <Switch
-              checked={draft.tile}
-              onChange={(tile) => update("tile", tile)}
-              label="长截图切块"
-            />
-          </SettingRow>
-        </Section>
-
-        <Section
-          id="output"
-          title="输出"
-          description="复制什么，以及保留多少历史记录。"
-        >
-          <SettingRow
-            title="输出格式"
-            description="纯文本可直接粘贴；Markdown 会带语言围栏；JSON 携带逐行缩进。"
-          >
-            <Segmented
-              label="输出格式"
-              value={draft.format}
-              onChange={(format) => update("format", format)}
-              options={[
-                { value: "text", label: "纯文本" },
-                { value: "markdown", label: "Markdown" },
-                { value: "json", label: "JSON" },
-              ]}
-            />
-          </SettingRow>
-          <SettingRow
-            title="围栏语言"
-            description="仅用于 Markdown。留空则由内核根据识别文字猜测。"
-          >
-            <input
-              className="input mono input-inline"
-              value={draft.language}
-              placeholder="自动"
-              spellCheck={false}
-              disabled={draft.format !== "markdown"}
-              aria-label="Markdown 围栏语言"
-              onChange={(event) => update("language", event.target.value)}
-            />
-          </SettingRow>
-          {fenceError && (
-            <p className="row-error">
-              <Icon name="alert" size={13} />
-              {fenceError}
-            </p>
-          )}
-          <SettingRow
-            title="历史记录上限"
-            description="超过上限后，较早的记录会从本机删除。"
-          >
-            <div className="select-wrap select-compact">
-              <select
-                className="input select"
-                value={draft.historyLimit}
-                aria-label="历史记录上限"
-                onChange={(event) => update("historyLimit", Number(event.target.value))}
-              >
-                {[5, 10, 20, 50].map((limit) => (
-                  <option key={limit} value={limit}>
-                    {limit} 条
-                  </option>
-                ))}
-              </select>
-              <Icon name="chevron-down" size={14} className="select-chevron" />
+          <div className="about-grid">
+            <div>
+              <span className="about-label">识别</span>
+              <span className={`about-value tone-${engine.tone}`}>
+                <span className="status-dot" />
+                {engine.label}
+              </span>
             </div>
-          </SettingRow>
-        </Section>
+            <div>
+              <span className="about-label">隐私</span>
+              <span className="about-value">本地处理，不上传</span>
+            </div>
+            <div>
+              <span className="about-label">截图</span>
+              <span className="about-value">
+                {isMac ? "macOS 系统选区" : "Windows 自绘选区"}
+              </span>
+            </div>
+            <div>
+              <span className="about-label">快捷键</span>
+              <span className="about-value">
+                <Keycaps accelerator={draft.shortcut} size="sm" />
+              </span>
+            </div>
+          </div>
 
-        <Section
-          id="updates"
-          title="更新"
-          description="从 GitHub Releases 检查新版本；下载完成后重启安装。"
-          meta={<span className="settings-version">当前 {appVersion || "—"}</span>}
-        >
+          <div className="setting-group-label">更新</div>
           <SettingRow
             title="启动时检查更新"
-            description="后台检查新版本；发现后提示，不打断当前截图。"
+            description="后台检查新版本，不打断截图。"
           >
             <Switch
               checked={draft.autoCheckUpdates}
@@ -1037,37 +1176,18 @@ export function SettingsView({
             />
           </SettingRow>
           <SettingRow
-            title="发现更新后自动下载"
-            description="在后台下载更新包；安装前仍需要你确认重启。"
+            title="发现有更新时自动下载"
+            description="安装前仍会等你确认重启。"
           >
             <Switch
               checked={draft.autoDownloadUpdates}
               onChange={(autoDownloadUpdates) =>
                 update("autoDownloadUpdates", autoDownloadUpdates)
               }
-              label="发现更新后自动下载"
+              label="发现有更新时自动下载"
             />
           </SettingRow>
-          <SettingRow
-            title="检查更新"
-            description={
-              updatePhase === "checking"
-                ? "正在检查 GitHub Releases…"
-                : updatePhase === "current"
-                  ? "已是最新版本。"
-                  : updatePhase === "available" && updateInfo
-                    ? `发现 v${updateInfo.version}，可以下载。`
-                    : updatePhase === "downloading" && updateInfo
-                      ? `正在下载 v${updateInfo.version}…`
-                      : updatePhase === "ready" && updateInfo
-                        ? `v${updateInfo.version} 已下载，重启后安装。`
-                        : updatePhase === "installing"
-                          ? "正在启动安装程序…"
-                          : updatePhase === "error"
-                            ? "更新失败，请重试或查看下方错误。"
-                            : "尚未检查。"
-            }
-          >
+          <SettingRow title="检查更新" description={updateDescription}>
             <div className="update-actions">
               <button
                 type="button"
@@ -1105,48 +1225,26 @@ export function SettingsView({
           {updatePhase === "error" && updateError && (
             <p className="field-error update-error">{updateError}</p>
           )}
-        </Section>
 
-        <Section
-          id="about"
-          title="关于"
-          description="ocr4code 内核的桌面外壳。"
-          meta={<span className="about-version">v{appVersion || "—"}</span>}
-        >
-          <div className="about-grid">
-            <div>
-              <span className="about-label">引擎</span>
-              <span className={`about-value tone-${engine.tone}`}>
-                <span className="status-dot" />
-                {engine.label}
-              </span>
-            </div>
-            <div>
-              <span className="about-label">隐私</span>
-              <span className="about-value">完全在本机离线运行</span>
-            </div>
-            <div>
-              <span className="about-label">截图</span>
-              <span className="about-value">
-                {isMac ? "macOS 原生选区 · screencapture" : "Windows 自绘浮层 · GDI 抓屏"}
-              </span>
-            </div>
-            <div>
-              <span className="about-label">快捷键</span>
-              <span className="about-value">
-                <Keycaps accelerator={draft.shortcut} size="sm" />
-              </span>
-            </div>
-          </div>
           <div className="about-foot">
-            <button type="button" className="btn btn-ghost btn-danger btn-sm" onClick={onQuit}>
-              <Icon name="power" size={14} />
-              退出 ocr4code
-            </button>
+            <div className="about-actions">
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={onResetOnboarding}
+              >
+                <Icon name="refresh" size={14} />
+                重新显示引导
+              </button>
+              <button type="button" className="btn btn-ghost btn-danger btn-sm" onClick={onQuit}>
+                <Icon name="power" size={14} />
+                退出 ocr4code
+              </button>
+            </div>
             <p>
               {isMac
-                ? "如果截图是空白，请在系统设置 → 隐私与安全 → 屏幕录制中启用 ocr4code，然后重启应用。"
-                : "Windows 选区由应用自己绘制并直接用 GDI 抓屏，不调用系统截屏工具。"}
+                ? "截图需要屏幕录制权限。授权后如果状态没变，请重启应用。"
+                : "Windows 选区由应用自己绘制，不调用系统截屏工具。"}
             </p>
           </div>
         </Section>
@@ -1158,6 +1256,11 @@ export function SettingsView({
             <span className="save-error" role="alert">
               <Icon name="alert" size={14} />
               {saveError}
+            </span>
+          ) : dirty && !valid ? (
+            <span className="save-error">
+              <Icon name="alert" size={14} />
+              有字段需要修正后才能保存
             </span>
           ) : dirty ? (
             <span className="save-dirty">
@@ -1194,4 +1297,3 @@ export function SettingsView({
     </div>
   );
 }
-

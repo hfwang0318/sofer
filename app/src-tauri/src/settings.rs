@@ -283,10 +283,10 @@ pub fn validate(settings: &Settings) -> Result<(), String> {
         );
     }
     if settings.max_tokens < 128 || settings.max_tokens > 16384 {
-        return Err("最大 token 数应在 128 到 16384 之间。".into());
+        return Err("最大输出长度应在 128 到 16384 之间。".into());
     }
     if settings.jobs == 0 || settings.jobs > 8 {
-        return Err("并发数应在 1 到 8 之间。".into());
+        return Err("并行识别数应在 1 到 8 之间。".into());
     }
     if settings.idle_sleep_secs != 0
         && !(60..=3600).contains(&settings.idle_sleep_secs)

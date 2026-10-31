@@ -10,15 +10,20 @@ interface ToastProps {
 
 export function Toast({ toast, onDismiss }: ToastProps) {
   useEffect(() => {
-    const timer = window.setTimeout(onDismiss, toast.tone === "error" ? 5200 : 3200);
+    const timer = window.setTimeout(onDismiss, toast.tone === "error" ? 6000 : 3600);
     return () => window.clearTimeout(timer);
   }, [toast.id, toast.tone, onDismiss]);
 
+  const isError = toast.tone === "error";
   return (
-    <div className={`toast tone-${toast.tone}`} role="status" aria-live="polite">
+    <div
+      className={`toast tone-${toast.tone}`}
+      role={isError ? "alert" : "status"}
+      aria-live={isError ? "assertive" : "polite"}
+    >
       <span className="toast-icon">
         <Icon
-          name={toast.tone === "error" ? "alert" : toast.tone === "ok" ? "check" : "info"}
+          name={isError ? "alert" : toast.tone === "ok" ? "check" : "info"}
           size={15}
         />
       </span>

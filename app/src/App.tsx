@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { PermissionDialog } from "./components/PermissionDialog";
 import { PreviewDesktop } from "./components/PreviewDesktop";
 import { SetupDialog } from "./components/SetupDialog";
 import { Sidebar } from "./components/Sidebar";
@@ -17,10 +18,15 @@ import {
   onError,
   onPhase,
   onResult,
+  openScreenSettings,
   prepareUpdate,
+  probeEngine,
   quitApp,
   removeModel,
+  requestScreenAccess,
+  restartApp,
   saveSettings,
+  screenAccess,
   setupEngine,
   startEngine,
   stopEngine,
@@ -28,6 +34,7 @@ import {
 import {
   DEFAULT_SETTINGS,
   DEMO_RESULT,
+  FIRST_CAPTURE_KEY,
   modelName,
   modelTotalBytes,
   SETUP_DISMISSED_KEY,
@@ -40,7 +47,8 @@ import {
   type AvailableUpdate,
   type UpdatePhase,
 } from "./lib/updater";
-import { isPreview, isTauri } from "./lib/platform";
+import { isMac, isPreview, isTauri } from "./lib/platform";
+import { captureReadiness } from "./lib/status";
 import type {
   DownloadProgress,
   EngineStatus,
@@ -48,6 +56,7 @@ import type {
   OcrError,
   OcrResult,
   Phase,
+  ScreenAccess,
   Settings,
   SettingsSection,
   ToastMessage,
@@ -67,26 +76,39 @@ function initialView(): View {
   return "capture";
 }
 
-function initialDismissed(): boolean {
+function readFlag(key: string): boolean {
   try {
-    return localStorage.getItem(SETUP_DISMISSED_KEY) === "1";
+    return localStorage.getItem(key) === "1";
   } catch {
     return false;
   }
 }
 
+function writeFlag(key: string, value: boolean): void {
+  try {
+    if (value) localStorage.setItem(key, "1");
+    else localStorage.removeItem(key);
+  } catch {
+    /* storage is optional */
+  }
+}
+
+function initialScreenAccess(): ScreenAccess {
+  if (!isMac) return "not-needed";
+  return demo === "permission" ? "denied" : "unknown";
+}
+
 const DEMO_ERROR: OcrError = {
-  message:
-    "无法连接本地 OCR 引擎。内置 llama-server 没有运行，也没有外部服务响应。",
-  hint: "请到设置中检查本地引擎，或重试初始化。模型只需下载一次。",
-  code: "engine-unavailable",
+  message: "本地识别服务没有响应。",
+  hint: "可能是模型还没加载完。稍等几秒再试，或到设置里检查识别状态。",
+  code: "engine",
 };
 
 export default function App() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [status, setStatus] = useState<EngineStatus | null>(null);
   const [view, setView] = useState<View>(initialView);
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>("screenshot");
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [settingsNav, setSettingsNav] = useState(0);
   const [phase, setPhase] = useState<Phase>("idle");
   const [result, setResult] = useState<OcrResult | null>(
@@ -95,11 +117,20 @@ export default function App() {
   const [error, setError] = useState<OcrError | null>(demo === "error" ? DEMO_ERROR : null);
   const [history, setHistory] = useState<HistoryEntry[]>(loadHistory);
   const [shortcutActive, setShortcutActive] = useState(true);
+  const [screenAccessState, setScreenAccessState] = useState<ScreenAccess>(initialScreenAccess);
+  const [permissionOpen, setPermissionOpen] = useState(demo === "permission");
+  const [permissionBusy, setPermissionBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [download, setDownload] = useState<DownloadProgress | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
-  const [setupDismissed, setSetupDismissed] = useState(initialDismissed);
+  const [setupDismissed, setSetupDismissed] = useState(() =>
+    readFlag(SETUP_DISMISSED_KEY),
+  );
+  const [firstCaptureDone, setFirstCaptureDone] = useState(() =>
+    readFlag(FIRST_CAPTURE_KEY),
+  );
+  const [firstCaptureTip, setFirstCaptureTip] = useState(demo === "result");
   const [engineBusy, setEngineBusy] = useState<"start" | "stop" | "remove" | null>(null);
   const [appVersion, setAppVersion] = useState("");
   const [updateInfo, setUpdateInfo] = useState<AvailableUpdate | null>(null);
@@ -112,6 +143,8 @@ export default function App() {
   const copiedTimer = useRef<number | null>(null);
   const settingsRef = useRef(settings);
   const phaseRef = useRef(phase);
+  const firstCaptureDoneRef = useRef(firstCaptureDone);
+  const setupBlockingRef = useRef(false);
   const refreshing = useRef(false);
 
   useEffect(() => {
@@ -144,6 +177,16 @@ export default function App() {
     }
   }, []);
 
+  const refreshScreenAccess = useCallback(async (): Promise<ScreenAccess | null> => {
+    try {
+      const access = await screenAccess();
+      setScreenAccessState(access);
+      return access;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const beginDownloadFor = useCallback(
     async (next: AvailableUpdate, automatic: boolean) => {
       setUpdatePhase("downloading");
@@ -155,7 +198,7 @@ export default function App() {
         pushToast(
           "ok",
           `v${next.version} 已下载`,
-          automatic ? "到 设置 → 更新 重启并安装。" : "重启应用后完成安装。",
+          automatic ? "到 设置 → 关于 重启并安装。" : "重启应用后完成安装。",
         );
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : String(cause);
@@ -195,7 +238,7 @@ export default function App() {
         setUpdateInfo(next);
         setUpdatePhase("available");
         setUpdateProgress(0);
-        pushToast("info", `发现新版本 v${next.version}`, "可在 设置 → 更新 下载。");
+        pushToast("info", `发现新版本 v${next.version}`, "可在 设置 → 关于 下载。");
         if (settingsRef.current.autoDownloadUpdates) {
           await beginDownloadFor(next, true);
         }
@@ -267,21 +310,23 @@ export default function App() {
     let alive = true;
     void (async () => {
       try {
-        const [loaded, engine, info] = await Promise.all([
+        const [loaded, engine, info, access] = await Promise.all([
           loadSettings(),
           engineStatus(),
           appInfo(),
+          screenAccess().catch(() => null),
         ]);
         if (!alive) return;
         setSettings(loaded);
         setStatus(engine);
         setShortcutActive(info.shortcutActive);
         setAppVersion(info.version);
+        if (access) setScreenAccessState(access);
         if (!info.shortcutActive) {
           pushToast(
             "error",
             "全局快捷键不可用",
-            `${info.shortcut} 可能被其他应用占用，请到设置中换一个组合。`,
+            `${info.shortcut} 可能被其他应用占用，请到设置里换一个组合。`,
           );
         }
       } catch (cause) {
@@ -306,8 +351,18 @@ export default function App() {
     // If tesseract is available, the banner is enough; do not interrupt a
     // working fallback with a modal on every launch.
     if (status.tesseract && settings.engine === "auto") return;
-    if (!setupDismissed) setSetupOpen(true);
-  }, [status, settings.engine, setupDismissed]);
+    if (!setupDismissed && !permissionOpen) setSetupOpen(true);
+  }, [status, settings.engine, setupDismissed, permissionOpen]);
+
+  // Re-check after the user comes back from System Settings.
+  useEffect(() => {
+    if (!isMac) return;
+    function onFocus() {
+      void refreshScreenAccess();
+    }
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [refreshScreenAccess]);
 
   // Backend events: the same channels are emitted by Rust and by the browser
   // preview bus.
@@ -330,16 +385,16 @@ export default function App() {
         setResult(next);
         setError(null);
         setView("capture");
+        setSetupOpen(false);
+        setPermissionOpen(false);
         setCopied(false);
+        setFirstCaptureTip(false);
         addHistory(next);
-        if (next.copied) {
-          pushToast(
-            "ok",
-            `已复制 ${next.lines} 行`,
-            `${next.chars.toLocaleString()} 个字符 · 可以直接粘贴`,
-          );
-        } else {
-          pushToast("info", "已识别，未自动复制", "自动复制已在设置中关闭。");
+        if (!firstCaptureDoneRef.current) {
+          firstCaptureDoneRef.current = true;
+          setFirstCaptureDone(true);
+          setFirstCaptureTip(true);
+          writeFlag(FIRST_CAPTURE_KEY, true);
         }
       }),
     );
@@ -348,8 +403,19 @@ export default function App() {
         setPhase("idle");
         setError(payload);
         setView("capture");
-        if (payload.code === "setup-required") setSetupOpen(true);
-        pushToast("error", "截图失败", payload.message);
+        setSetupOpen(false);
+        setPermissionOpen(false);
+        if (payload.code === "setup-required") {
+          setSetupOpen(true);
+        }
+        if (payload.code === "permission") {
+          // The global shortcut bypasses handleCapture; keep the same order:
+          // finish model setup before asking for screen recording.
+          if (setupBlockingRef.current) setSetupOpen(true);
+          else setPermissionOpen(true);
+          void refreshScreenAccess();
+        }
+        void refreshStatus();
       }),
     );
 
@@ -359,6 +425,7 @@ export default function App() {
         if (progress.phase === "ready") {
           setError(null);
           setSetupDismissed(false);
+          writeFlag(SETUP_DISMISSED_KEY, false);
           setStatus((current) =>
             current
               ? {
@@ -375,22 +442,17 @@ export default function App() {
                 }
               : current,
           );
-          try {
-            localStorage.removeItem(SETUP_DISMISSED_KEY);
-          } catch {
-            /* ignore */
-          }
           pushToast(
             "ok",
-            "本地引擎已就绪",
-            `${modelName(settingsRef.current.modelQuality)} 已安装，服务正在运行。`,
+            "识别模型已就绪",
+            `${modelName(settingsRef.current.modelQuality)} 已安装，可以截图了。`,
           );
           void refreshStatus();
         } else if (progress.phase === "error") {
+          setPermissionOpen(false);
           setSetupOpen(true);
-          pushToast("error", "引擎设置失败", progress.message ?? undefined);
         } else if (progress.phase === "cancelled") {
-          pushToast("info", "下载已取消", "已下载的部分会保留，可继续。");
+          pushToast("info", "下载已取消", "已下载的部分会保留，可以继续。");
           void refreshStatus();
         }
       }),
@@ -402,7 +464,15 @@ export default function App() {
       disposed = true;
       unsubscribers.forEach((unsubscribe) => unsubscribe());
     };
-  }, [addHistory, pushToast, refreshStatus]);
+  }, [addHistory, pushToast, refreshScreenAccess, refreshStatus]);
+
+  const openSettings = useCallback((section: SettingsSection = "general") => {
+    setSettingsSection(section);
+    setSettingsNav((value) => value + 1);
+    setView("settings");
+    setSetupOpen(false);
+    setPermissionOpen(false);
+  }, []);
 
   const handleSettingsSection = useCallback((section: SettingsSection) => {
     setSettingsSection(section);
@@ -414,14 +484,24 @@ export default function App() {
     setSettingsSection(section);
   }, []);
 
+  const setupBlocking =
+    Boolean(status?.setup.needed) &&
+    settings.engine !== "tesseract" &&
+    (settings.engine === "llamacpp" || !status?.tesseract);
+
+  useEffect(() => {
+    setupBlockingRef.current = setupBlocking;
+  }, [setupBlocking]);
+
   const handleCapture = useCallback(async () => {
     if (phaseRef.current !== "idle") return;
-    if (
-      status?.setup.needed &&
-      settingsRef.current.engine !== "tesseract" &&
-      (settingsRef.current.engine === "llamacpp" || !status.tesseract)
-    ) {
+    // Same order as the readiness state: model first, then screen permission.
+    if (setupBlocking) {
       setSetupOpen(true);
+      return;
+    }
+    if (screenAccessState === "denied") {
+      setPermissionOpen(true);
       return;
     }
     setError(null);
@@ -434,17 +514,99 @@ export default function App() {
         cause instanceof Error ? cause.message : String(cause),
       );
     }
-  }, [pushToast, status]);
+  }, [pushToast, screenAccessState, setupBlocking]);
+
+  const requestPermission = useCallback(() => {
+    setSetupOpen(false);
+    setPermissionOpen(true);
+  }, []);
+
+  const handleRequestPermission = useCallback(async () => {
+    if (permissionBusy) return;
+    setPermissionBusy(true);
+    try {
+      const granted = await requestScreenAccess();
+      const access = await screenAccess().catch(() => null);
+      if (access) setScreenAccessState(access);
+      if (granted || access === "granted") {
+        pushToast("ok", "屏幕录制权限已开启", "现在可以截图了。");
+      } else {
+        pushToast(
+          "info",
+          "还需要在系统设置里勾选",
+          "勾选 ocr4code 后回来点“重新检查”，或重启应用。",
+        );
+      }
+    } catch (cause) {
+      pushToast(
+        "error",
+        "无法请求权限",
+        cause instanceof Error ? cause.message : String(cause),
+      );
+    } finally {
+      setPermissionBusy(false);
+    }
+  }, [permissionBusy, pushToast]);
+
+  const handleOpenPermissionSettings = useCallback(async () => {
+    try {
+      await openScreenSettings();
+    } catch {
+      pushToast(
+        "error",
+        "无法打开系统设置",
+        "请手动打开 系统设置 → 隐私与安全性 → 屏幕录制。",
+      );
+    }
+  }, [pushToast]);
+
+  const handleRecheckPermission = useCallback(async () => {
+    setPermissionBusy(true);
+    try {
+      const access = await screenAccess();
+      setScreenAccessState(access);
+      if (access === "granted" || access === "not-needed") {
+        pushToast("ok", "权限已开启", "可以开始截图了。");
+      } else {
+        pushToast(
+          "info",
+          "还没有授权",
+          "在系统设置里勾选 ocr4code；如果已经勾选，请重启应用。",
+        );
+      }
+    } catch (cause) {
+      pushToast(
+        "error",
+        "无法检查权限",
+        cause instanceof Error ? cause.message : String(cause),
+      );
+    } finally {
+      setPermissionBusy(false);
+    }
+  }, [pushToast]);
+
+  const handleRestart = useCallback(async () => {
+    try {
+      await restartApp();
+    } catch (cause) {
+      pushToast(
+        "error",
+        "无法重启应用",
+        cause instanceof Error ? cause.message : String(cause),
+      );
+    }
+  }, [pushToast]);
 
   const handleCopy = useCallback(
     async (text: string, _id?: string) => {
       try {
         await copyText(text);
-        pushToast("ok", "已复制到剪贴板");
         if (result && text === result.text) {
           setCopied(true);
           if (copiedTimer.current) window.clearTimeout(copiedTimer.current);
           copiedTimer.current = window.setTimeout(() => setCopied(false), 1800);
+        } else {
+          pushToast("ok", "已复制到剪贴板");
         }
       } catch (cause) {
         pushToast(
@@ -455,6 +617,22 @@ export default function App() {
       }
     },
     [pushToast, result],
+  );
+
+  const handleCopyError = useCallback(
+    async (text: string) => {
+      try {
+        await copyText(text);
+        pushToast("ok", "错误信息已复制", "可以贴到反馈里，方便排查。");
+      } catch (cause) {
+        pushToast(
+          "error",
+          "写入剪贴板失败",
+          cause instanceof Error ? cause.message : String(cause),
+        );
+      }
+    },
+    [pushToast],
   );
 
   const handleSaveSettings = useCallback(
@@ -472,11 +650,7 @@ export default function App() {
       setShortcutActive(true);
       if (qualityChanged) {
         setSetupDismissed(false);
-        try {
-          localStorage.removeItem(SETUP_DISMISSED_KEY);
-        } catch {
-          /* ignore */
-        }
+        writeFlag(SETUP_DISMISSED_KEY, false);
       }
       const next = await engineStatus().catch(() => null);
       if (next) {
@@ -503,7 +677,6 @@ export default function App() {
       } else {
         void refreshStatus();
       }
-      pushToast("ok", "设置已保存", "快捷键和内核参数已生效。");
     },
     [
       pushToast,
@@ -534,10 +707,18 @@ export default function App() {
   const handleClearHistory = useCallback(() => {
     setHistory([]);
     saveHistory([]);
-    pushToast("info", "历史记录已清空", "引擎和设置不受影响。");
+    pushToast("info", "历史记录已清空");
   }, [pushToast]);
 
   const handleSetupStart = useCallback(async () => {
+    const active =
+      download &&
+      ["downloading", "verifying", "starting"].includes(download.phase);
+    if (active) {
+      // The Rust thread is already running; never reset the visible progress.
+      setSetupOpen(true);
+      return;
+    }
     setDownload({
       phase: "downloading",
       file: null,
@@ -562,7 +743,7 @@ export default function App() {
         message,
       });
     }
-  }, [status]);
+  }, [download, status]);
 
   const handleSetupCancel = useCallback(async () => {
     try {
@@ -570,25 +751,24 @@ export default function App() {
     } catch (cause) {
       pushToast(
         "error",
-        "无法取消设置",
+        "无法取消下载",
         cause instanceof Error ? cause.message : String(cause),
       );
     }
   }, [pushToast]);
 
   const handleSetupDismiss = useCallback(() => {
-    if (download && ["downloading", "verifying", "starting"].includes(download.phase)) {
+    setSetupOpen(false);
+    const active =
+      download && ["downloading", "verifying", "starting"].includes(download.phase);
+    if (active) {
+      // The Rust thread keeps downloading; the sidebar keeps showing progress.
       return;
     }
-    setSetupOpen(false);
     setDownload(null);
     if (status && !status.model.installed) {
       setSetupDismissed(true);
-      try {
-        localStorage.setItem(SETUP_DISMISSED_KEY, "1");
-      } catch {
-        /* ignore */
-      }
+      writeFlag(SETUP_DISMISSED_KEY, true);
     }
   }, [download, status]);
 
@@ -597,11 +777,11 @@ export default function App() {
     try {
       const next = await startEngine();
       setStatus(next);
-      pushToast("ok", "本地引擎已启动", next.llamaUrl);
+      pushToast("ok", "识别服务已启动");
     } catch (cause) {
       pushToast(
         "error",
-        "无法启动本地引擎",
+        "无法启动识别服务",
         cause instanceof Error ? cause.message : String(cause),
       );
       void refreshStatus();
@@ -615,11 +795,11 @@ export default function App() {
     try {
       await stopEngine();
       await refreshStatus();
-      pushToast("info", "本地引擎已停止", "下次截图会自动启动。");
+      pushToast("info", "识别服务已停止", "下次截图会自动启动。");
     } catch (cause) {
       pushToast(
         "error",
-        "无法停止本地引擎",
+        "无法停止识别服务",
         cause instanceof Error ? cause.message : String(cause),
       );
     } finally {
@@ -633,14 +813,10 @@ export default function App() {
       await removeModel();
       setDownload(null);
       setSetupDismissed(false);
-      try {
-        localStorage.removeItem(SETUP_DISMISSED_KEY);
-      } catch {
-        /* ignore */
-      }
+      writeFlag(SETUP_DISMISSED_KEY, false);
       await refreshStatus();
       setSetupOpen(true);
-      pushToast("info", "模型已移除", "需要本地 OCR 时重新下载即可。");
+      pushToast("info", "模型已移除", "需要本地识别时重新下载即可。");
     } catch (cause) {
       pushToast(
         "error",
@@ -651,6 +827,27 @@ export default function App() {
       setEngineBusy(null);
     }
   }, [pushToast, refreshStatus]);
+
+  const handleResetOnboarding = useCallback(() => {
+    writeFlag(FIRST_CAPTURE_KEY, false);
+    writeFlag(SETUP_DISMISSED_KEY, false);
+    firstCaptureDoneRef.current = false;
+    setFirstCaptureDone(false);
+    setFirstCaptureTip(false);
+    setSetupDismissed(false);
+    // Clear the old result/error so the first-run steps have room to appear.
+    setResult(null);
+    setError(null);
+    setPhase("idle");
+    setView("capture");
+    if (setupBlocking) {
+      setSetupOpen(true);
+    } else if (screenAccessState === "denied") {
+      setSetupOpen(false);
+      setPermissionOpen(true);
+    }
+    pushToast("info", "引导已重新开启", "截图页会重新显示使用步骤。");
+  }, [pushToast, screenAccessState, setupBlocking]);
 
   // Enforce the configured limit when it shrinks.
   useEffect(() => {
@@ -671,18 +868,20 @@ export default function App() {
       );
       if ((event.metaKey || event.ctrlKey) && event.key === ",") {
         event.preventDefault();
-        setView("settings");
+        openSettings("general");
         return;
       }
       if (typing) return;
       if ((event.metaKey || event.ctrlKey) && (event.key === "1" || event.key === "2")) {
         event.preventDefault();
         setView(event.key === "1" ? "capture" : "history");
+        setSetupOpen(false);
+        setPermissionOpen(false);
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [openSettings]);
 
   useEffect(() => {
     return () => {
@@ -690,17 +889,16 @@ export default function App() {
     };
   }, []);
 
-  const engineName = status?.llama
-    ? "llama.cpp"
-    : status?.tesseract
-      ? "tesseract"
-      : settings.engine === "tesseract"
-        ? "tesseract"
-        : "llama.cpp";
-  const setupNeeded = Boolean(status?.setup.needed) && settings.engine !== "tesseract";
-  const setupBlocking =
-    setupNeeded &&
-    (settings.engine === "llamacpp" || !status?.tesseract);
+  const readiness = captureReadiness({
+    status,
+    engine: settings.engine,
+    phase,
+    shortcutActive,
+    screenAccess: screenAccessState,
+  });
+  const permissionDenied = screenAccessState === "denied";
+  const showSteps =
+    !firstCaptureDone && !result && !error && !setupBlocking && !permissionDenied;
 
   return (
     <>
@@ -710,22 +908,26 @@ export default function App() {
         data-preview={isPreview ? "true" : undefined}
       >
         <WindowChrome
-          phase={phase}
           shortcut={settings.shortcut}
-          status={status}
-          shortcutActive={shortcutActive}
-          setupNeeded={setupBlocking}
-          onOpenSettings={() => setView("settings")}
+          readiness={readiness}
+          version={appVersion}
+          onOpenSettings={() => openSettings("general")}
         />
         <Sidebar
           view={view}
           shortcut={settings.shortcut}
           status={status}
+          engineMode={settings.engine}
+          download={download}
           historyCount={history.length}
           settingsSection={settingsSection}
-          onNavigate={setView}
+          version={appVersion}
+          onNavigate={(next) => {
+            setView(next);
+            setSetupOpen(false);
+            setPermissionOpen(false);
+          }}
           onSettingsSection={handleSettingsSection}
-          onCapture={() => void handleCapture()}
         />
         <main className="content" id="main-content">
           <div className="view-host" key={view}>
@@ -736,14 +938,17 @@ export default function App() {
                 result={result}
                 error={error}
                 copied={copied}
-                engineName={engineName}
-                setupNeeded={setupNeeded}
                 setupBlocking={setupBlocking}
-                onSetup={() => setSetupOpen(true)}
+                permissionDenied={permissionDenied}
+                showSteps={showSteps}
+                firstCaptureTip={firstCaptureTip}
                 onCapture={() => void handleCapture()}
                 onCopy={(text) => void handleCopy(text)}
                 onOpenHistory={() => setView("history")}
-                onOpenSettings={() => setView("settings")}
+                onOpenSettings={openSettings}
+                onSetup={() => setSetupOpen(true)}
+                onPermission={requestPermission}
+                onDismissTip={() => setFirstCaptureTip(false)}
               />
             )}
             {view === "history" && (
@@ -763,6 +968,7 @@ export default function App() {
                 download={download}
                 engineBusy={engineBusy}
                 appVersion={appVersion}
+                screenAccess={screenAccessState}
                 updateInfo={updateInfo}
                 updatePhase={updatePhase}
                 updateProgress={updateProgress}
@@ -770,11 +976,9 @@ export default function App() {
                 onCheckUpdates={() => void checkUpdates(true)}
                 onDownloadUpdate={() => void downloadNow()}
                 onInstallUpdate={() => void installNow()}
-                section={settingsSection}
-                sectionNav={settingsNav}
-                onSectionChange={handleSettingsActive}
                 onSave={handleSaveSettings}
                 onTestEngine={handleTestEngine}
+                onProbeEngine={probeEngine}
                 onNotify={pushToast}
                 onQuit={() => void quitApp()}
                 onSetup={() => setSetupOpen(true)}
@@ -783,6 +987,12 @@ export default function App() {
                 onStopEngine={() => void handleStopEngine()}
                 onRemoveModel={() => void handleRemoveModel()}
                 onCancelSetup={() => void handleSetupCancel()}
+                onRequestPermission={requestPermission}
+                onOpenPermissionSettings={() => void handleOpenPermissionSettings()}
+                onResetOnboarding={handleResetOnboarding}
+                section={settingsSection}
+                sectionNav={settingsNav}
+                onSectionChange={handleSettingsActive}
               />
             )}
           </div>
@@ -793,6 +1003,9 @@ export default function App() {
         open={setupOpen}
         status={status}
         download={download}
+        screenAccess={screenAccessState}
+        firstRun={!setupDismissed && !firstCaptureDone}
+        shortcut={settings.shortcut}
         onStart={() => void handleSetupStart()}
         onCancel={() => void handleSetupCancel()}
         onDismiss={handleSetupDismiss}
@@ -801,10 +1014,23 @@ export default function App() {
           setDownload(null);
           void handleCapture();
         }}
-        onOpenSettings={() => {
-          setSetupOpen(false);
-          setView("settings");
+        onPermission={requestPermission}
+        onOpenSettings={openSettings}
+        onCopyError={(text) => void handleCopyError(text)}
+      />
+      <PermissionDialog
+        open={permissionOpen}
+        access={screenAccessState}
+        busy={permissionBusy}
+        onRequest={() => void handleRequestPermission()}
+        onOpenSettings={() => void handleOpenPermissionSettings()}
+        onRecheck={() => void handleRecheckPermission()}
+        onRestart={() => void handleRestart()}
+        onCapture={() => {
+          setPermissionOpen(false);
+          void handleCapture();
         }}
+        onClose={() => setPermissionOpen(false)}
       />
     </>
   );

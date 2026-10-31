@@ -55,6 +55,7 @@ export function modelName(quality: ModelQuality): string {
 /** Keep in sync with `engine::MODEL_LICENSE` in src-tauri/src/engine.rs. */
 export const MODEL_LICENSE = "MIT";
 export const SETUP_DISMISSED_KEY = "ocr4code.setup.dismissed";
+export const FIRST_CAPTURE_KEY = "ocr4code.onboarding.firstCapture";
 export const SETTINGS_KEY = "ocr4code.settings.v1";
 export const HISTORY_KEY = "ocr4code.history.v1";
 
