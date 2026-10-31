@@ -258,6 +258,13 @@ export function SetupDialog({
                 配置下载
               </button>
             </p>
+            {download?.message &&
+              /tls|certificate|unknown issuer/i.test(download.message) && (
+                <p className="setup-note">
+                  <Icon name="info" size={13} />
+                  TLS 证书校验失败：请把代理/安全软件的根证书安装到系统信任库，或改用不会劫持 HTTPS 的代理。
+                </p>
+              )}
             <div className="setup-actions">
               <button
                 ref={primaryRef}

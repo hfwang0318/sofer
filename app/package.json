@@ -1,7 +1,7 @@
 {
   "name": "ocr4code-app",
   "private": true,
-  "version": "0.1.3",
+  "version": "0.1.4",
   "type": "module",
   "description": "Desktop UI for the ocr4code kernel: screenshot, recognise, paste.",
   "scripts": {

@@ -553,9 +553,12 @@ impl Manager {
             offset = 0;
         }
 
+        let tls = ureq::native_tls::TlsConnector::new()
+            .map_err(|e| Error::Download(format!("TLS 初始化失败：{e}")))?;
         let mut agent_builder = ureq::AgentBuilder::new()
             .timeout_connect(Duration::from_secs(20))
             .timeout_read(Duration::from_secs(60))
+            .tls_connector(std::sync::Arc::new(tls))
             .user_agent(concat!("ocr4code/", env!("CARGO_PKG_VERSION")));
         if let Some(proxy) = proxy_for_url(url, proxy_override) {
             agent_builder = agent_builder.proxy(proxy);

@@ -8,7 +8,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 校验 SHA-256、启动引擎。之后完全离线。
 
 > Windows 预览版安装包：
-> <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.3>
+> <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.4>
 > 由 GitHub Actions 的 `windows-latest` 构建 NSIS 安装器。
 
 | 首启向导 | 模型下载 |
@@ -234,6 +234,8 @@ cargo run --example engine_probe -- start
   - 镜像需同时提供两个 `.gguf`，且 SHA-256 与内置 manifest 一致
 
 保存后对下一次下载生效。本地健康检查（`127.0.0.1`）不走代理。
+
+TLS 证书使用系统信任库；如果代理/安全软件会劫持 HTTPS，需要把它的根证书安装到系统信任库，否则会出现 `unknown issuer`。
 
 留空时仍兼容环境变量：`HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY`，以及
 `OCR4CODE_MODEL_BASE`（同样要包含 resolve 路径，例如
