@@ -1,0 +1,16 @@
+target/
+.venv/
+bench/results/preds-eval/
+*.pyc
+__pycache__/
+
+# desktop shell
+app/node_modules/
+app/dist/
+app/src-tauri/target/
+app/src-tauri/gen/
+.DS_Store
+
+# llama.cpp runtime is fetched at build time (scripts/fetch-runtime.py)
+app/src-tauri/runtime/macos-arm64/
+app/src-tauri/runtime/windows-x64/

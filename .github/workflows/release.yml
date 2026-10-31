@@ -1,0 +1,102 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0)"
+        required: true
+        default: "v0.1.0"
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows NSIS release
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "app/src-tauri -> target"
+
+      # The runtime binaries are not committed (78 MB). The build downloads the
+      # pinned b12018 Windows x64 CPU build and places it in the resource dir.
+      - name: Fetch bundled llama.cpp runtime
+        working-directory: app
+        run: python scripts/fetch-runtime.py --platform windows-x64
+
+      - name: Install frontend dependencies
+        working-directory: app
+        run: pnpm install --frozen-lockfile
+
+      - name: Test desktop backend
+        working-directory: app/src-tauri
+        run: cargo test
+
+      - name: Build NSIS installer and attach to draft release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: app
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: "ocr4code ${{ inputs.tag || github.ref_name }} — Windows preview"
+          releaseBody: |
+            ## ocr4code — Windows preview
+
+            This is a first Windows preview build. The macOS app exists but is not
+            included in this release.
+
+            ### Install
+            1. Download the `.exe` installer under **Assets**.
+            2. Run it (the installer is unsigned, so SmartScreen may ask for
+               **More info → Run anyway**).
+            3. On first launch click **Download & set up**. The app downloads the
+               1.43 GB GLM-OCR model, verifies its SHA-256, and starts the bundled
+               `llama-server` automatically.
+            4. Press `Ctrl+Shift+2` and drag a region.
+
+            ### Requirements
+            - Windows 10/11 x64
+            - ~2 GB free disk for the model
+            - Internet for the first model download (Hugging Face)
+            - WebView2: the installer handles it automatically
+
+            The runtime is bundled (CPU build, `-ngl 0`); no llama.cpp install is
+            needed. If Hugging Face is blocked, set `HTTPS_PROXY` (or
+            `OCR4CODE_MODEL_BASE` for an internal mirror) before launching the app.
+
+            Settings → Engine → Local engine shows runtime/model/server state and
+            allows stop, remove and re-download. Logs are under the app log directory;
+            please attach the relevant error text when reporting issues.
+          releaseDraft: true
+          prerelease: false
+          args: --bundles nsis
+
+      - name: Show produced bundles
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path app/src-tauri/target/release/bundle) {
+            Get-ChildItem app/src-tauri/target/release/bundle -Recurse -File |
+              Select-Object FullName,Length | Format-Table -AutoSize
+          }

@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # unit tests + the golden layout tests (they read bench/images + bench/truth,
+      # so both platforms run the *same* geometry assertions on the same pixels)
+      - run: cargo test --all-targets
+
+      - run: cargo build --release
+
+      - name: doctor
+        shell: bash
+        run: ./target/release/ocr4code doctor || true
