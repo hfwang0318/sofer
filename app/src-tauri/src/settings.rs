@@ -153,8 +153,28 @@ pub fn save(app: &AppHandle, settings: &Settings) -> Result<(), String> {
 
 /// Cheap guard rails; the UI validates the same fields for inline feedback.
 pub fn validate(settings: &Settings) -> Result<(), String> {
-    if settings.shortcut.trim().is_empty() {
+    let shortcut = settings.shortcut.trim();
+    if shortcut.is_empty() {
         return Err("快捷键不能为空。".into());
+    }
+    let parts: Vec<&str> = shortcut
+        .split('+')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect();
+    let modifiers = [
+        "ALT", "OPTION", "CONTROL", "CTRL", "COMMAND", "CMD", "SUPER", "SHIFT",
+        "COMMANDORCONTROL", "COMMANDORCTRL", "CMDORCTRL", "CMDORCONTROL",
+    ];
+    let modifier_count = parts
+        .iter()
+        .filter(|part| modifiers.contains(&part.to_uppercase().as_str()))
+        .count();
+    let main_count = parts.len().saturating_sub(modifier_count);
+    if parts.is_empty() || parts.len() > 3 || main_count != 1 || modifier_count > 2 {
+        return Err(
+            "快捷键必须是 1 个主键、1 个修饰键+主键，或 2 个修饰键+主键。".into(),
+        );
     }
     if settings.max_tokens < 128 || settings.max_tokens > 16384 {
         return Err("最大 token 数应在 128 到 16384 之间。".into());
@@ -211,6 +231,29 @@ mod tests {
         assert!(!config.no_geometry);
         assert!(!config.join_wrap);
         assert!(config.tile);
+    }
+
+    #[test]
+    fn shortcut_shape_allows_one_to_three_keys() {
+        let mut settings = Settings::default();
+        for shortcut in [
+            "F8",
+            "Control+KeyQ",
+            "Control+Shift+Digit2",
+            "Command+Alt+KeyQ",
+        ] {
+            settings.shortcut = shortcut.into();
+            assert!(validate(&settings).is_ok(), "should accept {shortcut}");
+        }
+        for shortcut in [
+            "Control+Shift",
+            "KeyA+KeyB",
+            "Control+Alt+Shift+KeyQ",
+            "",
+        ] {
+            settings.shortcut = shortcut.into();
+            assert!(validate(&settings).is_err(), "should reject {shortcut}");
+        }
     }
 
     #[test]

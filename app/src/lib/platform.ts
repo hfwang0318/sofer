@@ -10,8 +10,8 @@ export const isMac =
 
 const KEY_LABELS: Record<string, string> = {
   CommandOrControl: isMac ? "⌘" : "Ctrl",
-  Command: "⌘",
-  Cmd: "⌘",
+  Command: isMac ? "⌘" : "Ctrl",
+  Cmd: isMac ? "⌘" : "Ctrl",
   Control: isMac ? "⌃" : "Ctrl",
   Ctrl: isMac ? "⌃" : "Ctrl",
   Alt: isMac ? "⌥" : "Alt",
@@ -28,7 +28,61 @@ const KEY_LABELS: Record<string, string> = {
   Tab: "Tab",
   Backspace: "⌫",
   Delete: "Del",
+  Insert: "Ins",
+  Home: "Home",
+  End: "End",
+  PageUp: "PgUp",
+  PageDown: "PgDn",
+  CapsLock: "Caps",
+  NumLock: "Num",
+  ScrollLock: "Scroll",
+  PrintScreen: "PrtSc",
+  Pause: "Pause",
+  Minus: "−",
+  Equal: "=",
+  Comma: ",",
+  Period: ".",
+  Slash: "/",
+  Backslash: "\\",
+  Semicolon: ";",
+  Quote: "'",
+  BracketLeft: "[",
+  BracketRight: "]",
+  Backquote: "`",
+  NumpadAdd: "Num+",
+  NumpadSubtract: "Num−",
+  NumpadMultiply: "Num*",
+  NumpadDivide: "Num/",
+  NumpadDecimal: "Num.",
+  NumpadEnter: "Num↵",
 };
+
+const MAIN_KEYS = new Set([
+  "Space", "Enter", "Tab", "Backspace", "Delete", "Insert",
+  "Home", "End", "PageUp", "PageDown", "CapsLock", "NumLock",
+  "ScrollLock", "PrintScreen", "Pause",
+  "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+  "Minus", "Equal", "Comma", "Period", "Slash", "Backslash",
+  "Semicolon", "Quote", "BracketLeft", "BracketRight", "Backquote",
+  "NumpadAdd", "NumpadSubtract", "NumpadMultiply", "NumpadDivide",
+  "NumpadDecimal", "NumpadEnter",
+]);
+
+function mainKeyFromCode(code: string): string | null {
+  if (/^Key[A-Z]$/.test(code)) return code;
+  if (/^Digit[0-9]$/.test(code)) return code;
+  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) return code;
+  if (/^Numpad[0-9]$/.test(code)) return code;
+  if (MAIN_KEYS.has(code)) return code;
+  return null;
+}
+
+export function shortcutKeyLabel(part: string): string {
+  if (/^Key[A-Z]$/.test(part)) return part.slice(3);
+  if (/^Digit[0-9]$/.test(part)) return part.slice(5);
+  if (/^Numpad[0-9]$/.test(part)) return `Num${part.slice(6)}`;
+  return KEY_LABELS[part] ?? (part.length === 1 ? part.toUpperCase() : part);
+}
 
 /** Split a Tauri accelerator into display-friendly keycaps. */
 export function shortcutKeys(accelerator: string): string[] {
@@ -37,7 +91,7 @@ export function shortcutKeys(accelerator: string): string[] {
     .split("+")
     .map((part) => part.trim())
     .filter(Boolean)
-    .map((part) => KEY_LABELS[part] ?? (part.length === 1 ? part.toUpperCase() : part));
+    .map(shortcutKeyLabel);
 }
 
 export function shortcutText(accelerator: string): string {
@@ -46,30 +100,40 @@ export function shortcutText(accelerator: string): string {
 }
 
 /**
- * Turn a keyboard event into a Tauri accelerator. CommandOrControl follows the
- * platform, which is what people expect from a cross-platform shortcut.
- * Returns null when the key cannot be represented (or has no modifier).
+ * Turn a keyboard event into a Tauri accelerator. At most two modifiers plus
+ * one main key; a bare main key is valid. Tauri/global-hotkey requires exactly
+ * one main key, so modifier-only and multi-main-key chords are not possible.
  */
 export function acceleratorFromEvent(event: KeyboardEvent): string | null {
+  if (event.key === "Escape") return null;
   const mods: string[] = [];
-  if (event.metaKey || event.ctrlKey) mods.push("CommandOrControl");
+  if (isMac) {
+    if (event.metaKey) mods.push("Command");
+    if (event.ctrlKey) mods.push("Control");
+  } else {
+    if (event.ctrlKey) mods.push("Control");
+    if (event.metaKey) mods.push("Super");
+  }
   if (event.altKey) mods.push("Alt");
   if (event.shiftKey) mods.push("Shift");
 
-  const key = event.key;
-  let main: string | null = null;
-  if (/^[a-zA-Z0-9]$/.test(key)) main = key.toUpperCase();
-  else if (/^F([1-9]|1[0-2])$/.test(key)) main = key.toUpperCase();
-  else if (key === " " || key === "Spacebar") main = "Space";
-  else if (key === "ArrowUp") main = "ArrowUp";
-  else if (key === "ArrowDown") main = "ArrowDown";
-  else if (key === "ArrowLeft") main = "ArrowLeft";
-  else if (key === "ArrowRight") main = "ArrowRight";
-  else if (key === "Enter") main = "Enter";
-  else if (key === "Tab") main = "Tab";
-
-  if (!main || mods.length === 0) return null;
+  if (mods.length > 2) return null;
+  const main = mainKeyFromCode(event.code);
+  if (!main) return null;
   return [...mods, main].join("+");
+}
+
+export function isModifierOnlyEvent(event: KeyboardEvent): boolean {
+  return isPlatformModifier(event);
+}
+
+export function modifierCount(event: KeyboardEvent): number {
+  let count = 0;
+  if (event.metaKey) count += 1;
+  if (event.ctrlKey) count += 1;
+  if (event.altKey) count += 1;
+  if (event.shiftKey) count += 1;
+  return count;
 }
 
 export function isPlatformModifier(event: KeyboardEvent): boolean {

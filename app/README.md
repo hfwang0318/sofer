@@ -8,7 +8,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 校验 SHA-256、启动引擎。之后完全离线。
 
 > Windows 预览版安装包：
-> <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.8>
+> <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.9>
 > 由 GitHub Actions 的 `windows-latest` 构建 NSIS 安装器。
 
 | 首启向导 | 模型下载 |
@@ -72,7 +72,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 | 能力 | 说明 |
 |---|---|
 | 一键模型安装 | 首启向导下载 1.43 GB 模型、校验、启动服务；断点续传，可取消/重试/移除 |
-| 全局快捷键 | 默认 `⌘⇧2` / `Ctrl+Shift+2`，设置里可录制；录制期间临时注销，避免自己触发自己 |
+| 全局快捷键 | 默认 `⌘⇧2` / `Ctrl+Shift+2`；支持单键、2 键或 3 键组合，设置里可录制 |
 | 原生截图 | macOS `screencapture -i`；Windows 自绘选区浮层 + GDI 抓屏（不调用系统截屏工具） |
 | 自动识别 | 复用 `ocr4code::pipeline`：引擎 → 切块/重试 → 几何层 → 修复 → 渲染 |
 | 自动复制 | 成功后直接写剪贴板；窗口隐藏时不抢焦点，托盘提示「copied N lines」 |

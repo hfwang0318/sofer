@@ -2,7 +2,7 @@
 
 把**代码截图 / 终端输出 / 报错堆栈**转成能直接粘回去的文本。离线运行，macOS + Windows。
 
-> **Windows 预览版安装包**：[GitHub Releases](https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.8)
+> **Windows 预览版安装包**：[GitHub Releases](https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.9)
 > —— 首次启动在应用内一键下载 1.43 GB 模型；安装器自带 llama.cpp 运行时，无需另装。
 
 > 一句话架构：**文本由本地 VLM 给，版面由纯 CV 给**。缩进和列对齐从像素算，不依赖任何单平台的 OCR API，

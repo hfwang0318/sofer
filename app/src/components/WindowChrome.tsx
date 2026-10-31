@@ -112,7 +112,7 @@ export function WindowChrome({
       <div className="brand">
         <Logo size={23} />
         <span className="brand-name">ocr4code</span>
-        <span className="brand-version">0.1.8</span>
+        <span className="brand-version">0.1.9</span>
       </div>
 
       <div className="titlebar-spacer" />

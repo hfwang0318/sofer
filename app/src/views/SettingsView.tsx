@@ -470,7 +470,7 @@ export function SettingsView({
         >
           <SettingRow
             title="全局快捷键"
-            description="ocr4code 运行时，在任何应用里都可以使用。选区沿用系统的截图权限。"
+            description="ocr4code 运行时，在任何应用里都可以使用。支持单键、2 键或 3 键组合（必须有 1 个主键）。"
           >
             <ShortcutRecorder
               value={draft.shortcut}
