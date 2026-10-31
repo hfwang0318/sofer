@@ -328,7 +328,7 @@ standby list，和 macOS 的 mapped file 等价。结论一致：**不要指望�
 根 crate 仍然是纯 CLI + 库；`app/` 是它的 Tauri 2 + React + TypeScript 外层：
 **全局快捷键 → 系统原生选区 → 本地内核 → 剪贴板**，设置面板把 `pipeline::Config` 除测试用 mock 外的参数都暴露出来。
 
-![首启一键安装](app/docs/setup-idle.png)
+![首启一键安装](app/docs/setup-idle.webp)
 
 | | |
 |---|---|
@@ -366,7 +366,7 @@ pnpm tauri build    # 打包 .app / .dmg / .msi / .exe
 `http://127.0.0.1:1420/?demo=result`
 （另有 `setup` / `empty` / `history` / `settings` / `error`）。
 
-原生窗口：[app/docs/capture-window.png](app/docs/capture-window.png)；
+原生窗口：[app/docs/capture-window.webp](app/docs/capture-window.webp)；
 模型下载/校验/服务启动的实测记录见 [app/README.md](app/README.md)。
 
 ---

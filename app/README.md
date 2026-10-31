@@ -13,14 +13,14 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 
 | 首启向导 | 模型下载 |
 |---|---|
-| ![首次设置](docs/setup-idle.png) | ![模型下载](docs/setup-progress.png) |
+| ![首次设置](docs/setup-idle.webp) | ![模型下载](docs/setup-progress.webp) |
 
 | 识别结果 | 下载代理 / 镜像 |
 |---|---|
-| ![识别结果](docs/capture-result.png) | ![下载设置](docs/settings-download.png) |
+| ![识别结果](docs/capture-result.webp) | ![下载设置](docs/settings-download.webp) |
 
 实际 macOS 窗口（无边框玻璃材质）：
-[识图](docs/capture-window.png) · [首启向导（干净机器）](docs/setup-native.png) · [已有 tesseract 时的首启横幅](docs/setup-banner-native.png)
+[识图](docs/capture-window.webp) · [首启向导（干净机器）](docs/setup-native.webp) · [已有 tesseract 时的首启横幅](docs/setup-banner-native.webp)
 
 ---
 
