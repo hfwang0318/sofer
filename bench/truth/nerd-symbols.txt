@@ -1,0 +1,7 @@
+~/src/api main ?2 ↑1
+✓ build  412ms
+✗ lint  3 problems (1 error, 2 warnings)
+⚠ deprecated: use `verifyToken` instead
+● api-gateway  →  127.0.0.1:8080
+◆ 3 files changed  ↑ 42  ↓ 7
+⌘ press ⌘⇧P to run a command

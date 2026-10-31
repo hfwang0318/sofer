@@ -1,0 +1,10 @@
+~/src/api $ git diff --check
+src/core/timeout.ts:12: leftover conflict marker
+
+<<<<<<< HEAD
+const timeout = 30_000;
+=======
+const timeout = 15_000;
+>>>>>>> feature/fast-timeout
+
+3 files changed, 12 insertions(+), 4 deletions(-)

@@ -1,0 +1,10 @@
+~ $ ls -la build/ | head -6
+total 1049
+drwxr-xr-x  12 hf  staff   384 Oct 21 09:14 .
+-rw-r--r--   1 hf  staff  1240 Oct 21 09:14 Il1O0.conf
+-rw-r--r--   1 hf  staff  8192 Oct 21 09:15 O0Il.txt
+-rw-r--r--   1 hf  staff    11 Oct 21 09:15 rn vs m
+~ $ echo "a1l I0O rnm != => :: 0x1F"
+a1l I0O rnm != => :: 0x1F
+~ $ grep -n "it's" *.md | cut -d: -f1
+README.md

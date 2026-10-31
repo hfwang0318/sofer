@@ -1,0 +1,16 @@
+~/src/api main $ git diff --stat
+ src/auth/session.ts | 14 ++++++++------
+ src/core/engine.rs  |  6 ++----
+ 2 files changed, 10 insertions(+), 10 deletions(-)
+
+~/src/api main $ tree -L 2 src
+src
+├── cli
+│   ├── main.py
+│   └── options.py
+├── core
+│   ├── engine.py
+│   └── registry.py
+└── utils.py
+
+3 directories, 5 files

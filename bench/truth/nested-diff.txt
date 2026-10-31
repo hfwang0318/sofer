@@ -1,0 +1,12 @@
+~/src/api $ git diff -- patches/fix.patch
+@@ -1,7 +1,7 @@
+ --- a/src/core/engine.rs
+ +++ b/src/core/engine.rs
+-@@ -88,7 +88,7 @@ impl Engine {
++@@ -88,9 +88,9 @@ impl Engine {
+ -            let handle = spawn(worker);
+ -            handle.join();
++             let handle = spawn(worker)?;
++             handle.join()?;
+-- a/src/core/engine.rs
+++ b/src/core/engine.rs

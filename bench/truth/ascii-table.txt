@@ -1,0 +1,11 @@
+$ docker ps --format table
+CONTAINER ID   IMAGE                 STATUS          PORTS                    NAMES
+┌──────────────┬───────────────────────┬─────────────────┬──────────────────────────┐
+│ 8f2c1a9e4b7d │ ghcr.io/acme/api:1.4 │ Up 3 hours      │ 0.0.0.0:8080->8080/tcp   │
+│ 1d7e0c3b5a92 │ postgres:16-alpine    │ Up 3 hours      │ 5432/tcp                 │
+│ c93b6f0d2e18 │ redis:7.2             │ Restarting (1)  │ 6379/tcp                 │
+└──────────────┴───────────────────────┴─────────────────┴──────────────────────────┘
+
+REPOSITORY            TAG       SIZE
+acme/api              1.4       184MB
+acme/worker           1.4       191MB

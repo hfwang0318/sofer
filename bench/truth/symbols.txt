@@ -1,0 +1,7 @@
+if (a => b && c !== d) { x = a != b; y = a === b; }
+let arrow = (x) => x ** 2;   // => != === <= >=
+const path = `~/src/${name}/index.ts`;
+matrix[i][j] *= 1.5e-3;  // 0x1F | 0b1010 ^ 0o17
+type T = { a?: string } & Record<string, number>;
+const re = /^[a-z0-9_-]+$/gi;  // \d{2,4} \s+
+x <<= 2; y >>= 1; z >>>= 3; w = ~x & (y | z) ^ 0xFF;

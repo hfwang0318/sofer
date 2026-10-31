@@ -1,0 +1,15 @@
+~/proj $ tree -L 3 --dirsfirst src
+src
+├── cli
+│   ├── __init__.py
+│   ├── main.py
+│   └── options.py
+├── core
+│   ├── engine.py
+│   ├── registry.py
+│   └── workers
+│       ├── pool.py
+│       └── queue.py
+└── utils.py
+
+3 directories, 8 files

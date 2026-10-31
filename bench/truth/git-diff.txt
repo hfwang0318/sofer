@@ -1,0 +1,23 @@
+~/src/api (main) $ git diff --stat
+ src/auth/session.ts | 14 ++++++++------
+ 1 file changed, 8 insertions(+), 6 deletions(-)
+
+diff --git a/src/auth/session.ts b/src/auth/session.ts
+index 3f9a1c2..b7e4d05 100644
+--- a/src/auth/session.ts
++++ b/src/auth/session.ts
+@@ -41,9 +41,11 @@ export async function refreshToken(refresh: string) {
+   const payload = await verify(refresh, {
+     algorithms: ['RS256'],
+     issuer: config.jwt.issuer,
+   });
+-  if (!payload || payload.exp < Date.now() / 1000) {
+-    throw new UnauthorizedError('token expired');
+-  }
++  if (!payload) throw new UnauthorizedError('invalid token');
++  if (payload.exp * 1000 <= Date.now()) {
++    throw new UnauthorizedError(`token expired at ${payload.exp}`);
++  }
+   return sign({ sub: payload.sub, jti: randomUUID() }, secret, {
+     expiresIn: '15m',
+   });

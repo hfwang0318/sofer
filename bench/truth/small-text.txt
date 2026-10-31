@@ -1,0 +1,5 @@
+$ make test
+FAIL  src/core/engine.test.ts
+  ✗ parses nested routes (12 ms)
+  ✓ parses flat routes (3 ms)
+Tests: 1 failed, 1 passed, 2 total

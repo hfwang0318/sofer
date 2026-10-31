@@ -1,0 +1,86 @@
+[
+ {
+  "scene": "ascii-table",
+  "image": "ascii-table@2x.png",
+  "engine": "qwen2.5vl:3b",
+  "cer": 0.5574,
+  "cer_dedent": 0.5574,
+  "line_exact": 1,
+  "line_total": 11,
+  "lines_out": 5,
+  "ms": 34795,
+  "text": "$ docker ps --format table\nCONTAINER ID    IMAGE               STATUS          PORTS              NAMES\n8f2c1a9e4b7d    ghcr.io/acme/api:1.4  Up 3 hours     0.0.0.0:8080->8080/tcp\n1d7e0c3b5a92    postgres:16-alpine  Up 3 hours     5432/tcp\nc93b6f0d2e18    redis:7.2           Restarting (1)  6379/tcp"
+ },
+ {
+  "scene": "editor-rust",
+  "image": "editor-rust@2x.png",
+  "engine": "qwen2.5vl:3b",
+  "cer": 0.1156,
+  "cer_dedent": 0.2315,
+  "line_exact": 0,
+  "line_total": 20,
+  "lines_out": 20,
+  "ms": 47169,
+  "text": "use std::collections::HashMap;\nuse crate::error::{Error, Result};\n\npub struct Cache<K, V> {\n    map: HashMap<K, V>,\n    capacity: usize,\n}\n\nimpl<K: Eq + std::hash::Hash, V: Clone> Cache<K, V> {\n    pub fn get_or_insert(&mut self, key: K, f: impl FnOnce() -> V) -> Result<&V> {\n        if !self.map.contains_key(&key) {\n            if self.map.len() >= self.capacity {\n                return Err(Error::Capacity { limit: self.capacity });\n            }\n            let value = f();\n            self.map.insert(key.clone(), value);\n        }\n        Ok(self.map.get(&key).unwrap_or_else(|| unreachable!()))\n    }\n}"
+ },
+ {
+  "scene": "git-diff",
+  "image": "git-diff@2x.png",
+  "engine": "qwen2.5vl:3b",
+  "cer": 0.3105,
+  "cer_dedent": 0.2743,
+  "line_exact": 0,
+  "line_total": 23,
+  "lines_out": 24,
+  "ms": 40122,
+  "text": "diff --git a/src/auth/session.ts b/src/auth/session.ts\nindex 3f9a1c2..b7e4d05 100644\n--- a/src/auth/session.ts\n+++ b/src/auth/session.ts\n@@ -41,9 +41,11 @@\n- export async function refreshToken(refresh: string) {\n+ export async function refreshToken(refresh: string) {\n     const payload = await verify(refresh, {\n         algorithms: ['RS256'],\n         issuer: config.jwt.issuer,\n     });\n-     if (!payload || payload.exp < Date.now() / 1000) {\n-         throw new UnauthorizedError('token expired');\n-     }\n+     if (!payload) throw new UnauthorizedError('invalid token');\n+     if (payload.exp * 1000 <= Date.now()) {\n+         throw new UnauthorizedError('token expired at ${payload.exp}');\n+     }\n     return sign({\n         sub: payload.sub,\n         jti: randomUUID(),\n     }, {\n         expiresIn: '15m',\n     });"
+ },
+ {
+  "scene": "light-ambiguous",
+  "image": "light-ambiguous@2x.png",
+  "engine": "qwen2.5vl:3b",
+  "cer": 0.062,
+  "cer_dedent": 0.062,
+  "line_exact": 4,
+  "line_total": 10,
+  "lines_out": 10,
+  "ms": 63147,
+  "text": "~ $ ls -la build/ | head -6\ntotal 1049\ndrwxr-xr-x 12 hf    staff    384 Oct 21 09:14 .\n-rw-r--r--    1 hf    staff    1240 Oct 21 09:14 Il100.conf\n-rw-r--r--    1 hf    staff    8192 Oct 21 09:15 00Il.txt\n-rw-r--r--    1 hf    staff     11 Oct 21 09:15 rn vs m\n~ $ echo \"a1l I00 rnm != => :: 0x1F\"\na1l I00 rnm != => :: 0x1F\n~ $ grep -n \"it's\" *.md | cut -d: -f1\nREADME.md"
+ },
+ {
+  "scene": "pytest-traceback",
+  "image": "pytest-traceback@2x.png",
+  "engine": "qwen2.5vl:3b",
+  "cer": 0.3955,
+  "cer_dedent": 0.4129,
+  "line_exact": 0,
+  "line_total": 20,
+  "lines_out": 15,
+  "ms": 133648,
+  "text": "def test_nested_route_priority() -> None:\n    app = create_app(\n        routes=[\n            Route('/a/{x:int}/b', handler_a),\n            Route('/a/static/b', handler_b),\n        ],\n    )\n    resp = client.get('/a/static/b')\n    assert resp.status_code == 200\n    assert 404 == 200\n    assert 404 == <Response [404 Not Found].status_code\n\ntests/test_router.py:88: AssertionError\n-------------------------- Captured stderr call --------------------------\nWARNING    router: no match for path=/a/static/b methods={'GET'}"
+ },
+ {
+  "scene": "softwrap",
+  "image": "softwrap@2x.png",
+  "engine": "qwen2.5vl:3b",
+  "cer": 0.1308,
+  "cer_dedent": 0.1289,
+  "line_exact": 5,
+  "line_total": 10,
+  "lines_out": 10,
+  "ms": 73123,
+  "text": "$ kubectl get events --sort-by=.lastTimestamp\nLAST SEEN    TYPE        REASON       OBJECT            MESSAGE\n3m             Warning      BackOff      pod/api-6f8d9c4b-x2v\nn               Back-off    Back-off restarting failed container api in pod\napi-6f8d9c4b-x2vn_ns(8f2c1a9e-4b7d-4c1e-9a2b-77d0c3b\n5a92e)\n1m             Normal       Pulled       pod/worker-5c7f4d8b-\nq9kz           Successfully pulled image \"ghcr.io/acme/work\nr:1.4\" in 2.184s (2.184s including waiting). Image s\nize: 191234567 bytes."
+ },
+ {
+  "scene": "tree",
+  "image": "tree@2x.png",
+  "engine": "qwen2.5vl:3b",
+  "cer": 0.0579,
+  "cer_dedent": 0.0579,
+  "line_exact": 11,
+  "line_total": 15,
+  "lines_out": 15,
+  "ms": 23789,
+  "text": "~/proj $ tree -L 3 --dirsfirst src\nsrc\n├── cli\n│   ├── __init__.py\n│   ├── main.py\n│   └── options.py\n├── core\n│   ├── engine.py\n│   └── registry.py\n├── workers\n│   ├── pool.py\n│   └── queue.py\n└── utils.py\n\n3 directories, 8 files"
+ }
+]

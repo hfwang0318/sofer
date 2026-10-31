@@ -1,0 +1,6 @@
+~/proj $ python app.py
+# 启动服务，监听 8080 端口
+def main(host="0.0.0.0", port=8080):
+    app.run(host=host, port=port)  # 本地调试
+# 报错：连接超时，请检查防火墙设置
+raise ConnectionError("数据库连接失败：timeout after 30s")

@@ -1,0 +1,186 @@
+{
+  "git-diff": {
+    "size2x": [
+      1220,
+      924
+    ],
+    "lines": 23,
+    "chars": 831
+  },
+  "pytest-traceback": {
+    "size2x": [
+      1348,
+      813
+    ],
+    "lines": 20,
+    "chars": 842
+  },
+  "tree": {
+    "size2x": [
+      612,
+      628
+    ],
+    "lines": 15,
+    "chars": 242
+  },
+  "ascii-table": {
+    "size2x": [
+      1428,
+      480
+    ],
+    "lines": 11,
+    "chars": 653
+  },
+  "editor-rust": {
+    "size2x": [
+      1444,
+      813
+    ],
+    "lines": 20,
+    "chars": 692
+  },
+  "light-ambiguous": {
+    "size2x": [
+      932,
+      443
+    ],
+    "lines": 10,
+    "chars": 355
+  },
+  "softwrap": {
+    "size2x": [
+      996,
+      443
+    ],
+    "lines": 10,
+    "chars": 451
+  },
+  "git-log-graph": {
+    "size2x": [
+      1012,
+      406
+    ],
+    "lines": 9,
+    "chars": 301
+  },
+  "cargo-build": {
+    "size2x": [
+      1204,
+      628
+    ],
+    "lines": 15,
+    "chars": 455
+  },
+  "json-logs": {
+    "size2x": [
+      2467,
+      191
+    ],
+    "lines": 4,
+    "chars": 522
+  },
+  "ansi-highlight": {
+    "size2x": [
+      1028,
+      406
+    ],
+    "lines": 9,
+    "chars": 234
+  },
+  "symbols": {
+    "size2x": [
+      900,
+      332
+    ],
+    "lines": 7,
+    "chars": 336
+  },
+  "conflict": {
+    "size2x": [
+      852,
+      443
+    ],
+    "lines": 10,
+    "chars": 227
+  },
+  "wide-table": {
+    "size2x": [
+      1012,
+      295
+    ],
+    "lines": 6,
+    "chars": 357
+  },
+  "small-text": {
+    "size2x": [
+      380,
+      164
+    ],
+    "lines": 5,
+    "chars": 139
+  },
+  "split-panes": {
+    "size2x": [
+      1152,
+      291
+    ],
+    "lines": 12,
+    "chars": 254
+  },
+  "nerd-symbols": {
+    "size2x": [
+      708,
+      332
+    ],
+    "lines": 7,
+    "chars": 207
+  },
+  "nested-diff": {
+    "size2x": [
+      740,
+      517
+    ],
+    "lines": 12,
+    "chars": 367
+  },
+  "powerline": {
+    "size2x": [
+      468,
+      258
+    ],
+    "lines": 5,
+    "chars": 94
+  },
+  "huge-4k": {
+    "size2x": [
+      3940,
+      2145
+    ],
+    "lines": 56,
+    "chars": 13385
+  },
+  "ultra-wide": {
+    "size2x": [
+      3524,
+      184
+    ],
+    "lines": 3,
+    "chars": 472
+  },
+  "ultra-tall": {
+    "size2x": [
+      212,
+      2330
+    ],
+    "lines": 61,
+    "chars": 496
+  },
+  "tiny-crop": {
+    "size2x": [
+      220,
+      120
+    ],
+    "lines": 5,
+    "chars": 113
+  }
+}

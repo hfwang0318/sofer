@@ -1,0 +1,20 @@
+  1 use std::collections::HashMap;
+  2 use crate::error::{Error, Result};
+  3 
+  4 pub struct Cache<K, V> {
+  5     map: HashMap<K, V>,
+  6     capacity: usize,
+  7 }
+  8 
+  9 impl<K: Eq + std::hash::Hash, V: Clone> Cache<K, V> {
+ 10     pub fn get_or_insert(&mut self, key: K, f: impl FnOnce() -> V) -> Result<&V> {
+ 11         if !self.map.contains_key(&key) {
+ 12             if self.map.len() >= self.capacity {
+ 13                 return Err(Error::Capacity { limit: self.capacity });
+ 14             }
+ 15             let value = f();
+ 16             self.map.insert(key.clone(), value);
+ 17         }
+ 18         Ok(self.map.get(&key).unwrap_or_else(|| unreachable!()))
+ 19     }
+ 20 }

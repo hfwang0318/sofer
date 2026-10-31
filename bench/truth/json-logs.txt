@@ -1,0 +1,4 @@
+{"ts":"2026-10-30T11:02:13.412Z","level":"info","msg":"request","path":"/api/v1/users?limit=20","status":200,"dur_ms":13}
+{"ts":"2026-10-30T11:02:13.418Z","level":"warn","msg":"slow query","sql":"SELECT * FROM users WHERE id = $1","dur_ms":842}
+{"ts":"2026-10-30T11:02:14.001Z","level":"error","msg":"unhandled","err":"TypeError: Cannot read properties of undefined (reading 'id')","stack":"at handler (src/routes/user.ts:44:18)"}
+{"ts":"2026-10-30T11:02:14.003Z","level":"info","msg":"retry","attempt":2,"backoff_ms":250}

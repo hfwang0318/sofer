@@ -1,0 +1,10 @@
+$ kubectl get events --sort-by=.lastTimestamp
+LAST SEEN   TYPE      REASON    OBJECT             MESSAGE
+3m          Warning   BackOff   pod/api-6f8d9c4b-x2v
+n   Back-off restarting failed container api in pod 
+api-6f8d9c4b-x2vn_ns(8f2c1a9e-4b7d-4c1e-9a2b-77d0c3b
+5a92e)
+1m          Normal    Pulled    pod/worker-5c7f4d8b-
+q9kz   Successfully pulled image "ghcr.io/acme/worke
+r:1.4" in 2.184s (2.184s including waiting). Image s
+ize: 191234567 bytes.

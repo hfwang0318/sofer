@@ -1,0 +1,9 @@
+~/src/api (main) $ git log --graph --oneline -6
+* 8f2c1a9 (HEAD -> main) fix: guard against expired token
+* 4b7d9e0 feat: add refresh flow
+|\
+| * 1d7e0c3 (origin/feature) test: cover refresh edge cases
+| * c93b6f0 refactor: extract token verifier
+|/
+* b7e4d05 chore: bump deps
+* 3f9a1c2 initial commit

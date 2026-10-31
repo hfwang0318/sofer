@@ -1,0 +1,21 @@
+# bench scenes
+
+- `git-diff`: 1220x924px@2x, 23 lines, 831 chars
+- `pytest-traceback`: 1348x813px@2x, 20 lines, 842 chars
+- `tree`: 612x628px@2x, 15 lines, 242 chars
+- `ascii-table`: 1428x480px@2x, 11 lines, 653 chars
+- `editor-rust`: 1444x813px@2x, 20 lines, 692 chars
+- `light-ambiguous`: 932x443px@2x, 10 lines, 355 chars
+- `softwrap`: 996x443px@2x, 10 lines, 451 chars
+- `git-log-graph`: 1012x406px@2x, 9 lines, 301 chars
+- `cargo-build`: 1204x628px@2x, 15 lines, 455 chars
+- `json-logs`: 2467x191px@2x, 4 lines, 522 chars
+- `ansi-highlight`: 1028x406px@2x, 9 lines, 234 chars
+- `symbols`: 900x332px@2x, 7 lines, 336 chars
+- `conflict`: 852x443px@2x, 10 lines, 227 chars
+- `wide-table`: 1012x295px@2x, 6 lines, 357 chars
+- `small-text`: 380x164px@2x, 5 lines, 139 chars
+- `split-panes`: 1152x291px@2x, 12 lines, 254 chars
+- `nerd-symbols`: 708x332px@2x, 7 lines, 207 chars
+- `nested-diff`: 740x517px@2x, 12 lines, 367 chars
+- `powerline`: 468x258px@2x, 5 lines, 94 chars

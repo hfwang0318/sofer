@@ -1,0 +1,3 @@
+$ psql -c "SELECT id, email, created_at, plan, mrr_cents, country, last_seen_at, trial_ends_at FROM accounts WHERE plan = 'team' AND mrr_cents > 5000 AND country IN ('US','DE','JP') ORDER BY mrr_cents DESC LIMIT 50;"
+ id  | email                    | created_at          | plan | mrr_cents | country | last_seen_at        | trial_ends_at       
+ 412 | ops@acme-corp.example    | 2025-03-11 09:14:22 | team |    249900 | US      | 2026-10-30 11:02:01 | 2027-01-08 00:00:00 

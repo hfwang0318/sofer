@@ -1,0 +1,6 @@
+NAME              QPS    P95(ms)   ERR%    MEM     REGION
+api-gateway     12480      38.2   0.02    512M    us-east-1
+auth-service     9310      41.7   0.00    384M    us-east-1
+search-index     2205     210.4   1.31    2.1G    eu-west-1
+billing-worker    410      12.9   0.00    128M    ap-east-1
+total           24405         -      -     3.1G           -
