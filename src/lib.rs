@@ -17,6 +17,7 @@
 //! on macOS and Windows with identical output.
 
 pub mod assemble;
+pub mod boxdraw;
 pub mod engine;
 pub mod geom;
 pub mod lang;

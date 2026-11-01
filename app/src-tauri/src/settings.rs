@@ -232,6 +232,8 @@ impl Settings {
             // The desktop UI has no encoding control; the kernel default (PNG)
             // keeps the bytes sent to the model unchanged.
             image_format: Default::default(),
+            // The desktop UI does not expose box-art reconstruction yet.
+            box_art: false,
             language: {
                 let lang = self.language.trim();
                 if lang.is_empty() {

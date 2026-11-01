@@ -22,7 +22,7 @@ use crate::engine::{
 use crate::geom;
 use crate::pool::Semaphore;
 use crate::render::Format;
-use crate::{lang, repair, tile, Document};
+use crate::{boxdraw, lang, repair, tile, Document};
 
 /// Which engine to build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,6 +72,9 @@ pub struct Config {
     pub join_wrap: bool,
     /// trust the model's spacing instead of stripping a detected line-number gutter
     pub keep_gutter: bool,
+    /// rebuild box-drawing characters (trees, tables) from detected straight
+    /// lines; off by default because it only helps when the engine dropped them
+    pub box_art: bool,
     /// output shape; applied by the caller through [`crate::render::render`]
     pub format: Format,
     /// encoding used when an image has to be turned into bytes for the engine
@@ -101,6 +104,7 @@ impl Default for Config {
             no_geometry: false,
             join_wrap: false,
             keep_gutter: false,
+            box_art: false,
             format: Format::Text,
             image_format: ImageFormat::Png,
             language: None,
@@ -234,12 +238,12 @@ pub fn recognize(
     cfg: &Config,
     limiter: &Semaphore,
 ) -> Result<Outcome> {
-    let (img, bytes, geom, adv, plan) = prepare(path, cfg)?;
+    let (img, bytes, luma, geom, adv, plan) = prepare(path, cfg)?;
     let input = ImageInput::with_source(&img, &bytes, engine::mime_for_path(path));
     let out = run_engine(engine, &input, plan.as_ref(), cfg, limiter)?;
     let (out, used, retry_trace) =
         retry_if_truncated(engine, &input, &geom, adv, cfg, limiter, out, plan)?;
-    Ok(finish(out, used, retry_trace, &geom, path, cfg))
+    Ok(finish(out, used, retry_trace, &luma, &geom, path, cfg))
 }
 
 /// Like [`recognize`], but report the model's text through `on_delta` while it
@@ -257,7 +261,7 @@ pub fn recognize_streaming(
     limiter: &Semaphore,
     on_delta: &mut dyn FnMut(&str),
 ) -> Result<Outcome> {
-    let (img, bytes, geom, adv, plan) = prepare(path, cfg)?;
+    let (img, bytes, luma, geom, adv, plan) = prepare(path, cfg)?;
     let input = ImageInput::with_source(&img, &bytes, engine::mime_for_path(path));
 
     let out = if plan.is_none() {
@@ -280,7 +284,7 @@ pub fn recognize_streaming(
 
     let (out, used, retry_trace) =
         retry_if_truncated(engine, &input, &geom, adv, cfg, limiter, out, plan)?;
-    Ok(finish(out, used, retry_trace, &geom, path, cfg))
+    Ok(finish(out, used, retry_trace, &luma, &geom, path, cfg))
 }
 
 /// Read and decode the image once, then decide whether it needs tiles.
@@ -290,6 +294,7 @@ fn prepare(
 ) -> Result<(
     image::DynamicImage,
     Vec<u8>,
+    image::GrayImage,
     geom::Geometry,
     f32,
     Option<tile::Plan>,
@@ -299,14 +304,15 @@ fn prepare(
     let bytes = std::fs::read(path).with_context(|| format!("reading image {}", path.display()))?;
     let img = image::load_from_memory(&bytes)
         .with_context(|| format!("decoding image {}", path.display()))?;
-    let geom = geom::analyze(&img.to_luma8());
+    let luma = img.to_luma8();
+    let geom = geom::analyze(&luma);
     let adv = geom.advance_prior();
     let plan = if cfg.tile {
         tile::plan(&geom, adv, cfg.max_tokens)
     } else {
         None
     };
-    Ok((img, bytes, geom, adv, plan))
+    Ok((img, bytes, luma, geom, adv, plan))
 }
 
 
@@ -357,6 +363,7 @@ fn finish(
     out: EngineOutput,
     used: Option<tile::Plan>,
     retry_trace: Option<RetryTrace>,
+    luma: &image::GrayImage,
     geom: &geom::Geometry,
     path: &Path,
     cfg: &Config,
@@ -371,6 +378,9 @@ fn finish(
     let consistent = tile::looks_consistent(out.lines.len(), &geom.bands);
     let (mut lines, stats) = assemble(&out.lines, geom, &cfg.opts());
     repair::normalize(&mut lines);
+    if cfg.box_art {
+        boxdraw::apply(luma, geom, stats.advance, &mut lines);
+    }
     let text = lines
         .iter()
         .map(|l| l.rendered())
