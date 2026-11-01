@@ -108,6 +108,18 @@ cargo run --example engine_probe -- download   # real ~1.43 GB download
 cargo run --example engine_probe -- start      # start + health check
 ```
 
+Remote deployment E2E (local Docker Linux SSH server; downloads ~1 GB):
+
+```bash
+app/scripts/dev-remote-server.sh up
+app/scripts/test-remote.sh
+```
+
+The script covers probe, server download, reuse without re-download, tunnel +
+OCR, stop, local upload, bad key and unreachable host. The manual cases
+(cancel/resume, corruption recovery, non-Linux rejection, tunnel port
+conflict, app restart) are listed in `app/README.md`.
+
 Full check before shipping a change that touches both crates:
 
 ```bash

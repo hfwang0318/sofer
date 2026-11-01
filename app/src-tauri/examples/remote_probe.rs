@@ -89,7 +89,11 @@ fn main() {
         }
     };
 
-    manager.shutdown();
+    // Test-only escape hatch: leave the remote server running so a separate
+    // `stop` invocation can be exercised. The tunnel is still closed by Drop.
+    if std::env::var("OCR4CODE_TEST_KEEP").ok().as_deref() != Some("1") {
+        manager.shutdown();
+    }
     if let Err(err) = result {
         eprintln!("[failed] {err}");
         std::process::exit(1);
@@ -248,6 +252,7 @@ fn print_help() {
          OCR4CODE_REMOTE_SOURCE        deploy 时 download/upload，默认 download\n\
          OCR4CODE_REMOTE_LOCAL_MODELS  上传时的本地模型目录\n\
          OCR4CODE_TEST_IMAGE           通过隧道做一次真实 OCR\n\
+         OCR4CODE_TEST_KEEP            1 = 退出时保留远端服务（测 stop 用）\n\
          OCR4CODE_REMOTE_MIRROR        1 使用 hf-mirror.com"
     );
 }

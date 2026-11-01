@@ -126,7 +126,8 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
   部署一次后，截图会按需启动远程服务并复用隧道。模型已验证时主操作变为
   「连接」，「一键部署」不再出现；重复连接只会复用，不会重新下载。
 - **下载方式**：服务器下载按 4 条 range 连接并行拉取每个大文件；服务器不支持
-  Range 时自动退回单连接，已下载的分段在取消/失败后可续传。
+  Range 时自动退回单连接，已下载的分段在取消/失败后可续传。连接超过 60 秒
+  低于 1 KiB/s 会中止并重试，避免卡死。
 - **隐私**：启用远程后，截图会发到这台服务器，不再只在本机处理；关于页会同步显示这一点。
 
 #### 本地 Docker 联调
@@ -138,7 +139,45 @@ app/scripts/dev-remote-server.sh up   # 构建并启动 127.0.0.1:2222，打印�
 ```
 
 `remote_probe` 直接调用应用里的 `remote::Manager`，走真实 SSH 完成探测、
-运行时安装、服务器下载/本地上传、启动服务和隧道连接：
+运行时安装、服务器下载/本地上传、启动服务和隧道连接。
+
+一键跑完整回归（会清空容器里的模型并下载一次低精度包，约 1 GB、2–3 分钟）：
+
+```bash
+app/scripts/dev-remote-server.sh up
+app/scripts/test-remote.sh
+
+# 只跑其中几条，避免重复下载
+CASES="probe stop-releases-server" app/scripts/test-remote.sh
+```
+
+先停掉应用里的远程服务，避免和脚本抢占 8099 端口和模型目录。脚本日志在
+`/tmp/ocr4code-ssh-test/e2e-logs/`，任一用例失败会返回非零退出码。
+它依赖 Docker 且要下载约 1 GB，默认不进 CI；发布前或改 `remote.rs` 后手工跑。
+
+`test-remote.sh` 固化的用例：
+
+| 用例 | 断言 |
+|---|---|
+| `probe` | 可达、`Linux`、返回模型文件状态 |
+| `server-download` | 服务器下载、SHA-256 校验、启动服务、隧道 `/health` 200、真实 OCR 有输出 |
+| `reuse-without-download` | 模型已存在时再次部署，不出现 `downloading` 进度 |
+| `tunnel-and-ocr` | 停止状态下 `start` 能重新拉起服务和隧道并完成 OCR |
+| `stop-releases-server` | `stop` 后容器内 `runtime/llama-server` 进程消失 |
+| `upload-local-models` | 从本机上传同精度模型、校验、启动、隧道 OCR |
+| `rejects-bad-key` | 不存在的私钥不能通过探测 |
+| `rejects-unreachable-host` | 不可达端口返回连接失败，而不是挂起 |
+
+脚本之外的纯单元测试（不连服务器）：
+
+```bash
+cargo test --manifest-path app/src-tauri/Cargo.toml remote::
+```
+
+覆盖 shell 引号与 option injection、探测输出解析、运行时资产名、服务端参数、
+上传命令在远端 shell 中的实际行为、并行下载脚本语法/Range 回退、进度汇总。
+
+单独手工跑某条路径：
 
 ```bash
 export OCR4CODE_REMOTE_KEY=/tmp/ocr4code-ssh-test/test_key
@@ -153,9 +192,8 @@ OCR4CODE_REMOTE_SOURCE=download OCR4CODE_TEST_IMAGE=bench/images/cargo-build@1x.
 
 # 本地上传（先把模型从容器复制到本地目录，并清空容器里的模型）
 mkdir -p /tmp/ocr4code-ssh-test/local-models
-docker cp ocr4code-ssh-test:/home/ocr/.ocr4code/models/GLM-OCR.Q4_K_M.gguf /tmp/ocr4code-ssh-test/local-models/
-docker cp ocr4code-ssh-test:/home/ocr/.ocr4code/models/mmproj-GLM-OCR-Q8_0.gguf /tmp/ocr4code-ssh-test/local-models/
-docker exec ocr4code-ssh-test rm -rf /home/ocr/.ocr4code/models
+docker cp ocr4code-ssh-test:/home/ocr/.ocr4code/models/. /tmp/ocr4code-ssh-test/local-models/
+docker exec -u ocr ocr4code-ssh-test rm -rf ~/.ocr4code/models
 OCR4CODE_REMOTE_SOURCE=upload \
 OCR4CODE_REMOTE_LOCAL_MODELS=/tmp/ocr4code-ssh-test/local-models \
 OCR4CODE_TEST_IMAGE=bench/images/cargo-build@1x.png \
@@ -165,6 +203,17 @@ OCR4CODE_TEST_IMAGE=bench/images/cargo-build@1x.png \
 cargo run --manifest-path app/src-tauri/Cargo.toml --example remote_probe -- stop
 cargo run --manifest-path app/src-tauri/Cargo.toml --example remote_probe -- start
 ```
+
+仍需手工覆盖的用例（脚本不固化，避免每次下载多个 GB）：
+
+| 场景 | 做法 | 预期 |
+|---|---|---|
+| 取消后续传 | `deploy` 进行中 Ctrl-C；检查 `.parts/part-*`；再执行同一命令 | 从已有分段继续，最终校验通过 |
+| 损坏恢复 | 保持文件大小不变改写一个字节，再 `deploy` | SHA-256 失败 → 删除 → 重新获取 |
+| 非 Linux 拒绝 | 指向 macOS 自带 sshd（开启“远程登录”） | 明确提示只支持 Linux |
+| 隧道端口冲突 | 先占用 28099–28120 中若干端口，再 `start` | 自动换端口并连通 |
+| 应用重启/自动连接 | 部署后在应用里重启，观察远程状态 | 恢复已部署状态，按设置自动连接 |
+| GPU | 在真实 NVIDIA/Vulkan 主机选 CUDA/Vulkan | 运行时资产名和 `-ngl` 生效 |
 
 清理：`app/scripts/dev-remote-server.sh down`。容器没有 GPU，只覆盖 CPU 运行时；
 CUDA/Vulkan 仍需真机验证。

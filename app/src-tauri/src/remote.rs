@@ -1342,7 +1342,7 @@ mkdir -p "$(dirname "$TARGET")" "$PARTS"
 PIDS=""
 trap 'for p in $PIDS; do kill "$p" 2>/dev/null; done' EXIT HUP INT TERM
 __DOWNLOAD__
-RANGE_CODE=$(curl -fsL --range 0-0 -o /dev/null -w '%{http_code}' "$URL" 2>/dev/null || echo 000)
+RANGE_CODE=$(curl -fsL --connect-timeout 15 --max-time 30 --range 0-0 -o /dev/null -w '%{http_code}' "$URL" 2>/dev/null || echo 000)
 if [ "$RANGE_CODE" != "206" ]; then
   echo OCR4CODE RANGE_UNSUPPORTED=1
   fetch "$URL" "$PARTS/part-fallback" || { echo OCR4CODE FETCH_FAILED=1; exit 3; }
@@ -1368,7 +1368,8 @@ segment() {
     # No curl --retry here: a retried response would be appended after the
     # partial bytes from the failed attempt. The outer loop resumes from the
     # file size instead, which also works after a cancel/restart.
-    curl -fL --no-progress-meter --range "$FROM-$END" "$URL" >> "$PARTFILE"
+    curl -fL --connect-timeout 15 --speed-time 60 --speed-limit 1024 \
+      --no-progress-meter --range "$FROM-$END" "$URL" >> "$PARTFILE"
     NEW=$(stat -c %s "$PARTFILE" 2>/dev/null || echo 0)
     if [ "$NEW" -gt "$WANT" ]; then rm -f "$PARTFILE"; return 2; fi
     if [ "$NEW" -le "$HAVE" ]; then
@@ -1452,10 +1453,10 @@ fn progress_command(target: PollTarget<'_>) -> String {
 fn download_function() -> String {
     "fetch() {\n\
        if command -v curl >/dev/null 2>&1; then\n\
-         curl -fL --retry 3 -C - --no-progress-meter -o \"$2\" \"$1\" || \\\n\
-           curl -fL --retry 3 --no-progress-meter -o \"$2\" \"$1\";\n\
+         curl -fL --retry 3 --connect-timeout 15 --speed-time 60 --speed-limit 1024 -C - --no-progress-meter -o \"$2\" \"$1\" || \\\n\
+           curl -fL --retry 3 --connect-timeout 15 --speed-time 60 --speed-limit 1024 --no-progress-meter -o \"$2\" \"$1\";\n\
        elif command -v wget >/dev/null 2>&1; then\n\
-         wget -q -c -O \"$2\" \"$1\";\n\
+         wget -q -c --timeout=30 --tries=3 -O \"$2\" \"$1\";\n\
        else\n\
          return 1;\n\
        fi\n\
@@ -1895,6 +1896,8 @@ OCR4CODE FILE=GLM-OCR.Q4_K_M.gguf:100:548515136
         assert!(script.contains("part-$I"));
         assert!(script.contains("RANGE_UNSUPPORTED"));
         assert!(script.contains("fetch \"$URL\" \"$PARTS/part-fallback\""));
+        assert!(script.contains("--speed-time 60"));
+        assert!(script.contains("--connect-timeout 15"));
         assert!(script.contains("'https://example.com/model.gguf'"));
         assert!(script.contains("'/home/ocr/.ocr4code/models/model.gguf.parts'"));
         assert!(script.contains("'/home/ocr/.ocr4code/models/model.gguf.part'"));

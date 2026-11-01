@@ -193,8 +193,11 @@ done
 
 ### 桌面端 / Windows Release
 
-- [ ] `cd app/src-tauri && cargo test`（24 tests）
+- [ ] `cd app/src-tauri && cargo test`（39 tests）
 - [ ] `cd app && pnpm build` 通过
+- [ ] `app/scripts/test-remote.sh`（Docker，约 2–3 分钟；会下载 1 GB 模型）
+- [ ] 远程手工用例：取消续传、损坏恢复、非 Linux 拒绝、隧道端口冲突
+      （步骤见 [app/README.md](../app/README.md) 的「本地 Docker 联调」）
 - [ ] app CI（`.github/workflows/ci.yml` 的 `app` job，macOS + Windows）绿
 - [ ] 更新 `.github/workflows/release.yml` 的版本/tag（或 workflow_dispatch）
 - [ ] GitHub Secrets 已配置 `TAURI_SIGNING_PRIVATE_KEY` 与
