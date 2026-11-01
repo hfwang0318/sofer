@@ -350,7 +350,7 @@ URL、`ssh` 命令或 `ssh -L`：
 | 侧栏/标题栏引擎摘要 | `engineSummary()` / `engineForMode()` | 不展示 URL、端口等技术细节 |
 | 应用状态与弹窗互斥 | `app/src/App.tsx` | 打开一个弹窗前先关掉另一个；事件回调里先关再开 |
 | 首启/权限弹窗 | `components/SetupDialog.tsx`、`PermissionDialog.tsx` | 复用焦点锁、关闭还原、分支重聚焦模式 |
-| 识别完成弹窗 | `app/src-tauri/src/toast.rs`、`app/src/toast/` | 只在后台成功时出现；单行、无交互；定位与尺寸是纯函数 |
+| 识别完成弹窗 | `app/src-tauri/src/toast.rs`、`app/src/toast/` | 只在后台成功时出现；单行、无交互；定位与尺寸是纯函数；窗口和 webview 两层背景都必须透明，胶囊外不画投影（会被窗口边界切平） |
 | 错误分类与用户文案 | `app/src-tauri/src/capture/flow.rs` | Rust 文案同样遵守本规范；原始错误放 `raw` |
 | 设置分区与保存 | `views/SettingsView.tsx` | 新选项先归入五段之一，再决定是否折叠 |
 | 设计 token | `styles/tokens.css` | 不写裸色值、裸字号；用 `tone-*` 语义色 |

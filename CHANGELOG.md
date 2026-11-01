@@ -5,6 +5,9 @@ All notable changes to the desktop app. The root OCR kernel keeps its own
 
 ## Unreleased
 
+- The completion toast clears the window and webview background layers
+  explicitly and no longer gives the pill a drop shadow, which the window
+  clipped into a straight-edged translucent rectangle. Only the pill is painted.
 - Capture no longer falls back to tesseract silently: once `ensure_ready`
   succeeds the config is pinned to the engine that answered, so a slow-but-up
   server is not health-checked a second time. If the kernel's trace says the
