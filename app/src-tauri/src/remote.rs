@@ -37,6 +37,10 @@ const LOCAL_PORT_END: u16 = 28_120;
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(240);
 const SSH_TIMEOUT: Duration = Duration::from_secs(30);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(4 * 60 * 60);
+/// How long one reconnect attempt may take to produce a healthy tunnel.
+const RECONNECT_HEALTH_TIMEOUT: Duration = Duration::from_secs(20);
+/// Granularity of the watchdog's interruptible sleeps.
+const WATCHDOG_POLL: Duration = Duration::from_millis(100);
 /// Files at least this large use ranged, multi-connection downloads.
 const PARALLEL_MIN_BYTES: u64 = 16 * 1024 * 1024;
 /// Range requests run in parallel; 4 is a good balance between speed and the
@@ -156,7 +160,7 @@ pub struct Progress {
 #[serde(rename_all = "camelCase")]
 pub struct State {
     pub enabled: bool,
-    /// stopped | probing | deploying | starting | online | failed | cancelled
+    /// stopped | probing | deploying | starting | reconnecting | online | failed | cancelled
     pub phase: String,
     pub url: Option<String>,
     pub remote_url: Option<String>,
@@ -165,6 +169,10 @@ pub struct State {
     pub quality: Option<ModelQuality>,
     pub deployed: bool,
     pub progress: Option<Progress>,
+    /// 1-based attempt while the watchdog is reconnecting.
+    pub reconnect_attempt: Option<u32>,
+    /// Total attempts the watchdog will make before giving up.
+    pub reconnect_limit: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -209,6 +217,8 @@ enum Phase {
     Probing,
     Deploying,
     Starting,
+    /// The watchdog is restarting the tunnel after it broke.
+    Reconnecting,
     Online,
     Failed,
     Cancelled,
@@ -221,6 +231,7 @@ impl Phase {
             Phase::Probing => "probing",
             Phase::Deploying => "deploying",
             Phase::Starting => "starting",
+            Phase::Reconnecting => "reconnecting",
             Phase::Online => "online",
             Phase::Failed => "failed",
             Phase::Cancelled => "cancelled",
@@ -237,6 +248,8 @@ struct Slot {
     quality: Option<ModelQuality>,
     deployed: bool,
     progress: Option<Progress>,
+    reconnect_attempt: Option<u32>,
+    reconnect_limit: Option<u32>,
 }
 
 impl Default for Slot {
@@ -250,51 +263,206 @@ impl Default for Slot {
             quality: None,
             deployed: false,
             progress: None,
+            reconnect_attempt: None,
+            reconnect_limit: None,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Tunnel watchdog: pure policy state machine
+// ---------------------------------------------------------------------------
+
+/// Tunables for the tunnel watchdog. The defaults are the shipped policy:
+/// probe every 5 s, reconnect after two failed probes, five attempts with
+/// jittered exponential backoff capped at 30 s each.
+#[derive(Debug, Clone, Copy)]
+struct WatchdogPolicy {
+    /// Consecutive failed health probes before a live tunnel is reconnected.
+    failure_threshold: u32,
+    /// Total reconnect attempts before giving up.
+    max_attempts: u32,
+    /// First backoff delay; doubles per attempt.
+    base_delay: Duration,
+    /// Hard cap for a single delay.
+    max_delay: Duration,
+    /// How often a live tunnel is probed.
+    check_interval: Duration,
+}
+
+impl Default for WatchdogPolicy {
+    fn default() -> Self {
+        Self {
+            failure_threshold: 2,
+            max_attempts: 5,
+            base_delay: Duration::from_secs(2),
+            max_delay: Duration::from_secs(30),
+            check_interval: Duration::from_secs(5),
+        }
+    }
+}
+
+/// One observation or outcome fed into [`WatchState`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WatchEvent {
+    /// The forwarded port answered `/health`.
+    Healthy,
+    /// One probe failed but the ssh child is still alive.
+    Unhealthy,
+    /// The ssh child exited; reconnect immediately, skipping the threshold.
+    TunnelExited,
+    /// A reconnect attempt did not produce a healthy tunnel.
+    AttemptFailed,
+    /// A reconnect attempt produced a healthy tunnel.
+    AttemptSucceeded,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WatchState {
+    Connected { failures: u32 },
+    Reconnecting { attempt: u32 },
+    Failed,
+}
+
+impl WatchState {
+    fn connected() -> Self {
+        Self::Connected { failures: 0 }
+    }
+
+    /// The whole reconnect policy lives here: no I/O, so tests drive every
+    /// branch without a real ssh process or server.
+    fn on_event(
+        self,
+        event: WatchEvent,
+        policy: &WatchdogPolicy,
+        jitter: f64,
+    ) -> (Self, WatchAction) {
+        match self {
+            WatchState::Connected { failures } => match event {
+                WatchEvent::Healthy => (Self::connected(), WatchAction::Idle),
+                WatchEvent::Unhealthy => {
+                    let failures = failures + 1;
+                    if failures >= policy.failure_threshold {
+                        Self::retry(1, policy, jitter)
+                    } else {
+                        (WatchState::Connected { failures }, WatchAction::Idle)
+                    }
+                }
+                WatchEvent::TunnelExited => Self::retry(1, policy, jitter),
+                WatchEvent::AttemptSucceeded => (Self::connected(), WatchAction::Idle),
+                WatchEvent::AttemptFailed => {
+                    (WatchState::Connected { failures }, WatchAction::Idle)
+                }
+            },
+            WatchState::Reconnecting { attempt } => match event {
+                WatchEvent::AttemptSucceeded => (Self::connected(), WatchAction::Recovered),
+                WatchEvent::AttemptFailed
+                | WatchEvent::TunnelExited
+                | WatchEvent::Unhealthy => {
+                    let next = attempt + 1;
+                    if next > policy.max_attempts {
+                        (WatchState::Failed, WatchAction::Exhausted)
+                    } else {
+                        Self::retry(next, policy, jitter)
+                    }
+                }
+                WatchEvent::Healthy => (Self::connected(), WatchAction::Idle),
+            },
+            WatchState::Failed => (WatchState::Failed, WatchAction::Idle),
+        }
+    }
+
+    fn retry(attempt: u32, policy: &WatchdogPolicy, jitter: f64) -> (Self, WatchAction) {
+        (
+            WatchState::Reconnecting { attempt },
+            WatchAction::Reconnect {
+                attempt,
+                delay: backoff_delay(policy, attempt, jitter),
+            },
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WatchAction {
+    /// Nothing to do; keep probing.
+    Idle,
+    /// Publish `reconnecting`, wait for `delay`, then run one attempt.
+    Reconnect { attempt: u32, delay: Duration },
+    /// The tunnel is healthy again; publish `online`.
+    Recovered,
+    /// Every attempt failed; publish `failed` with a next step.
+    Exhausted,
+}
+
+/// Jittered exponential backoff. `jitter` is a unit value in `[0, 1]`; tests
+/// pass a fixed value so the delay is deterministic.
+fn backoff_delay(policy: &WatchdogPolicy, attempt: u32, jitter: f64) -> Duration {
+    let exponent = attempt.saturating_sub(1).min(31);
+    let factor = 1u32 << exponent;
+    let base = policy
+        .base_delay
+        .saturating_mul(factor)
+        .min(policy.max_delay);
+    // ±25% around the exponential step, then clamp so one attempt never waits
+    // longer than max_delay.
+    let scaled = base.mul_f64(0.75 + 0.5 * jitter.clamp(0.0, 1.0));
+    scaled
+        .min(policy.max_delay)
+        .max(Duration::from_millis(1))
+}
+
+/// A fresh random value for the backoff jitter, without adding a dependency.
+fn jitter_unit() -> f64 {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos() as u64)
+        .unwrap_or(0);
+    let mut hasher = RandomState::new().build_hasher();
+    hasher.write_u64(nanos);
+    (hasher.finish() % 1000) as f64 / 1000.0
+}
+
+/// State the tunnel watchdog also needs. Kept behind an `Arc` so the watchdog
+/// thread can observe and repair the tunnel without owning the manager.
+///
+/// Public only because it is `Deref`'s target for `Manager`; the fields stay
+/// private to this module.
+pub struct Shared {
+    sink: EventSink,
+    slot: Mutex<Slot>,
+    /// One deploy/start/stop/reconnect at a time.
+    lifecycle: Mutex<()>,
+    enabled: AtomicBool,
 }
 
 pub struct Manager {
-    sink: EventSink,
+    shared: Arc<Shared>,
     /// Where the desktop app keeps its verified local copy (for uploads).
     local_models: PathBuf,
-    slot: Mutex<Slot>,
-    /// One deploy/start/stop at a time.
-    lifecycle: Mutex<()>,
-    enabled: AtomicBool,
     /// Last config used, so shutdown can release the remote process.
     last_config: Mutex<Option<RemoteConfig>>,
-    pub cancel: AtomicBool,
+    pub cancel: Arc<AtomicBool>,
     pub deploy_running: AtomicBool,
+    /// Stop flag of the running watchdog, if any.
+    watchdog: Mutex<Option<Arc<AtomicBool>>>,
 }
 
-impl Manager {
-    pub fn new(local_models: PathBuf, sink: EventSink) -> Self {
-        Self {
-            sink,
-            local_models,
-            slot: Mutex::new(Slot::default()),
-            lifecycle: Mutex::new(()),
-            enabled: AtomicBool::new(false),
-            last_config: Mutex::new(None),
-            cancel: AtomicBool::new(false),
-            deploy_running: AtomicBool::new(false),
-        }
-    }
+impl std::ops::Deref for Manager {
+    type Target = Shared;
 
-    fn remember(&self, cfg: &RemoteConfig) {
-        *self.last_config.lock().unwrap() = Some(cfg.clone());
+    /// Field and method access falls through to the shared state, so the
+    /// existing `self.slot` / `self.emit_state()` call sites stay unchanged.
+    fn deref(&self) -> &Shared {
+        &self.shared
     }
+}
 
-    pub fn set_enabled(&self, enabled: bool) {
-        self.enabled.store(enabled, Ordering::SeqCst);
-    }
-
-    pub fn is_enabled(&self) -> bool {
-        self.enabled.load(Ordering::SeqCst)
-    }
-
-    pub fn state(&self) -> State {
+impl Shared {
+    fn state(&self) -> State {
         let mut slot = self.slot.lock().unwrap();
         let tunnel = match slot.tunnel.as_mut() {
             Some(child) => matches!(child.try_wait(), Ok(None)),
@@ -310,6 +478,8 @@ impl Manager {
             quality: slot.quality,
             deployed: slot.deployed,
             progress: slot.progress.clone(),
+            reconnect_attempt: slot.reconnect_attempt,
+            reconnect_limit: slot.reconnect_limit,
         }
     }
 
@@ -338,8 +508,320 @@ impl Manager {
             if matches!(phase, Phase::Stopped | Phase::Cancelled | Phase::Failed) {
                 slot.progress = None;
             }
+            if !matches!(phase, Phase::Reconnecting) {
+                slot.reconnect_attempt = None;
+                slot.reconnect_limit = None;
+            }
         }
         self.emit_state();
+    }
+
+    fn tunnel_exited(&self) -> Option<Child> {
+        let mut slot = self.slot.lock().unwrap();
+        let exited = match slot.tunnel.as_mut() {
+            Some(child) => matches!(child.try_wait(), Ok(Some(_))),
+            None => true,
+        };
+        if exited {
+            slot.tunnel.take()
+        } else {
+            None
+        }
+    }
+
+    fn start_tunnel(&self, cfg: &RemoteConfig) -> Result<String, Error> {
+        self.stop_tunnel();
+        let local_port = if cfg.local_port == 0 {
+            pick_local_port()
+        } else {
+            cfg.local_port
+        };
+        let url = format!("http://127.0.0.1:{local_port}");
+        let mut cmd = ssh_base(cfg)?;
+        cmd.arg("-o")
+            .arg("ExitOnForwardFailure=yes")
+            .arg("-N")
+            .arg("-L")
+            .arg(format!(
+                "127.0.0.1:{local_port}:127.0.0.1:{}",
+                cfg.server_port
+            ))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let child = cmd
+            .spawn()
+            .map_err(|e| Error::Ssh(format!("无法启动 SSH 隧道：{e}")))?;
+        {
+            let mut slot = self.slot.lock().unwrap();
+            slot.tunnel = Some(child);
+            slot.url = Some(url.clone());
+        }
+        self.emit_state();
+        Ok(url)
+    }
+
+    fn stop_tunnel(&self) {
+        let child = {
+            let mut slot = self.slot.lock().unwrap();
+            slot.tunnel.take()
+        };
+        if let Some(mut child) = child {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        let mut slot = self.slot.lock().unwrap();
+        slot.url = None;
+        slot.remote_url = None;
+    }
+
+    // -- watchdog ----------------------------------------------------------
+
+    fn observe_tunnel(&self) -> WatchEvent {
+        if let Some(mut child) = self.tunnel_exited() {
+            let _ = child.wait();
+            return WatchEvent::TunnelExited;
+        }
+        let url = self.slot.lock().unwrap().url.clone();
+        match url {
+            // No URL means the tunnel was torn down underneath us.
+            None => WatchEvent::TunnelExited,
+            Some(url) if tunnel_responds(&url) => WatchEvent::Healthy,
+            Some(_) => WatchEvent::Unhealthy,
+        }
+    }
+
+    /// One reconnect attempt: replace the ssh child and wait for the forwarded
+    /// port to answer again. The remote `llama-server` is left untouched.
+    fn reconnect_once(
+        &self,
+        cancel: &AtomicBool,
+        stop: &AtomicBool,
+        cfg: &RemoteConfig,
+    ) -> bool {
+        let _lifecycle = self.lifecycle.lock().unwrap();
+        if !watch_should_run(cancel, stop) {
+            return false;
+        }
+        let url = match self.start_tunnel(cfg) {
+            Ok(url) => url,
+            Err(_) => return false,
+        };
+        let deadline = Instant::now() + RECONNECT_HEALTH_TIMEOUT;
+        while Instant::now() < deadline {
+            if !watch_should_run(cancel, stop) {
+                self.stop_tunnel();
+                return false;
+            }
+            if tunnel_responds(&url) {
+                let mut slot = self.slot.lock().unwrap();
+                slot.url = Some(url);
+                slot.remote_url = Some(format!("http://127.0.0.1:{}", cfg.server_port));
+                return true;
+            }
+            thread::sleep(Duration::from_millis(300));
+        }
+        self.stop_tunnel();
+        false
+    }
+
+    fn mark_reconnecting(&self, attempt: u32, limit: u32) {
+        {
+            let mut slot = self.slot.lock().unwrap();
+            slot.phase = Phase::Reconnecting;
+            slot.error = None;
+            slot.progress = None;
+            slot.reconnect_attempt = Some(attempt);
+            slot.reconnect_limit = Some(limit);
+        }
+        self.emit_state();
+    }
+
+    fn mark_online(&self) {
+        {
+            let mut slot = self.slot.lock().unwrap();
+            slot.phase = Phase::Online;
+            slot.error = None;
+            slot.reconnect_attempt = None;
+            slot.reconnect_limit = None;
+        }
+        self.emit_state();
+    }
+
+    fn mark_reconnect_failed(&self, limit: u32) {
+        {
+            let mut slot = self.slot.lock().unwrap();
+            slot.phase = Phase::Failed;
+            slot.error = Some(format!(
+                "和服务器断开了，自动重连 {limit} 次没有成功。确认服务器在线、网络正常，然后点「重连」。"
+            ));
+            slot.progress = None;
+            slot.reconnect_attempt = None;
+            slot.reconnect_limit = None;
+        }
+        self.emit_state();
+    }
+}
+
+/// Whether the tunnel still forwards traffic. Any HTTP answer counts, including
+/// 503 while `llama-server` sleeps after its idle timeout: a sleeping server is
+/// not a broken tunnel, and the next capture wakes it. Only a transport error
+/// means the forward is gone.
+fn tunnel_responds(url: &str) -> bool {
+    if url.trim().is_empty() {
+        return false;
+    }
+    match ureq::get(&format!("{}/health", url.trim_end_matches('/')))
+        .timeout(Duration::from_millis(1500))
+        .call()
+    {
+        Ok(_) => true,
+        Err(ureq::Error::Status(_, _)) => true,
+        Err(_) => false,
+    }
+}
+
+/// Whether the watchdog should keep touching the tunnel. Deliberately not
+/// gated on `enabled`: the flag can still be false right after autostart, and
+/// disabling remote mode stops the watchdog explicitly.
+fn watch_should_run(cancel: &AtomicBool, stop: &AtomicBool) -> bool {
+    !stop.load(Ordering::SeqCst) && !cancel.load(Ordering::SeqCst)
+}
+
+/// Sleep in small steps so a stop request is honored within `WATCHDOG_POLL`.
+fn sleep_unless_stopped(stop: &AtomicBool, duration: Duration) -> bool {
+    let deadline = Instant::now() + duration;
+    loop {
+        if stop.load(Ordering::SeqCst) {
+            return false;
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            return true;
+        }
+        thread::sleep((deadline - now).min(WATCHDOG_POLL));
+    }
+}
+
+/// Background tunnel watchdog. Probes a live tunnel, then reconnects with
+/// jittered exponential backoff when the ssh child exits or health checks keep
+/// failing. It exits on stop/cancel/disable or after exhausting its attempts.
+fn watchdog_loop(
+    shared: Arc<Shared>,
+    cancel: Arc<AtomicBool>,
+    stop: Arc<AtomicBool>,
+    cfg: RemoteConfig,
+) {
+    let policy = WatchdogPolicy::default();
+    let mut state = WatchState::connected();
+
+    'watch: loop {
+        // Connected: probe until something breaks.
+        loop {
+            if !sleep_unless_stopped(&stop, policy.check_interval) {
+                return;
+            }
+            if !watch_should_run(&cancel, &stop) {
+                return;
+            }
+            let event = shared.observe_tunnel();
+            let (next, action) = state.on_event(event, &policy, jitter_unit());
+            state = next;
+            if !matches!(action, WatchAction::Idle) {
+                break;
+            }
+        }
+
+        // Reconnecting: publish the phase, then back off between attempts.
+        loop {
+            let WatchState::Reconnecting { attempt } = state else {
+                return;
+            };
+            shared.mark_reconnecting(attempt, policy.max_attempts);
+            let delay = backoff_delay(&policy, attempt, jitter_unit());
+            if !sleep_unless_stopped(&stop, delay) {
+                return;
+            }
+            if !watch_should_run(&cancel, &stop) {
+                return;
+            }
+
+            let ok = shared.reconnect_once(&cancel, &stop, &cfg);
+            let event = if ok {
+                WatchEvent::AttemptSucceeded
+            } else {
+                WatchEvent::AttemptFailed
+            };
+            let (next, action) = state.on_event(event, &policy, jitter_unit());
+            state = next;
+            match action {
+                WatchAction::Recovered => {
+                    if watch_should_run(&cancel, &stop) {
+                        shared.mark_online();
+                    }
+                    continue 'watch;
+                }
+                WatchAction::Reconnect { .. } => {}
+                WatchAction::Exhausted => {
+                    if watch_should_run(&cancel, &stop) {
+                        shared.mark_reconnect_failed(policy.max_attempts);
+                    }
+                    return;
+                }
+                WatchAction::Idle => return,
+            }
+        }
+    }
+}
+
+impl Manager {
+    pub fn new(local_models: PathBuf, sink: EventSink) -> Self {
+        Self {
+            shared: Arc::new(Shared {
+                sink,
+                slot: Mutex::new(Slot::default()),
+                lifecycle: Mutex::new(()),
+                enabled: AtomicBool::new(false),
+            }),
+            local_models,
+            last_config: Mutex::new(None),
+            cancel: Arc::new(AtomicBool::new(false)),
+            deploy_running: AtomicBool::new(false),
+            watchdog: Mutex::new(None),
+        }
+    }
+
+    fn remember(&self, cfg: &RemoteConfig) {
+        *self.last_config.lock().unwrap() = Some(cfg.clone());
+    }
+
+    pub fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::SeqCst);
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.load(Ordering::SeqCst)
+    }
+
+    pub fn state(&self) -> State {
+        Shared::state(self)
+    }
+
+    fn stop_watchdog(&self) {
+        if let Some(stop) = self.watchdog.lock().unwrap().take() {
+            stop.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// Start watching a tunnel that just came up. Any previous watchdog is
+    /// stopped first so it cannot race the fresh one.
+    fn spawn_watchdog(&self, cfg: &RemoteConfig) {
+        self.stop_watchdog();
+        let stop = Arc::new(AtomicBool::new(false));
+        *self.watchdog.lock().unwrap() = Some(stop.clone());
+        let shared = self.shared.clone();
+        let cancel = self.cancel.clone();
+        let cfg = cfg.clone();
+        thread::spawn(move || watchdog_loop(shared, cancel, stop, cfg));
     }
 
     /// Inspect the target without changing anything. Safe to call repeatedly.
@@ -347,6 +829,9 @@ impl Manager {
     /// phase of an in-flight deployment.
     pub fn probe(&self, cfg: &RemoteConfig) -> Result<Probe, Error> {
         validate(cfg)?;
+        // A manual probe owns the phase; a watchdog tick in the middle of it
+        // would rewrite it.
+        self.stop_watchdog();
         let _lifecycle = self.lifecycle.lock().unwrap();
         self.cancel.store(false, Ordering::SeqCst);
         self.remember(cfg);
@@ -387,8 +872,11 @@ impl Manager {
 
     /// One-click deploy. Runs on a worker thread; progress goes to the sink.
     pub fn deploy(&self, cfg: &RemoteConfig, source: Source) -> Result<(), Error> {
-        let _lifecycle = self.lifecycle.lock().unwrap();
         validate(cfg)?;
+        // Stop the watchdog before waiting for the lifecycle lock so an
+        // in-flight reconnect cannot hold up a redeploy.
+        self.stop_watchdog();
+        let _lifecycle = self.lifecycle.lock().unwrap();
         // shutdown() needs the config to release a server started by deploy.
         self.remember(cfg);
         self.cancel.store(false, Ordering::SeqCst);
@@ -464,6 +952,9 @@ impl Manager {
         if let Some(url) = self.online_url() {
             return Ok(url);
         }
+        // Reconnecting never wins over an explicit start: stop the watchdog
+        // first so a pending attempt aborts instead of holding the lock.
+        self.stop_watchdog();
         let _lifecycle = self.lifecycle.lock().unwrap();
         // A previous stop/cancel leaves the flag set; holding the lifecycle
         // lock means no deploy is using it now, so this is a fresh start.
@@ -556,6 +1047,7 @@ impl Manager {
                     slot.remote_url = Some(format!("http://127.0.0.1:{}", cfg.server_port));
                 }
                 self.progress("ready", Some("OCR 引擎已就绪".into()), None, 0, 0);
+                self.spawn_watchdog(cfg);
                 return Ok(url);
             }
             thread::sleep(Duration::from_millis(400));
@@ -566,70 +1058,13 @@ impl Manager {
         ))
     }
 
-    fn tunnel_exited(&self) -> Option<Child> {
-        let mut slot = self.slot.lock().unwrap();
-        let exited = match slot.tunnel.as_mut() {
-            Some(child) => matches!(child.try_wait(), Ok(Some(_))),
-            None => true,
-        };
-        if exited {
-            slot.tunnel.take()
-        } else {
-            None
-        }
-    }
-
-    fn start_tunnel(&self, cfg: &RemoteConfig) -> Result<String, Error> {
-        self.stop_tunnel();
-        let local_port = if cfg.local_port == 0 {
-            pick_local_port()
-        } else {
-            cfg.local_port
-        };
-        let url = format!("http://127.0.0.1:{local_port}");
-        let mut cmd = ssh_base(cfg)?;
-        cmd.arg("-o")
-            .arg("ExitOnForwardFailure=yes")
-            .arg("-N")
-            .arg("-L")
-            .arg(format!(
-                "127.0.0.1:{local_port}:127.0.0.1:{}",
-                cfg.server_port
-            ))
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        let child = cmd
-            .spawn()
-            .map_err(|e| Error::Ssh(format!("无法启动 SSH 隧道：{e}")))?;
-        {
-            let mut slot = self.slot.lock().unwrap();
-            slot.tunnel = Some(child);
-            slot.url = Some(url.clone());
-        }
-        self.emit_state();
-        Ok(url)
-    }
-
-    fn stop_tunnel(&self) {
-        let child = {
-            let mut slot = self.slot.lock().unwrap();
-            slot.tunnel.take()
-        };
-        if let Some(mut child) = child {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-        let mut slot = self.slot.lock().unwrap();
-        slot.url = None;
-        slot.remote_url = None;
-    }
-
     /// Stop the tunnel and the remote process. Best effort: a stop must not
     /// block quitting the app for long.
     pub fn stop(&self) {
         // Signal an in-flight download/start before waiting for the lifecycle
         // lock, otherwise a long ensure_ready can block Settings for minutes.
         self.cancel.store(true, Ordering::SeqCst);
+        self.stop_watchdog();
         let _lifecycle = self.lifecycle.lock().unwrap();
         self.stop_tunnel();
         self.set_phase(Phase::Stopped, None);
@@ -638,6 +1073,7 @@ impl Manager {
     /// Stop with an explicit config so the remote process is released too.
     pub fn stop_with(&self, cfg: &RemoteConfig) {
         self.cancel.store(true, Ordering::SeqCst);
+        self.stop_watchdog();
         let _lifecycle = self.lifecycle.lock().unwrap();
         self.remember(cfg);
         self.stop_tunnel();
@@ -652,6 +1088,7 @@ impl Manager {
 
     pub fn shutdown(&self) {
         self.cancel.store(true, Ordering::SeqCst);
+        self.stop_watchdog();
         self.stop_tunnel();
         let cfg = self.last_config.lock().unwrap().clone();
         if let Some(cfg) = cfg {
@@ -1164,6 +1601,7 @@ impl Manager {
 
 impl Drop for Manager {
     fn drop(&mut self) {
+        self.stop_watchdog();
         if let Ok(mut slot) = self.slot.lock() {
             if let Some(mut child) = slot.tunnel.take() {
                 let _ = child.kill();
@@ -1954,5 +2392,164 @@ OCR4CODE FILE=GLM-OCR.Q4_K_M.gguf:100:548515136
         assert!(script.contains("nohup \"$RUNTIME\""));
         assert!(script.contains("/home/dev/.ocr4code/models/GLM-OCR.Q4_K_M.gguf"));
         assert!(script.contains("--sleep-idle-seconds"));
+    }
+
+    // -- tunnel watchdog ---------------------------------------------------
+
+    fn policy() -> WatchdogPolicy {
+        WatchdogPolicy::default()
+    }
+
+    fn attempt_of(state: WatchState) -> u32 {
+        match state {
+            WatchState::Reconnecting { attempt } => attempt,
+            other => panic!("expected reconnecting, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn watchdog_policy_has_the_documented_limits() {
+        let policy = policy();
+        assert_eq!(policy.max_attempts, 5);
+        assert_eq!(policy.max_delay, Duration::from_secs(30));
+        assert_eq!(policy.failure_threshold, 2);
+    }
+
+    #[test]
+    fn healthy_probes_keep_the_tunnel_connected() {
+        let mut state = WatchState::connected();
+        for _ in 0..3 {
+            let (next, action) = state.on_event(WatchEvent::Healthy, &policy(), 0.5);
+            assert_eq!(next, WatchState::Connected { failures: 0 });
+            assert_eq!(action, WatchAction::Idle);
+            state = next;
+        }
+    }
+
+    #[test]
+    fn failures_must_reach_the_threshold_before_reconnecting() {
+        let policy = policy();
+        let (next, action) = WatchState::connected().on_event(WatchEvent::Unhealthy, &policy, 0.5);
+        assert_eq!(next, WatchState::Connected { failures: 1 });
+        assert_eq!(action, WatchAction::Idle);
+
+        let (next, action) = next.on_event(WatchEvent::Unhealthy, &policy, 0.0);
+        assert_eq!(next, WatchState::Reconnecting { attempt: 1 });
+        match action {
+            WatchAction::Reconnect { attempt, delay } => {
+                assert_eq!(attempt, 1);
+                // 2 s base with the lowest jitter → 1.5 s.
+                assert_eq!(delay, Duration::from_millis(1500));
+            }
+            other => panic!("expected reconnect, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_dead_ssh_child_reconnects_without_waiting_for_the_threshold() {
+        let (next, action) =
+            WatchState::connected().on_event(WatchEvent::TunnelExited, &policy(), 0.5);
+        assert_eq!(next, WatchState::Reconnecting { attempt: 1 });
+        assert!(matches!(
+            action,
+            WatchAction::Reconnect {
+                attempt: 1,
+                delay: _
+            }
+        ));
+    }
+
+    #[test]
+    fn reconnect_attempts_back_off_and_stop_after_five() {
+        let policy = policy();
+        let mut state = WatchState::Reconnecting { attempt: 1 };
+        let mut delays = Vec::new();
+        for _ in 0..4 {
+            let (next, action) = state.on_event(WatchEvent::AttemptFailed, &policy, 0.5);
+            match action {
+                WatchAction::Reconnect { attempt, delay } => {
+                    assert_eq!(attempt, attempt_of(next));
+                    delays.push(delay);
+                }
+                other => panic!("expected another attempt, got {other:?}"),
+            }
+            state = next;
+        }
+        // Attempts 2–5 with neutral jitter: 4 s, 8 s, 16 s, then 32 s capped
+        // at the 30 s single-wait limit.
+        assert_eq!(
+            delays,
+            vec![
+                Duration::from_secs(4),
+                Duration::from_secs(8),
+                Duration::from_secs(16),
+                Duration::from_secs(30),
+            ]
+        );
+
+        let (next, action) = state.on_event(WatchEvent::AttemptFailed, &policy, 0.5);
+        assert_eq!(next, WatchState::Failed);
+        assert_eq!(action, WatchAction::Exhausted);
+        // An exhausted watchdog stays failed; only an explicit restart helps.
+        let (next, action) = next.on_event(WatchEvent::Unhealthy, &policy, 0.5);
+        assert_eq!(next, WatchState::Failed);
+        assert_eq!(action, WatchAction::Idle);
+    }
+
+    #[test]
+    fn a_successful_attempt_resets_the_failure_history() {
+        let policy = policy();
+        let state = WatchState::Reconnecting { attempt: 3 };
+        let (next, action) = state.on_event(WatchEvent::AttemptSucceeded, &policy, 0.5);
+        assert_eq!(next, WatchState::Connected { failures: 0 });
+        assert_eq!(action, WatchAction::Recovered);
+
+        // The old outage must not count toward the next one.
+        let (next, _) = next.on_event(WatchEvent::Unhealthy, &policy, 0.5);
+        assert_eq!(next, WatchState::Connected { failures: 1 });
+    }
+
+    #[test]
+    fn a_new_outage_restarts_the_attempt_counter() {
+        let policy = policy();
+        let (state, _) =
+            WatchState::Reconnecting { attempt: 4 }.on_event(WatchEvent::AttemptSucceeded, &policy, 0.5);
+        let (next, action) = state.on_event(WatchEvent::TunnelExited, &policy, 0.5);
+        assert_eq!(next, WatchState::Reconnecting { attempt: 1 });
+        assert!(matches!(action, WatchAction::Reconnect { attempt: 1, .. }));
+    }
+
+    #[test]
+    fn any_http_answer_proves_the_tunnel_is_alive() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buffer = [0u8; 1024];
+                let _ = stream.read(&mut buffer);
+                // 503 while the model sleeps still proves the forward works.
+                let _ = stream.write_all(
+                    b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                );
+            }
+        });
+        assert!(tunnel_responds(&format!("http://127.0.0.1:{port}")));
+        server.join().unwrap();
+        // The listener is gone: the forward is dead, not merely unready.
+        assert!(!tunnel_responds(&format!("http://127.0.0.1:{port}")));
+    }
+
+    #[test]
+    fn backoff_delay_is_jittered_and_capped_at_thirty_seconds() {
+        let policy = policy();
+        assert_eq!(backoff_delay(&policy, 1, 0.0), Duration::from_millis(1500));
+        assert_eq!(backoff_delay(&policy, 1, 0.5), Duration::from_secs(2));
+        assert_eq!(backoff_delay(&policy, 5, 0.5), Duration::from_secs(30));
+        assert_eq!(backoff_delay(&policy, 5, 1.0), Duration::from_secs(30));
+        for attempt in 1..=5 {
+            assert!(backoff_delay(&policy, attempt, 1.0) <= policy.max_delay);
+        }
+        // Jitter must never invert the growth between early attempts.
+        assert!(backoff_delay(&policy, 1, 1.0) < backoff_delay(&policy, 2, 0.0));
     }
 }

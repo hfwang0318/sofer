@@ -111,6 +111,7 @@ export type RemotePhase =
   | "probing"
   | "deploying"
   | "starting"
+  | "reconnecting"
   | "online"
   | "failed"
   | "cancelled";
@@ -161,6 +162,10 @@ export interface RemoteState {
   quality: ModelQuality | null;
   deployed: boolean;
   progress: RemoteProgress | null;
+  /** 1-based attempt while the tunnel watchdog is reconnecting. */
+  reconnectAttempt?: number | null;
+  /** Total attempts before the watchdog gives up. */
+  reconnectLimit?: number | null;
 }
 
 export interface EngineStatus {

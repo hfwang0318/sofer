@@ -539,14 +539,21 @@ export function SettingsView({
       const next = await onTestEngine();
       const summary = engineForMode(next, draft.engine);
       if (next.remote.enabled) {
+        // First-layer copy stays free of ports, URLs and ssh commands.
+        const detail =
+          next.remote.phase === "online"
+            ? "远程服务器已连接。"
+            : next.remote.phase === "reconnecting"
+              ? "连接断开了，正在自动重连。"
+              : next.remote.phase === "failed"
+                ? "连接没有成功。检查服务器后点「重连」。"
+                : next.remote.deployed
+                  ? "截图时会自动连接服务器。"
+                  : "到 OCR → 部署到服务器 里完成部署。";
         onNotify(
           summary.tone === "danger" ? "error" : summary.tone === "warn" ? "info" : "ok",
           summary.label,
-          next.remote.phase === "online"
-            ? next.remote.url ?? "远程服务已连接。"
-            : next.remote.deployed
-              ? "截图时会自动连接服务器。"
-              : "到 OCR → 部署到服务器 里完成部署。",
+          detail,
         );
         return;
       }

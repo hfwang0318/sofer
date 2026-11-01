@@ -5,6 +5,12 @@ All notable changes to the desktop app. The root OCR kernel keeps its own
 
 ## Unreleased
 
+- Remote mode now repairs its SSH tunnel: a background watchdog probes the
+  forwarded port, reconnects with jittered exponential backoff (five attempts,
+  at most 30 s apart) when the ssh child exits or health checks keep failing,
+  and reports 连接中 / 已连接 / 重连中 / 失败 in Settings. When every attempt is
+  exhausted the error says what happened and offers **重连**; the old result is
+  never discarded.
 - Added optional remote deployment: put the OCR model on a Linux server and use it
   from the desktop over an SSH tunnel. Settings → OCR → 部署到服务器 probes the
   host, installs the llama.cpp runtime when missing, downloads the model on the
