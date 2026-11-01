@@ -20,10 +20,12 @@ test.describe("?demo=result", () => {
     await expect(page.getByText("10 行", { exact: true })).toBeVisible();
     await expect(page.getByText("864 毫秒", { exact: true })).toBeVisible();
 
-    await page.getByRole("button", { name: "复制", exact: true }).click();
+    // The demo result was copied automatically, so both the badge and the
+    // button must already agree; clicking still refreshes the clipboard.
     await expect(
       page.getByRole("button", { name: "已复制", exact: true }),
     ).toBeVisible();
+    await page.getByRole("button", { name: "已复制", exact: true }).click();
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()))
       .toContain("SELECT id, email, created_at");

@@ -133,6 +133,8 @@ pub struct OcrResult {
 pub struct OcrPartial {
     pub text: String,
     pub ms: u64,
+    /// True when this is the fast Apple Vision pass, not model tokens.
+    pub preview: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -596,6 +598,10 @@ fn process_capture(
     }
 
     let _ = app.emit("ocr:phase", Phase { phase: "recognizing" });
+    if settings.fast_preview {
+        let limiter = ocr4code::pipeline::limiter(config.jobs);
+        emit_fast_preview(app, &config, path, &limiter);
+    }
     recognize_to_result(app, settings, &config, path, inspection).map(Some)
 }
 
@@ -665,6 +671,51 @@ fn use_llama(config: &mut Config, url: String) {
     config.llama_url = Some(url);
 }
 
+/// Show a fast Apple Vision result before the local model finishes.
+///
+/// Best effort: only when the user opted in and the shim is available. The
+/// preview is never copied, never added to history and never replaces the
+/// final result; it only shortens the time until text appears.
+fn emit_fast_preview(
+    app: &AppHandle,
+    config: &Config,
+    path: &Path,
+    limiter: &ocr4code::pool::Semaphore,
+) {
+    if !cfg!(target_os = "macos") || !ocr4code::engine::vision::available() {
+        return;
+    }
+    let fast = fast_preview_config(config);
+    let Ok(engine) = fast.engine() else {
+        return;
+    };
+    let started = Instant::now();
+    match ocr4code::pipeline::recognize(engine.as_ref(), path, &fast, limiter) {
+        Ok(outcome) => {
+            let text = render::render(&outcome.document, config.format, config.language.as_deref());
+            let _ = app.emit(
+                "ocr:partial",
+                OcrPartial {
+                    text,
+                    ms: started.elapsed().as_millis() as u64,
+                    preview: true,
+                },
+            );
+        }
+        Err(err) => eprintln!("capture: fast preview failed: {err:#}"),
+    }
+}
+
+/// The fast pass always uses one whole image: Vision is fast enough that
+/// tiling would add complexity without helping, and the final pass owns the
+/// real tiling decision.
+fn fast_preview_config(config: &Config) -> Config {
+    let mut fast = config.clone();
+    fast.engine = EngineMode::Vision;
+    fast.tile = false;
+    fast
+}
+
 fn recognize_to_result(
     app: &AppHandle,
     settings: &Settings,
@@ -694,6 +745,7 @@ fn recognize_to_result(
                     OcrPartial {
                         text: accumulated.clone(),
                         ms: started.elapsed().as_millis() as u64,
+                        preview: false,
                     },
                 );
             }
@@ -712,6 +764,7 @@ fn recognize_to_result(
                 OcrPartial {
                     text: accumulated.clone(),
                     ms: started.elapsed().as_millis() as u64,
+                    preview: false,
                 },
             );
         }
@@ -1312,6 +1365,21 @@ mod tests {
         let path = temp_file("clipboard", b"data");
         cleanup_source(&JobSource::Clipboard(path.clone()));
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn fast_preview_switches_to_vision_without_changing_output_knobs() {
+        let mut config = Settings::default().config();
+        config.tile = true;
+        config.max_tokens = 2048;
+        config.format = Format::Markdown;
+
+        let fast = fast_preview_config(&config);
+
+        assert_eq!(fast.engine, EngineMode::Vision);
+        assert!(!fast.tile);
+        assert_eq!(fast.max_tokens, 2048);
+        assert_eq!(fast.format, Format::Markdown);
     }
 
     #[test]

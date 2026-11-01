@@ -147,14 +147,20 @@ function PartialPanel({ partial }: { partial: OcrPartial }) {
       <header className="panel-head">
         <div className="panel-heading">
           <span className="busy-ring busy-ring-sm" aria-hidden="true" />
-          <span className="eyebrow">正在识别</span>
+          <span className="eyebrow">
+            {partial.preview ? "快速预览" : "正在识别"}
+          </span>
           <span className="head-sep" />
           <span className="muted">{duration(partial.ms)}</span>
         </div>
         <span className="badge">预览</span>
       </header>
       <pre className="partial-text">{text}</pre>
-      <footer className="partial-foot">识别完成后会替换为可复制的结果。</footer>
+      <footer className="partial-foot">
+        {partial.preview
+          ? "正在用本地模型精修，完成后会替换。"
+          : "识别完成后会替换为可复制的结果。"}
+      </footer>
     </section>
   );
 }
@@ -631,7 +637,7 @@ export function CaptureView({
             )}
             <ResultPanel
               result={result}
-              copied={copied}
+              copied={result.copied || copied}
               busy={busy}
               remote={remote}
               onCopy={onCopy}

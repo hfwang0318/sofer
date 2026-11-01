@@ -27,4 +27,20 @@ test.describe("?demo=history", () => {
     ).toBeVisible();
     await expect(page.getByText("历史记录已清空")).toBeVisible();
   });
+
+  test("filters by text and restores the full list", async ({ page }) => {
+    await page.goto("/?demo=history");
+    const search = page.getByRole("searchbox", { name: "搜索历史" });
+
+    await search.fill("cargo");
+    await expect(page.getByRole("article")).toHaveCount(1);
+    await expect(page.getByText("cargo test --workspace")).toBeVisible();
+
+    await search.fill("no-such-entry");
+    await expect(page.getByRole("article")).toHaveCount(0);
+    await expect(page.getByText(/换个关键词/)).toBeVisible();
+
+    await page.getByRole("button", { name: "清空搜索" }).first().click();
+    await expect(page.getByRole("article")).toHaveCount(3);
+  });
 });

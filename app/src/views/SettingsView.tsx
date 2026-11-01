@@ -681,6 +681,18 @@ export function SettingsView({
               label="识别完成通知"
             />
           </SettingRow>
+          {isMac && (
+            <SettingRow
+              title="快速预览"
+              description="先用系统 OCR 立即给出结果，再用本地模型精修；只影响识别过程中的预览，不改变最终结果。"
+            >
+              <Switch
+                checked={draft.fastPreview}
+                onChange={(fastPreview) => update("fastPreview", fastPreview)}
+                label="快速预览"
+              />
+            </SettingRow>
+          )}
           <SettingRow
             title="界面缩放"
             description="调整窗口内的字号和控件大小。"

@@ -59,6 +59,7 @@ export const DEFAULT_SETTINGS: Settings = {
   shortcut: "CommandOrControl+Shift+2",
   autoCopy: true,
   notifyOnResult: true,
+  fastPreview: false,
   historyLimit: 20,
   useMirror: false,
   proxyUrl: "",

@@ -29,6 +29,8 @@ export interface Settings {
   shortcut: string;
   autoCopy: boolean;
   notifyOnResult: boolean;
+  /** macOS only: show a fast Apple Vision result before the refined one. */
+  fastPreview: boolean;
   historyLimit: number;
   useMirror: boolean;
   proxyUrl: string;
@@ -224,6 +226,8 @@ export interface OcrResult {
 export interface OcrPartial {
   text: string;
   ms: number;
+  /** True for the fast Apple Vision pass, false for model tokens. */
+  preview?: boolean;
 }
 
 export interface OcrError {

@@ -98,6 +98,9 @@ pub struct Settings {
     /// Show a system notification with a short preview when OCR finishes while
     /// the window is not focused.
     pub notify_on_result: bool,
+    /// macOS only: show an Apple Vision result immediately, then replace it
+    /// with the local model's refined text.
+    pub fast_preview: bool,
     pub history_limit: u32,
 
     // model download
@@ -158,6 +161,7 @@ impl Default for Settings {
             shortcut: "CommandOrControl+Shift+2".into(),
             auto_copy: true,
             notify_on_result: true,
+            fast_preview: false,
             history_limit: 20,
             use_mirror: false,
             proxy_url: String::new(),
