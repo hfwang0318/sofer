@@ -46,6 +46,28 @@ export function captureReadiness({
   if (!status) {
     return { state: "checking", label: "检查中", tone: "muted" };
   }
+  if (engine !== "tesseract" && status.remote?.enabled) {
+    const remote = status.remote;
+    if (remote.phase === "probing") {
+      return { state: "starting", label: "正在检查服务器", tone: "ok" };
+    }
+    if (remote.phase === "deploying") {
+      return { state: "starting", label: "正在部署模型", tone: "ok" };
+    }
+    if (remote.phase === "starting") {
+      return { state: "starting", label: "正在启动", tone: "ok" };
+    }
+    if (remote.phase === "failed") {
+      return { state: "error", label: "远程识别服务出错", tone: "danger" };
+    }
+    if (!remote.deployed) {
+      return { state: "needs-setup", label: "需要部署模型", tone: "warn" };
+    }
+    if (remote.phase === "online") {
+      return { state: "ready", label: "就绪", tone: "ok" };
+    }
+    return { state: "ready", label: "待启动", tone: "muted" };
+  }
   const setupBlocking =
     status.setup.needed && (engine === "llamacpp" || !status.tesseract);
   if (engine !== "tesseract" && setupBlocking) {
@@ -81,9 +103,35 @@ export interface EngineSummary {
   tone: StatusTone;
 }
 
+/** The server is part of the deployment, so its state is the engine state. */
+function remoteSummary(remote: NonNullable<EngineStatus["remote"]>): EngineSummary {
+  if (remote.phase === "probing") {
+    return { label: "正在检查服务器", detail: "远程服务器", tone: "ok" };
+  }
+  if (remote.phase === "deploying") {
+    return { label: "正在部署模型", detail: "远程服务器", tone: "ok" };
+  }
+  if (remote.phase === "starting") {
+    return { label: "正在启动", detail: "远程服务器", tone: "ok" };
+  }
+  if (remote.phase === "failed") {
+    return { label: "远程识别服务出错", detail: "检查设置后重试", tone: "danger" };
+  }
+  if (!remote.deployed) {
+    return { label: "未部署模型", detail: "到设置里部署到服务器", tone: "danger" };
+  }
+  if (remote.phase === "online") {
+    return { label: "识别已就绪", detail: "远程服务器", tone: "ok" };
+  }
+  return { label: "待启动", detail: "截图时自动启动", tone: "muted" };
+}
+
 export function engineSummary(status: EngineStatus | null): EngineSummary {
   if (!status) {
     return { label: "检查识别服务…", detail: "本地识别", tone: "muted" };
+  }
+  if (status.remote?.enabled) {
+    return remoteSummary(status.remote);
   }
   if (status.llama) {
     return {
@@ -130,6 +178,7 @@ export function engineForMode(
   }
 
   if (!status) return engineSummary(null);
+  if (status.remote?.enabled) return remoteSummary(status.remote);
   if (!status.runtime.bundled && !status.runtime.system) {
     return { label: "运行时缺失", detail: "请使用完整安装包", tone: "danger" };
   }

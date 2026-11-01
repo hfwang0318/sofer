@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
 import { Icon } from "../components/Icon";
 import { Keycaps, Segmented, SettingRow, ShortcutRecorder, Switch } from "../components/Controls";
+import { RemotePanel } from "../components/RemotePanel";
 import { DEFAULT_PROMPT, DEFAULT_SETTINGS } from "../lib/defaults";
 import { llamaSlots, perSlotCtx, totalCtx } from "../lib/llamaPlan";
 import { engineForMode } from "../lib/status";
@@ -537,6 +538,18 @@ export function SettingsView({
     try {
       const next = await onTestEngine();
       const summary = engineForMode(next, draft.engine);
+      if (next.remote.enabled) {
+        onNotify(
+          summary.tone === "danger" ? "error" : summary.tone === "warn" ? "info" : "ok",
+          summary.label,
+          next.remote.phase === "online"
+            ? next.remote.url ?? "远程服务已连接。"
+            : next.remote.deployed
+              ? "截图时会自动连接服务器。"
+              : "到 识别 → 部署到服务器 里完成部署。",
+        );
+        return;
+      }
       onNotify(
         summary.tone === "danger" ? "error" : summary.tone === "warn" ? "info" : "ok",
         summary.label,
@@ -711,7 +724,7 @@ export function SettingsView({
             </div>
           }
         >
-          {status && (
+          {status && !draft.remoteEnabled && (
             <LocalEnginePanel
               status={status}
               download={download}
@@ -722,6 +735,15 @@ export function SettingsView({
               onStopEngine={onStopEngine}
               onRemoveModel={onRemoveModel}
               onCancelSetup={onCancelSetup}
+            />
+          )}
+          {status && (
+            <RemotePanel
+              draft={draft}
+              remote={status.remote}
+              onUpdate={update}
+              onSave={onSave}
+              onNotify={onNotify}
             />
           )}
           <SettingRow
@@ -1148,7 +1170,11 @@ export function SettingsView({
             </div>
             <div>
               <span className="about-label">隐私</span>
-              <span className="about-value">本地处理，不上传</span>
+              <span className="about-value">
+                {draft.remoteEnabled && draft.engine !== "tesseract"
+                  ? "截图发到你的服务器识别"
+                  : "本地处理，不上传"}
+              </span>
             </div>
             <div>
               <span className="about-label">截图</span>

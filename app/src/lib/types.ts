@@ -1,5 +1,7 @@
 export type EngineMode = "auto" | "llamacpp" | "tesseract";
 export type ModelQuality = "high" | "low";
+export type RemoteSource = "auto" | "download" | "upload";
+export type RemoteAccel = "auto" | "cpu" | "vulkan" | "cuda";
 export type SettingsSection =
   | "general"
   | "recognition"
@@ -35,6 +37,18 @@ export interface Settings {
   uiScale: number;
   autoCheckUpdates: boolean;
   autoDownloadUpdates: boolean;
+  remoteEnabled: boolean;
+  remoteHost: string;
+  remoteUser: string;
+  remoteSshPort: number;
+  remoteKey: string;
+  remoteDir: string;
+  remoteServerPort: number;
+  remoteLocalPort: number;
+  remoteAccel: RemoteAccel;
+  remoteGpuLayers: number;
+  remoteSource: RemoteSource;
+  remoteAutoStart: boolean;
   engine: EngineMode;
   llamaUrl: string;
   prompt: string;
@@ -91,6 +105,63 @@ export interface SetupInfo {
   runtimeReady: boolean;
 }
 
+export type RemotePhase =
+  | "stopped"
+  | "probing"
+  | "deploying"
+  | "starting"
+  | "online"
+  | "failed"
+  | "cancelled";
+
+export interface RemoteFile {
+  name: string;
+  bytes: number;
+  expected: number;
+  present: boolean;
+}
+
+export interface RemoteProbe {
+  reachable: boolean;
+  os: string;
+  arch: string;
+  home: string;
+  dir: string;
+  runtime: string | null;
+  modelInstalled: boolean;
+  modelVerified: boolean;
+  files: RemoteFile[];
+  diskFree: number;
+  curl: boolean;
+  wget: boolean;
+  tar: boolean;
+  sha256: string;
+  error: string | null;
+}
+
+export interface RemoteProgress {
+  /** connecting | probing | runtime | downloading | uploading | verifying | starting | ready */
+  phase: string;
+  message: string | null;
+  file: string | null;
+  downloaded: number;
+  total: number;
+  bytesPerSec: number;
+  etaSecs: number | null;
+}
+
+export interface RemoteState {
+  enabled: boolean;
+  phase: RemotePhase;
+  url: string | null;
+  remoteUrl: string | null;
+  tunnel: boolean;
+  error: string | null;
+  quality: ModelQuality | null;
+  deployed: boolean;
+  progress: RemoteProgress | null;
+}
+
 export interface EngineStatus {
   llama: boolean;
   tesseract: boolean;
@@ -99,6 +170,7 @@ export interface EngineStatus {
   model: ModelInfo;
   server: ServerInfo;
   setup: SetupInfo;
+  remote: RemoteState;
 }
 
 export interface DownloadProgress {

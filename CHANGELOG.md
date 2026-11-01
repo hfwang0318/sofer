@@ -5,6 +5,13 @@ All notable changes to the desktop app. The root OCR kernel keeps its own
 
 ## Unreleased
 
+- Added optional remote deployment: put the OCR model on a Linux server and use it
+  from the desktop over an SSH tunnel. Settings → 识别 → 部署到服务器 probes the
+  host, installs the llama.cpp runtime when missing, downloads the model on the
+  server or streams the local copy, verifies SHA-256, starts `llama-server` on
+  loopback and forwards it with `ssh -L`. Remote-only mode surfaces a deploy CTA
+  instead of the local setup dialog, and the About page privacy copy follows the
+  selected mode.
 - Added a high/low precision model option: high uses the official Q8_0 pack,
   low uses the verified `mradermacher/GLM-OCR-GGUF` Q4_K_M pack. Both share the
   same mmproj; switching precision stops the old server and guides the user

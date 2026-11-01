@@ -17,6 +17,8 @@ import {
   onEngineState,
   onError,
   onPhase,
+  onRemoteProgress,
+  onRemoteState,
   onResult,
   openScreenSettings,
   prepareUpdate,
@@ -164,6 +166,14 @@ export default function App() {
   );
 
   const dismissToast = useCallback(() => setToast(null), []);
+
+  const openSettings = useCallback((section: SettingsSection = "general") => {
+    setSettingsSection(section);
+    setSettingsNav((value) => value + 1);
+    setView("settings");
+    setSetupOpen(false);
+    setPermissionOpen(false);
+  }, []);
 
   const refreshStatus = useCallback(async () => {
     if (refreshing.current) return;
@@ -346,13 +356,14 @@ export default function App() {
   // Auto-open setup once per install, or whenever the user asks for it.
   useEffect(() => {
     if (!status) return;
+    if (settings.remoteEnabled) return;
     if (settings.engine === "tesseract") return;
     if (!status.setup.needed) return;
     // If tesseract is available, the banner is enough; do not interrupt a
     // working fallback with a modal on every launch.
     if (status.tesseract && settings.engine === "auto") return;
     if (!setupDismissed && !permissionOpen) setSetupOpen(true);
-  }, [status, settings.engine, setupDismissed, permissionOpen]);
+  }, [status, settings.engine, settings.remoteEnabled, setupDismissed, permissionOpen]);
 
   // Re-check after the user comes back from System Settings.
   useEffect(() => {
@@ -406,13 +417,16 @@ export default function App() {
         setSetupOpen(false);
         setPermissionOpen(false);
         if (payload.code === "setup-required") {
-          setSetupOpen(true);
+          if (settingsRef.current.remoteEnabled) openSettings("recognition");
+          else setSetupOpen(true);
         }
         if (payload.code === "permission") {
           // The global shortcut bypasses handleCapture; keep the same order:
           // finish model setup before asking for screen recording.
-          if (setupBlockingRef.current) setSetupOpen(true);
-          else setPermissionOpen(true);
+          if (setupBlockingRef.current) {
+            if (settingsRef.current.remoteEnabled) openSettings("recognition");
+            else setSetupOpen(true);
+          } else setPermissionOpen(true);
           void refreshScreenAccess();
         }
         void refreshStatus();
@@ -460,19 +474,37 @@ export default function App() {
 
     track(onEngineState(() => void refreshStatus()));
 
+    track(
+      onRemoteProgress((progress) => {
+        setStatus((current) =>
+          current
+            ? { ...current, remote: { ...current.remote, progress } }
+            : current,
+        );
+      }),
+    );
+
+    track(
+      onRemoteState((remote) => {
+        setStatus((current) =>
+          current ? { ...current, remote } : current,
+        );
+        if (
+          remote.phase === "online" ||
+          remote.phase === "failed" ||
+          remote.phase === "stopped" ||
+          remote.phase === "cancelled"
+        ) {
+          void refreshStatus();
+        }
+      }),
+    );
+
     return () => {
       disposed = true;
       unsubscribers.forEach((unsubscribe) => unsubscribe());
     };
-  }, [addHistory, pushToast, refreshScreenAccess, refreshStatus]);
-
-  const openSettings = useCallback((section: SettingsSection = "general") => {
-    setSettingsSection(section);
-    setSettingsNav((value) => value + 1);
-    setView("settings");
-    setSetupOpen(false);
-    setPermissionOpen(false);
-  }, []);
+  }, [addHistory, openSettings, pushToast, refreshScreenAccess, refreshStatus]);
 
   const handleSettingsSection = useCallback((section: SettingsSection) => {
     setSettingsSection(section);
@@ -484,10 +516,15 @@ export default function App() {
     setSettingsSection(section);
   }, []);
 
-  const setupBlocking =
+  const remoteEnabled = settings.remoteEnabled && settings.engine !== "tesseract";
+  const remoteNeedsDeploy =
+    remoteEnabled && Boolean(status) && !status?.remote.deployed;
+  const localSetupBlocking =
+    !remoteEnabled &&
     Boolean(status?.setup.needed) &&
     settings.engine !== "tesseract" &&
     (settings.engine === "llamacpp" || !status?.tesseract);
+  const setupBlocking = remoteEnabled ? remoteNeedsDeploy : localSetupBlocking;
 
   useEffect(() => {
     setupBlockingRef.current = setupBlocking;
@@ -496,7 +533,16 @@ export default function App() {
   const handleCapture = useCallback(async () => {
     if (phaseRef.current !== "idle") return;
     // Same order as the readiness state: model first, then screen permission.
-    if (setupBlocking) {
+    if (remoteNeedsDeploy) {
+      openSettings("recognition");
+      pushToast(
+        "info",
+        "先把模型部署到服务器",
+        "部署一次后，截图会发到你的服务器识别。",
+      );
+      return;
+    }
+    if (localSetupBlocking) {
       setSetupOpen(true);
       return;
     }
@@ -514,7 +560,13 @@ export default function App() {
         cause instanceof Error ? cause.message : String(cause),
       );
     }
-  }, [pushToast, screenAccessState, setupBlocking]);
+  }, [
+    localSetupBlocking,
+    openSettings,
+    pushToast,
+    remoteNeedsDeploy,
+    screenAccessState,
+  ]);
 
   const requestPermission = useCallback(() => {
     setSetupOpen(false);
@@ -655,9 +707,18 @@ export default function App() {
       const next = await engineStatus().catch(() => null);
       if (next) {
         setStatus(next);
-        if (next.setup.needed && saved.engine !== "tesseract") {
+        if (
+          next.setup.needed &&
+          saved.engine !== "tesseract" &&
+          !saved.remoteEnabled
+        ) {
           setSetupOpen(true);
-        } else if (serverChanged && next.model.installed && saved.engine !== "tesseract") {
+        } else if (
+          !saved.remoteEnabled &&
+          serverChanged &&
+          next.model.installed &&
+          saved.engine !== "tesseract"
+        ) {
           // Save already stopped the old managed server; bring the newly
           // selected weight pack up so the next screenshot is instant.
           setEngineBusy("start");
@@ -840,14 +901,22 @@ export default function App() {
     setError(null);
     setPhase("idle");
     setView("capture");
-    if (setupBlocking) {
+    if (remoteNeedsDeploy) {
+      openSettings("recognition");
+    } else if (localSetupBlocking) {
       setSetupOpen(true);
     } else if (screenAccessState === "denied") {
       setSetupOpen(false);
       setPermissionOpen(true);
     }
     pushToast("info", "引导已重新开启", "截图页会重新显示使用步骤。");
-  }, [pushToast, screenAccessState, setupBlocking]);
+  }, [
+    localSetupBlocking,
+    openSettings,
+    pushToast,
+    remoteNeedsDeploy,
+    screenAccessState,
+  ]);
 
   // Enforce the configured limit when it shrinks.
   useEffect(() => {
@@ -939,6 +1008,7 @@ export default function App() {
                 error={error}
                 copied={copied}
                 setupBlocking={setupBlocking}
+                remote={remoteEnabled}
                 permissionDenied={permissionDenied}
                 showSteps={showSteps}
                 firstCaptureTip={firstCaptureTip}
@@ -946,7 +1016,10 @@ export default function App() {
                 onCopy={(text) => void handleCopy(text)}
                 onOpenHistory={() => setView("history")}
                 onOpenSettings={openSettings}
-                onSetup={() => setSetupOpen(true)}
+                onSetup={() => {
+                  if (remoteEnabled) openSettings("recognition");
+                  else setSetupOpen(true);
+                }}
                 onPermission={requestPermission}
                 onDismissTip={() => setFirstCaptureTip(false)}
               />

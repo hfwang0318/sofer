@@ -11,6 +11,7 @@ use crate::engine::{
     compose_proxy_url, normalize_proxy_url, split_proxy_url, DownloadOptions, ModelQuality,
     ServerConfig,
 };
+use crate::remote::{self, Accel, RemoteConfig, Source};
 use ocr4code::engine::llamacpp;
 use ocr4code::pipeline::{Config, EngineMode};
 use ocr4code::render::Format;
@@ -38,6 +39,21 @@ pub struct Settings {
     pub ui_scale: f64,
     pub auto_check_updates: bool,
     pub auto_download_updates: bool,
+
+    // remote model server (optional; replaces the managed local server)
+    pub remote_enabled: bool,
+    pub remote_host: String,
+    pub remote_user: String,
+    pub remote_ssh_port: u16,
+    pub remote_key: String,
+    pub remote_dir: String,
+    pub remote_server_port: u16,
+    /// 0 = pick a free local port for the SSH tunnel.
+    pub remote_local_port: u16,
+    pub remote_accel: Accel,
+    pub remote_gpu_layers: u32,
+    pub remote_source: Source,
+    pub remote_auto_start: bool,
 
     // kernel: engine
     pub engine: EngineMode,
@@ -75,6 +91,18 @@ impl Default for Settings {
             ui_scale: 1.15,
             auto_check_updates: true,
             auto_download_updates: true,
+            remote_enabled: false,
+            remote_host: String::new(),
+            remote_user: String::new(),
+            remote_ssh_port: 22,
+            remote_key: String::new(),
+            remote_dir: "~/.ocr4code".into(),
+            remote_server_port: 8099,
+            remote_local_port: 0,
+            remote_accel: Accel::Auto,
+            remote_gpu_layers: 99,
+            remote_source: Source::Auto,
+            remote_auto_start: true,
             engine: EngineMode::Auto,
             llama_url: llamacpp::default_url(),
             prompt: llamacpp::DEFAULT_PROMPT.into(),
@@ -125,6 +153,56 @@ impl Settings {
             "{:?}|{:?}|{}|{}|{}|{}",
             self.engine,
             self.model_quality,
+            self.jobs,
+            self.max_tokens,
+            self.kv_cache_quant,
+            self.idle_sleep_secs
+        )
+    }
+
+    /// Build the remote deployment config when the feature is enabled.
+    pub fn remote_config(&self) -> Result<Option<RemoteConfig>, String> {
+        if !self.remote_enabled {
+            return Ok(None);
+        }
+        let config = RemoteConfig {
+            host: self.remote_host.trim().to_string(),
+            user: self.remote_user.trim().to_string(),
+            ssh_port: self.remote_ssh_port,
+            key_path: self.remote_key.trim().to_string(),
+            dir: self.remote_dir.trim().to_string(),
+            server_port: self.remote_server_port,
+            local_port: self.remote_local_port,
+            accel: self.remote_accel,
+            gpu_layers: self.remote_gpu_layers,
+            quality: self.model_quality,
+            source: self.remote_source,
+            jobs: self.jobs,
+            max_tokens: self.max_tokens,
+            kv_cache_quant: self.kv_cache_quant,
+            idle_sleep_secs: self.idle_sleep_secs,
+            use_mirror: self.use_mirror,
+        };
+        remote::validate(&config).map_err(|err| err.to_string())?;
+        Ok(Some(config))
+    }
+
+    /// A remote restart is needed when any of these change.
+    pub fn remote_signature(&self) -> String {
+        format!(
+            "{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{}|{:?}|{:?}|{}|{}|{}|{}",
+            self.remote_enabled,
+            self.remote_host,
+            self.remote_user,
+            self.remote_ssh_port,
+            self.remote_key,
+            self.remote_dir,
+            self.remote_server_port,
+            self.remote_local_port,
+            self.remote_accel,
+            self.remote_gpu_layers,
+            self.model_quality,
+            self.remote_source,
             self.jobs,
             self.max_tokens,
             self.kv_cache_quant,
@@ -319,6 +397,15 @@ pub fn validate(settings: &Settings) -> Result<(), String> {
     let url = settings.llama_url.trim();
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err("llama.cpp 地址必须以 http:// 或 https:// 开头。".into());
+    }
+    if settings.remote_enabled {
+        let config = settings.remote_config()?.ok_or("远程识别配置无效。")?;
+        if config.host.is_empty() {
+            return Err("远程服务器地址不能为空。".into());
+        }
+        if config.user.is_empty() {
+            return Err("远程服务器用户名不能为空。".into());
+        }
     }
     Ok(())
 }

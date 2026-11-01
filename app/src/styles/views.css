@@ -1728,6 +1728,62 @@
   gap: 4px;
 }
 
+/* ---- settings: remote deployment --------------------------------------- */
+
+.settings-disclosure > summary .badge {
+  margin-left: auto;
+}
+
+.remote-actions {
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.remote-probe {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.remote-source-choice {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--line-faint);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.remote-source-choice p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.remote-source-choice > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 6px;
+}
+
+.range-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.range-row input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+.range-value {
+  min-width: 24px;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-align: right;
+}
+
 .badge-ok {
   border-color: rgba(143, 227, 168, 0.22);
   background: rgba(143, 227, 168, 0.07);

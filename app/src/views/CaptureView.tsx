@@ -17,6 +17,7 @@ interface CaptureViewProps {
   error: OcrError | null;
   copied: boolean;
   setupBlocking: boolean;
+  remote: boolean;
   permissionDenied: boolean;
   showSteps: boolean;
   firstCaptureTip: boolean;
@@ -128,20 +129,24 @@ function BusyStrip({ phase }: { phase: Phase }) {
   );
 }
 
-function SetupBanner({ onSetup }: { onSetup: () => void }) {
+function SetupBanner({ onSetup, remote }: { onSetup: () => void; remote: boolean }) {
   return (
     <section className="panel setup-banner">
       <div className="setup-banner-icon">
         <Icon name="spark" size={20} />
       </div>
       <div className="setup-banner-copy">
-        <p className="eyebrow">识别模型</p>
-        <h2>先下载识别模型</h2>
-        <p>下载一次，之后截图都在本机处理。</p>
+        <p className="eyebrow">{remote ? "远程识别" : "识别模型"}</p>
+        <h2>{remote ? "先把模型部署到服务器" : "先下载识别模型"}</h2>
+        <p>
+          {remote
+            ? "部署一次，截图会发到你的服务器识别。"
+            : "下载一次，之后截图都在本机处理。"}
+        </p>
       </div>
       <button type="button" className="btn btn-primary" onClick={onSetup}>
         <Icon name="arrow-right" size={15} />
-        下载模型
+        {remote ? "去部署" : "下载模型"}
       </button>
     </section>
   );
@@ -166,13 +171,13 @@ function PermissionBanner({ onPermission }: { onPermission: () => void }) {
   );
 }
 
-function CaptureHero({ shortcut }: { shortcut: string }) {
+function CaptureHero({ shortcut, remote }: { shortcut: string; remote: boolean }) {
   return (
     <section className="hero hero-compact">
       <div className="hero-copy">
         <div className="hero-state">
           <span className="status-dot" />
-          本地处理，不上传
+          {remote ? "截图发到你的服务器" : "本地处理，不上传"}
         </div>
         <h2>截图，然后粘贴。</h2>
         <p className="hero-text">
@@ -211,12 +216,14 @@ function errorCopy(error: OcrError): ErrorCopy {
 
 function ErrorPanel({
   error,
+  remote,
   onOpenSettings,
   onCapture,
   onSetup,
   onPermission,
 }: {
   error: OcrError;
+  remote: boolean;
   onOpenSettings: (section?: SettingsSection) => void;
   onCapture: () => void;
   onSetup: () => void;
@@ -233,7 +240,9 @@ function ErrorPanel({
       </div>
       <div className="error-body">
         <div className="error-title-row">
-          <h2>{copy.title}</h2>
+          <h2>
+            {setup && remote ? "先把模型部署到服务器" : copy.title}
+          </h2>
           <span className={`badge ${copy.tone === "danger" ? "badge-danger" : "badge-warn"}`}>
             {copy.badge}
           </span>
@@ -273,7 +282,7 @@ function ErrorPanel({
             </button>
             <button type="button" className="btn btn-primary btn-sm" onClick={onSetup}>
               <Icon name="arrow-right" size={14} />
-              下载模型
+              {remote ? "去部署" : "下载模型"}
             </button>
           </>
         ) : (
@@ -409,7 +418,7 @@ function FirstCaptureTip({
   );
 }
 
-function StepsPanel({ shortcut }: { shortcut: string }) {
+function StepsPanel({ shortcut, remote }: { shortcut: string; remote: boolean }) {
   return (
     <section className="panel steps-panel" aria-label="截图流程">
       <div className="step">
@@ -425,7 +434,9 @@ function StepsPanel({ shortcut }: { shortcut: string }) {
         <span className="step-number">02</span>
         <div>
           <h3>识别</h3>
-          <p>本地模型读取文字，缩进和换行会保留。</p>
+          <p>
+            {remote ? "服务器上的模型" : "本地模型"}读取文字，缩进和换行会保留。
+          </p>
         </div>
       </div>
       <div className="step">
@@ -446,6 +457,7 @@ export function CaptureView({
   error,
   copied,
   setupBlocking,
+  remote,
   permissionDenied,
   showSteps,
   firstCaptureTip,
@@ -480,7 +492,7 @@ export function CaptureView({
                 onClick={setupBlocking ? onSetup : onPermission}
               >
                 <Icon name={setupBlocking ? "arrow-right" : "alert"} size={15} />
-                {setupBlocking ? "下载模型" : "去授权"}
+                {setupBlocking ? (remote ? "去部署" : "下载模型") : "去授权"}
               </button>
             ) : (
               <button
@@ -500,6 +512,7 @@ export function CaptureView({
         {error && (
           <ErrorPanel
             error={error}
+            remote={remote}
             onOpenSettings={onOpenSettings}
             onCapture={onCapture}
             onSetup={onSetup}
@@ -525,16 +538,18 @@ export function CaptureView({
           </>
         )}
 
-        {showBlockingBanner && setupBlocking && <SetupBanner onSetup={onSetup} />}
+        {showBlockingBanner && setupBlocking && (
+          <SetupBanner onSetup={onSetup} remote={remote} />
+        )}
         {showBlockingBanner && !setupBlocking && permissionDenied && (
           <PermissionBanner onPermission={onPermission} />
         )}
 
         {!error && !result && !showBlockingBanner && (
-          <CaptureHero shortcut={shortcut} />
+          <CaptureHero shortcut={shortcut} remote={remote} />
         )}
 
-        {!error && showSteps && <StepsPanel shortcut={shortcut} />}
+        {!error && showSteps && <StepsPanel shortcut={shortcut} remote={remote} />}
       </div>
     </div>
   );

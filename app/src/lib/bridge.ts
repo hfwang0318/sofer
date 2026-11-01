@@ -18,6 +18,11 @@ import type {
   OcrError,
   OcrResult,
   PhasePayload,
+  RemotePhase,
+  RemoteProbe,
+  RemoteProgress,
+  RemoteSource,
+  RemoteState,
   ScreenAccess,
   ServerInfo,
   ServerState,
@@ -91,12 +96,52 @@ function mockModelQuality(): "high" | "low" {
   return "high";
 }
 
+let mockRemoteDeployed = false;
+let mockRemoteOnline = false;
+let mockRemotePhase: RemotePhase = "stopped";
+let mockRemoteProgress: RemoteProgress | null = null;
+let mockDeployGeneration = 0;
+
+function mockRemoteEnabled(): boolean {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (raw) return Boolean(JSON.parse(raw).remoteEnabled);
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+function mockRemoteState(): RemoteState {
+  const enabled = mockRemoteEnabled();
+  const online = enabled && mockRemoteOnline && mockRemotePhase === "online";
+  return {
+    enabled,
+    phase: enabled ? mockRemotePhase : "stopped",
+    url: online ? "http://127.0.0.1:28099" : null,
+    remoteUrl: online ? "http://127.0.0.1:8099" : null,
+    tunnel: online,
+    error: null,
+    quality: mockModelQuality(),
+    deployed: mockRemoteDeployed,
+    progress: mockRemoteProgress,
+  };
+}
+
 function mockEngineStatus(): EngineStatus {
   const quality = mockModelQuality();
   const total = modelTotalBytes(quality);
   const offlineDemo = demo === "error";
-  const online = mockInstalled && mockServer === "online" && !offlineDemo;
-  const llamaUrl = online ? "http://127.0.0.1:18099" : mockLlamaUrl();
+  const remote = mockRemoteState();
+  const online =
+    (mockInstalled && mockServer === "online" && !offlineDemo) ||
+    remote.phase === "online";
+  const llamaUrl =
+    remote.phase === "online"
+      ? remote.url ?? "http://127.0.0.1:28099"
+      : online
+        ? "http://127.0.0.1:18099"
+        : mockLlamaUrl();
   return {
     llama: online,
     tesseract: mockTesseract,
@@ -123,12 +168,13 @@ function mockEngineStatus(): EngineStatus {
       quality,
     },
     setup: {
-      needed: !mockInstalled && !online,
+      needed: !mockInstalled && !online && !remote.deployed,
       downloadBytes: total,
       modelName: modelName(quality),
       license: MODEL_LICENSE,
       runtimeReady: true,
     },
+    remote,
   };
 }
 
@@ -391,6 +437,140 @@ export async function removeModel(): Promise<void> {
   } satisfies ServerInfo);
 }
 
+// ---------------------------------------------------------------------------
+// Remote model server
+// ---------------------------------------------------------------------------
+
+function emitRemoteState(progress?: RemoteProgress | null) {
+  if (progress !== undefined) mockRemoteProgress = progress;
+  emitPreview("remote:state", mockRemoteState());
+  if (progress) emitPreview("remote:progress", progress);
+}
+
+function startMockDeploy(source: RemoteSource) {
+  const generation = ++mockDeployGeneration;
+  mockRemotePhase = "deploying";
+  const phases: RemoteProgress[] = [
+    {
+      phase: "probing",
+      message: "正在检查服务器",
+      file: null,
+      downloaded: 0,
+      total: 0,
+      bytesPerSec: 0,
+      etaSecs: null,
+    },
+    {
+      phase: source === "upload" ? "uploading" : "downloading",
+      message: source === "upload" ? "正在上传模型" : "正在服务器下载模型",
+      file: source === "upload" ? "GLM-OCR.Q4_K_M.gguf" : "GLM-OCR.Q4_K_M.gguf",
+      downloaded: modelTotalBytes(mockModelQuality()) / 2,
+      total: modelTotalBytes(mockModelQuality()),
+      bytesPerSec: 24_000_000,
+      etaSecs: 22,
+    },
+    {
+      phase: "verifying",
+      message: "正在校验模型",
+      file: null,
+      downloaded: 0,
+      total: 0,
+      bytesPerSec: 0,
+      etaSecs: null,
+    },
+    {
+      phase: "starting",
+      message: "正在启动识别服务",
+      file: null,
+      downloaded: 0,
+      total: 0,
+      bytesPerSec: 0,
+      etaSecs: null,
+    },
+  ];
+  phases.forEach((progress, index) => {
+    window.setTimeout(() => {
+      if (generation !== mockDeployGeneration) return;
+      if (index === phases.length - 1) {
+        mockRemoteDeployed = true;
+        mockRemoteOnline = true;
+        mockRemotePhase = "online";
+        mockRemoteProgress = null;
+        emitRemoteState(null);
+      } else {
+        emitRemoteState(progress);
+      }
+    }, 600 + index * 900);
+  });
+}
+
+export async function remoteProbe(): Promise<RemoteProbe> {
+  if (isTauri) return invoke<RemoteProbe>("remote_probe");
+  return {
+    reachable: true,
+    os: "Linux",
+    arch: "x86_64",
+    home: "/home/dev",
+    dir: "/home/dev/.ocr4code",
+    runtime: mockRemoteDeployed ? "/home/dev/.ocr4code/runtime/llama-server" : null,
+    modelInstalled: mockRemoteDeployed,
+    modelVerified: mockRemoteDeployed,
+    files: [],
+    diskFree: 48 * 1024 ** 3,
+    curl: true,
+    wget: true,
+    tar: true,
+    sha256: "sha256sum",
+    error: null,
+  };
+}
+
+export async function remoteDeploy(source: RemoteSource = "auto"): Promise<void> {
+  if (isTauri) {
+    await invoke("remote_deploy", { source });
+    return;
+  }
+  mockRemoteProgress = {
+    phase: "probing",
+    message: "正在检查服务器",
+    file: null,
+    downloaded: 0,
+    total: 0,
+    bytesPerSec: 0,
+    etaSecs: null,
+  };
+  emitRemoteState(mockRemoteProgress);
+  startMockDeploy(source);
+}
+
+export async function remoteStart(): Promise<EngineStatus> {
+  if (isTauri) return invoke<EngineStatus>("remote_start");
+  mockRemoteDeployed = true;
+  mockRemoteOnline = true;
+  mockRemotePhase = "online";
+  mockRemoteProgress = null;
+  emitRemoteState(null);
+  return mockEngineStatus();
+}
+
+export async function remoteStop(): Promise<EngineStatus> {
+  if (isTauri) return invoke<EngineStatus>("remote_stop");
+  mockRemoteOnline = false;
+  mockRemotePhase = "stopped";
+  mockRemoteProgress = null;
+  emitRemoteState(null);
+  return mockEngineStatus();
+}
+
+export async function remoteCancel(): Promise<void> {
+  if (isTauri) await invoke("remote_cancel");
+  mockDeployGeneration += 1;
+  mockRemotePhase = "cancelled";
+  mockRemoteOnline = false;
+  mockRemoteProgress = null;
+  emitRemoteState(null);
+}
+
 export async function setShortcutEnabled(enabled: boolean): Promise<boolean> {
   if (isTauri) return invoke<boolean>("set_shortcut_enabled", { enabled });
   return enabled;
@@ -438,3 +618,7 @@ export const onEngineDownload = (handler: (payload: DownloadProgress) => void) =
   subscribe<DownloadProgress>("engine:download", handler);
 export const onEngineState = (handler: (payload: ServerInfo) => void) =>
   subscribe<ServerInfo>("engine:state", handler);
+export const onRemoteProgress = (handler: (payload: RemoteProgress) => void) =>
+  subscribe<RemoteProgress>("remote:progress", handler);
+export const onRemoteState = (handler: (payload: RemoteState) => void) =>
+  subscribe<RemoteState>("remote:state", handler);

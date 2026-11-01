@@ -7,6 +7,7 @@
 
 mod capture;
 pub mod engine;
+pub mod remote;
 mod settings;
 
 use std::path::PathBuf;
@@ -67,6 +68,7 @@ fn save_settings(
     state.shortcut_active.store(true, Ordering::SeqCst);
     let quality_changed = old.model_quality != settings.model_quality;
     let restart = old.server_signature() != settings.server_signature();
+    let remote_changed = old.remote_signature() != settings.remote_signature();
     *state.settings.lock().unwrap() = settings.clone();
     if restart {
         // `-c`/`-np`/KV/sleep/quality are baked into the child process. Stop it
@@ -77,6 +79,25 @@ fn save_settings(
             manager.cancel.store(true, Ordering::SeqCst);
         }
         manager.stop();
+    }
+    let remote_manager = app.state::<Arc<remote::Manager>>().inner().clone();
+    remote_manager.set_enabled(settings.remote_enabled);
+    if remote_changed {
+        // The tunnel is derived from these fields. Drop it without an SSH
+        // round trip; the next start/redeploy stops any process left behind
+        // through the pid file, so saving Settings stays instant.
+        remote_manager.cancel.store(true, Ordering::SeqCst);
+        remote_manager.stop();
+        if let Ok(Some(cfg)) = settings.remote_config() {
+            // Refresh `deployed` (the quality or directory may have changed)
+            // without blocking the save.
+            let manager = remote_manager.clone();
+            std::thread::spawn(move || {
+                if let Err(err) = manager.probe(&cfg) {
+                    eprintln!("remote: probe after settings change failed: {err}");
+                }
+            });
+        }
     }
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.set_zoom(settings.ui_scale);
@@ -259,39 +280,124 @@ fn emit_download_phase(app: &AppHandle, phase: &str, message: Option<&str>) {
     let _ = app.emit("engine:download", payload);
 }
 
-/// Starts or refreshes the local engine. Used by autostart and the Settings
-/// "Start engine" button. Returns the full status so the caller can update.
+/// The status the React layer sees: the local kernel status plus the remote
+/// deployment state. `flatten` keeps the existing field names stable.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopStatus {
+    #[serde(flatten)]
+    engine: engine::Status,
+    remote: remote::State,
+}
+
+fn remote_sink(app: AppHandle) -> remote::EventSink {
+    Arc::new(move |event| match event {
+        remote::Event::Progress(progress) => {
+            let _ = app.emit("remote:progress", progress);
+        }
+        remote::Event::State(state) => {
+            let _ = app.emit("remote:state", state);
+        }
+    })
+}
+
+fn remote_config(app: &AppHandle) -> Result<remote::RemoteConfig, String> {
+    let settings = app.state::<AppState>().settings.lock().unwrap().clone();
+    settings
+        .remote_config()?
+        .ok_or_else(|| "先在设置 → 识别中启用远程识别。".to_string())
+}
+
+fn merge_remote(
+    mut status: engine::Status,
+    enabled: bool,
+    remote: remote::State,
+) -> DesktopStatus {
+    if enabled {
+        if remote.phase == "online" {
+            status.llama = true;
+            if let Some(url) = remote.url.clone() {
+                status.llama_url = url;
+            }
+        }
+        if remote.deployed {
+            // The local copy is irrelevant when the server has the model.
+            status.setup.needed = false;
+        }
+    }
+    DesktopStatus {
+        engine: status,
+        remote,
+    }
+}
+
+/// Starts or refreshes the configured engine. Used by autostart and the
+/// Settings "start" button.
 #[tauri::command]
-async fn start_engine(app: AppHandle) -> Result<engine::Status, String> {
+async fn start_engine(app: AppHandle) -> Result<DesktopStatus, String> {
     let manager = app.state::<Arc<EngineManager>>().inner().clone();
-    let url = current_engine_url(&app);
-    let config = app
-        .state::<AppState>()
-        .settings
-        .lock()
-        .unwrap()
-        .server_config();
-    tauri::async_runtime::spawn_blocking(move || {
-        manager.ensure_ready(&url, config).map_err(|e| e.to_string())?;
+    let remote_manager = app.state::<Arc<remote::Manager>>().inner().clone();
+    let settings = app.state::<AppState>().settings.lock().unwrap().clone();
+    let url = settings.llama_url.clone();
+    let config = settings.server_config();
+    let remote_cfg = settings.remote_config()?;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        match &remote_cfg {
+            Some(cfg) => {
+                remote_manager.ensure_ready(cfg).map_err(|e| e.to_string())?;
+            }
+            None => {
+                manager.ensure_ready(&url, config).map_err(|e| e.to_string())?;
+            }
+        }
         let mut status = manager.status(&url, config.quality);
         status.tesseract = tesseract::available();
-        Ok::<_, String>(status)
+        Ok::<_, String>((status, remote_manager.state()))
     })
     .await
-    .map_err(|e| format!("无法启动识别服务：{e}"))?
+    .map_err(|e| format!("无法启动识别服务：{e}"))??;
+    Ok(merge_remote(result.0, settings.remote_enabled, result.1))
 }
 
 #[tauri::command]
-fn stop_engine(app: AppHandle) {
-    app.state::<Arc<EngineManager>>().stop();
+async fn stop_engine(app: AppHandle) -> Result<(), String> {
+    let manager = app.state::<Arc<EngineManager>>().inner().clone();
+    let remote_manager = app.state::<Arc<remote::Manager>>().inner().clone();
+    let settings = app.state::<AppState>().settings.lock().unwrap().clone();
+    let remote_cfg = settings.remote_config().ok().flatten();
+    tauri::async_runtime::spawn_blocking(move || {
+        remote_manager.cancel.store(true, Ordering::SeqCst);
+        manager.stop();
+        match remote_cfg {
+            Some(cfg) => remote_manager.stop_with(&cfg),
+            None => remote_manager.stop(),
+        }
+    })
+    .await
+    .map_err(|e| format!("无法停止识别服务：{e}"))?;
+    Ok(())
 }
 
 #[tauri::command]
 async fn prepare_update(app: AppHandle) -> Result<(), String> {
     let manager = app.state::<Arc<EngineManager>>().inner().clone();
-    tauri::async_runtime::spawn_blocking(move || manager.prepare_update())
-        .await
-        .map_err(|e| format!("无法停止识别服务：{e}"))?;
+    let remote_manager = app.state::<Arc<remote::Manager>>().inner().clone();
+    let remote_cfg = app
+        .state::<AppState>()
+        .settings
+        .lock()
+        .unwrap()
+        .remote_config()
+        .ok()
+        .flatten();
+    tauri::async_runtime::spawn_blocking(move || {
+        manager.prepare_update();
+        if let Some(cfg) = remote_cfg {
+            remote_manager.stop_with(&cfg);
+        }
+    })
+    .await
+    .map_err(|e| format!("无法停止识别服务：{e}"))?;
     Ok(())
 }
 
@@ -352,30 +458,144 @@ fn cancel_engine_setup(app: AppHandle) {
 }
 
 #[tauri::command]
-async fn engine_status(app: AppHandle) -> Result<engine::Status, String> {
+async fn engine_status(app: AppHandle) -> Result<DesktopStatus, String> {
     let manager = app.state::<Arc<EngineManager>>().inner().clone();
-    let url = current_engine_url(&app);
-    let quality = app
-        .state::<AppState>()
-        .settings
-        .lock()
-        .unwrap()
-        .model_quality;
-    tauri::async_runtime::spawn_blocking(move || {
+    let remote_manager = app.state::<Arc<remote::Manager>>().inner().clone();
+    let settings = app.state::<AppState>().settings.lock().unwrap().clone();
+    let url = settings.llama_url.clone();
+    let quality = settings.model_quality;
+    remote_manager.set_enabled(settings.remote_enabled);
+    let (mut status, remote_state) = tauri::async_runtime::spawn_blocking(move || {
         let mut status = manager.status(&url, quality);
         status.tesseract = tesseract::available();
-        status
+        (status, remote_manager.state())
     })
     .await
-    .map_err(|e| format!("无法检查识别状态：{e}"))
+    .map_err(|e| format!("无法检查识别状态：{e}"))?;
+    status.tesseract = tesseract::available();
+    Ok(merge_remote(status, settings.remote_enabled, remote_state))
+}
+
+// ---------------------------------------------------------------------------
+// Remote deployment
+// ---------------------------------------------------------------------------
+
+/// Inspect the SSH target: OS, arch, tools, existing weights and free disk.
+#[tauri::command]
+async fn remote_probe(app: AppHandle) -> Result<remote::Probe, String> {
+    let cfg = remote_config(&app)?;
+    let manager = app.state::<Arc<remote::Manager>>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        manager.probe(&cfg).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("检测服务器失败：{e}"))?
+}
+
+/// One-click deploy. Returns immediately; progress arrives on `remote:*`.
+#[tauri::command]
+fn remote_deploy(app: AppHandle, source: Option<remote::Source>) -> Result<(), String> {
+    let mut settings = app.state::<AppState>().settings.lock().unwrap().clone();
+    if let Some(source) = source {
+        settings.remote_source = source;
+    }
+    let cfg = settings
+        .remote_config()?
+        .ok_or_else(|| "先在设置 → 识别中启用远程识别。".to_string())?;
+    let manager = app.state::<Arc<remote::Manager>>().inner().clone();
+    if manager.deploy_running.swap(true, Ordering::SeqCst) {
+        return Ok(());
+    }
+    manager.cancel.store(false, Ordering::SeqCst);
+    std::thread::spawn(move || {
+        if let Err(err) = manager.deploy(&cfg, cfg.source) {
+            eprintln!("remote: deploy failed: {err}");
+        }
+        manager.deploy_running.store(false, Ordering::SeqCst);
+    });
+    Ok(())
+}
+
+#[tauri::command]
+async fn remote_start(app: AppHandle) -> Result<DesktopStatus, String> {
+    let manager = app.state::<Arc<EngineManager>>().inner().clone();
+    let remote_manager = app.state::<Arc<remote::Manager>>().inner().clone();
+    let settings = app.state::<AppState>().settings.lock().unwrap().clone();
+    let cfg = settings
+        .remote_config()?
+        .ok_or_else(|| "先在设置 → 识别中启用远程识别。".to_string())?;
+    let url = settings.llama_url.clone();
+    let quality = settings.model_quality;
+    let (mut status, remote_state) = tauri::async_runtime::spawn_blocking(move || {
+        remote_manager
+            .ensure_ready(&cfg)
+            .map_err(|e| e.to_string())?;
+        let mut status = manager.status(&url, quality);
+        status.tesseract = tesseract::available();
+        Ok::<_, String>((status, remote_manager.state()))
+    })
+    .await
+    .map_err(|e| format!("无法启动远程识别服务：{e}"))??;
+    status.tesseract = tesseract::available();
+    Ok(merge_remote(status, settings.remote_enabled, remote_state))
+}
+
+#[tauri::command]
+async fn remote_stop(app: AppHandle) -> Result<DesktopStatus, String> {
+    let manager = app.state::<Arc<EngineManager>>().inner().clone();
+    let remote_manager = app.state::<Arc<remote::Manager>>().inner().clone();
+    let settings = app.state::<AppState>().settings.lock().unwrap().clone();
+    let cfg = settings.remote_config().ok().flatten();
+    let url = settings.llama_url.clone();
+    let quality = settings.model_quality;
+    let (mut status, remote_state) = tauri::async_runtime::spawn_blocking(move || {
+        remote_manager.cancel.store(true, Ordering::SeqCst);
+        match cfg {
+            Some(cfg) => remote_manager.stop_with(&cfg),
+            None => remote_manager.stop(),
+        }
+        let mut status = manager.status(&url, quality);
+        status.tesseract = tesseract::available();
+        (status, remote_manager.state())
+    })
+    .await
+    .map_err(|e| format!("无法停止远程识别服务：{e}"))?;
+    status.tesseract = tesseract::available();
+    Ok(merge_remote(status, settings.remote_enabled, remote_state))
+}
+
+#[tauri::command]
+fn remote_cancel(app: AppHandle) {
+    app.state::<Arc<remote::Manager>>()
+        .cancel
+        .store(true, Ordering::SeqCst);
 }
 
 fn autostart_engine(app: &AppHandle) {
-    let manager = app.state::<Arc<EngineManager>>().inner().clone();
     let settings = app.state::<AppState>().settings.lock().unwrap().clone();
     if settings.engine == EngineMode::Tesseract {
         return;
     }
+    if let Ok(Some(cfg)) = settings.remote_config() {
+        let remote_manager = app.state::<Arc<remote::Manager>>().inner().clone();
+        if !settings.remote_auto_start {
+            // Still inspect the server once so the UI knows whether the model
+            // is already deployed, without starting or connecting anything.
+            std::thread::spawn(move || {
+                if let Err(err) = remote_manager.probe(&cfg) {
+                    eprintln!("remote: startup probe failed: {err}");
+                }
+            });
+            return;
+        }
+        std::thread::spawn(move || {
+            if let Err(err) = remote_manager.ensure_ready(&cfg) {
+                eprintln!("remote: autostart failed: {err}");
+            }
+        });
+        return;
+    }
+    let manager = app.state::<Arc<EngineManager>>().inner().clone();
     let config = settings.server_config();
     if !manager.model_info(config.quality).installed {
         return;
@@ -477,6 +697,11 @@ pub fn run() {
             start_engine,
             stop_engine,
             remove_model,
+            remote_probe,
+            remote_deploy,
+            remote_start,
+            remote_stop,
+            remote_cancel,
             quit_app
         ])
         .setup(|app| {
@@ -489,11 +714,17 @@ pub fn run() {
                 shortcut_active: AtomicBool::new(false),
             });
 
-            let manager = Arc::new(EngineManager::new(
-                engine_paths(&handle),
-                engine_sink(handle.clone()),
-            ));
+            let paths = engine_paths(&handle);
+            let local_models = paths.models.clone();
+            let manager = Arc::new(EngineManager::new(paths, engine_sink(handle.clone())));
             app.manage(manager.clone());
+
+            let remote_manager = Arc::new(remote::Manager::new(
+                local_models,
+                remote_sink(handle.clone()),
+            ));
+            remote_manager.set_enabled(loaded.remote_enabled);
+            app.manage(remote_manager.clone());
 
             // Tauri covers normal Quit; this covers SIGTERM/SIGINT (logout,
             // terminal Ctrl-C) so the managed server is not orphaned.
@@ -504,9 +735,11 @@ pub fn run() {
                 match Signals::new([SIGINT, SIGTERM]) {
                     Ok(mut signals) => {
                         let signal_manager = manager.clone();
+                        let signal_remote = remote_manager.clone();
                         std::thread::spawn(move || {
                             if signals.forever().next().is_some() {
                                 signal_manager.stop();
+                                signal_remote.shutdown();
                                 std::process::exit(0);
                             }
                         });
@@ -576,6 +809,9 @@ pub fn run() {
         if let tauri::RunEvent::Exit = event {
             if let Some(manager) = app_handle.try_state::<Arc<EngineManager>>() {
                 manager.stop();
+            }
+            if let Some(remote_manager) = app_handle.try_state::<Arc<remote::Manager>>() {
+                remote_manager.shutdown();
             }
         }
     });

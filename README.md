@@ -1,6 +1,7 @@
 # ocr4code
 
-把**代码截图 / 终端输出 / 报错堆栈**转成能直接粘回去的文本。离线运行，macOS + Windows。
+把**代码截图 / 终端输出 / 报错堆栈**转成能直接粘回去的文本。默认离线运行，macOS + Windows；
+也可以把模型一键部署到自己的 Linux 服务器，用 SSH 隧道识别（可选，适合本机内存紧张）。
 
 > **Windows 预览版安装包**：[GitHub Releases](https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.10)
 > —— 首次启动在应用内下载模型（默认低精度 1.03 GB，可在设置切换高精度 1.43 GB）；安装器自带 llama.cpp 运行时，无需另装。
@@ -31,7 +32,7 @@
 | 大图 | 4K/8.6MP 自动切块 + 自适应重试（见 §4） |
 | 多引擎 | GLM-OCR（主力）、Tesseract（低配/兜底）、mock（测试） |
 | 跨平台 | 核心是纯 Rust + `image` + HTTP；模型走 llama.cpp（mac: Metal / win: Vulkan·CUDA·CPU） |
-| 完全离线 | 模型、引擎、几何层都在本地；运行时不联网 |
+| 完全离线 | 默认模型、引擎、几何层都在本地；启用远程部署时截图会发到自己的服务器 |
 
 ### 不能做（刻意或未做）
 
@@ -371,6 +372,7 @@ standby list，和 macOS 的 mapped file 等价。结论一致：**不要指望�
 | 选区 | macOS `screencapture -i`；Windows 自绘浮层 + GDI 抓屏（鼠标所在显示器） |
 | 结果 | 成功后直接写剪贴板；窗口隐藏时不抢焦点，托盘提示已复制行数 |
 | 引擎 | 运行时随包；模型首次一键下载，自动校验、自动启动；可停止/移除/重下 |
+| 远程部署 | 设置 → 识别 → 部署到服务器：SSH 一键部署到 Linux，支持服务器下载或上传本机模型、CPU/Vulkan/CUDA；远程服务与隧道只监听回环 |
 | 设置 | 引擎/模型精度/KV 量化/空闲释放/代理/镜像/URL/prompt/max-tokens/jobs/tesseract/几何/切块/格式/历史/界面缩放；分通用/识别/输出/高级/关于五段 |
 | 外观 | 默认无边框 1120×740、115% 界面缩放；macOS NSVisualEffectView / Windows Acrylic |
 | 更新 | 启动检查 GitHub Releases；签名校验、自动下载、重启安装 |

@@ -22,6 +22,7 @@ use ocr4code::pipeline::EngineMode;
 use ocr4code::render::{self, Format};
 
 use crate::engine;
+use crate::remote;
 use crate::AppState;
 
 #[cfg(target_os = "windows")]
@@ -276,23 +277,57 @@ fn run(app: &AppHandle) -> Result<()> {
     if settings.engine != EngineMode::Tesseract {
         let _ = app.emit("ocr:phase", Phase { phase: "starting" });
         let manager = app.state::<Arc<engine::Manager>>().inner().clone();
-        match manager.ensure_ready(&settings.llama_url, settings.server_config()) {
-            Ok(url) => config.llama_url = Some(url),
-            Err(engine::Error::Cancelled) => {
-                let _ = app.emit("ocr:phase", Phase { phase: "idle" });
-                return Ok(());
+        let remote_manager = app.state::<Arc<remote::Manager>>().inner().clone();
+        let remote_cfg = settings.remote_config().ok().flatten();
+        let mut remote_ok = false;
+        let mut remote_error: Option<String> = None;
+
+        if let Some(cfg) = remote_cfg {
+            match remote_manager.ensure_ready(&cfg) {
+                Ok(url) => {
+                    config.llama_url = Some(url);
+                    remote_ok = true;
+                }
+                Err(remote::Error::Cancelled) => {
+                    let _ = app.emit("ocr:phase", Phase { phase: "idle" });
+                    return Ok(());
+                }
+                Err(err) => {
+                    // A remote-only setup must surface the reason; `auto` still
+                    // gets the local server and then tesseract as a fallback.
+                    if settings.engine == EngineMode::LlamaCpp {
+                        if matches!(err, remote::Error::NotDeployed(_)) {
+                            return Err(anyhow::anyhow!("E_SETUP_REQUIRED: {err}"));
+                        }
+                        return Err(anyhow::anyhow!("{err}"));
+                    }
+                    remote_error = Some(err.to_string());
+                }
             }
-            Err(err) => {
-                let fallback = settings.engine == EngineMode::Auto && tesseract::available();
-                if fallback {
-                    eprintln!("capture: local engine unavailable ({err}); using tesseract");
-                    config.engine = EngineMode::Tesseract;
-                } else if matches!(err, engine::Error::SetupRequired) {
-                    return Err(anyhow::anyhow!(
-                        "E_SETUP_REQUIRED: 识别模型还没有下载"
-                    ));
-                } else {
-                    return Err(anyhow::anyhow!("{err}"));
+        }
+
+        if !remote_ok {
+            match manager.ensure_ready(&settings.llama_url, settings.server_config()) {
+                Ok(url) => config.llama_url = Some(url),
+                Err(engine::Error::Cancelled) => {
+                    let _ = app.emit("ocr:phase", Phase { phase: "idle" });
+                    return Ok(());
+                }
+                Err(err) => {
+                    let fallback =
+                        settings.engine == EngineMode::Auto && tesseract::available();
+                    if fallback {
+                        eprintln!("capture: engine unavailable ({err}); using tesseract");
+                        config.engine = EngineMode::Tesseract;
+                    } else if let Some(remote_error) = remote_error {
+                        return Err(anyhow::anyhow!("{remote_error}"));
+                    } else if matches!(err, engine::Error::SetupRequired) {
+                        return Err(anyhow::anyhow!(
+                            "E_SETUP_REQUIRED: 识别模型还没有下载"
+                        ));
+                    } else {
+                        return Err(anyhow::anyhow!("{err}"));
+                    }
                 }
             }
         }
@@ -406,6 +441,9 @@ fn hint_for(message: &str) -> String {
     if message.contains("E_PERMISSION") || message.contains("屏幕录制权限") {
         return "在系统设置 → 隐私与安全性 → 屏幕录制中勾选 ocr4code，然后重启应用。"
             .into();
+    }
+    if message.contains("远程") || message.contains("服务器") {
+        return "到设置 → 识别 → 部署到服务器里检查连接，或重新部署。".into();
     }
     if message.contains("E_BLANK") {
         #[cfg(target_os = "macos")]

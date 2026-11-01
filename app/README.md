@@ -83,6 +83,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 | 自动识别 | 复用 `ocr4code::pipeline`：引擎 → 切块/重试 → 几何层 → 修复 → 渲染 |
 | 自动复制 | 成功后直接写剪贴板；窗口隐藏时不抢焦点，托盘提示「copied N lines」 |
 | 引擎管理 | 内置运行时、模型状态、服务状态、启动/停止、移除/重新下载，全部在设置里 |
+| 远程模型（可选） | 一键把模型和 llama.cpp 运行时部署到 Linux 服务器，本机通过 SSH 隧道识别；适合本机内存紧张 |
 | 设置面板 | 模型精度（高/低）、代理地址/用户名/密码、使用镜像、空闲释放、KV 量化、外部 server URL、prompt、token 预算、并发、tesseract 参数、版面开关、输出格式、历史条数 |
 | 设置导航 | 进入设置后侧边栏展开二级目录（截图/界面/引擎/版面/输出/更新/关于），点击跳转并随滚动高亮 |
 | 界面缩放 | 默认 115%，可选 100/115/130%；窗口默认 1120×740 |
@@ -104,6 +105,24 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 - 更新端点：`https://github.com/hfwang0318/ocr4code/releases/latest/download/latest.json`
 - 首次支持更新的版本是 v0.1.8，更早版本需要手动安装一次
 - `latest.json` 由 `tauri-action` 生成；同时上传 `.exe`、`.sig` 和 `latest.json`
+
+### 部署到服务器（可选）
+
+本机内存紧张时，可以把模型和推理运行时放到一台 Linux 服务器上。应用会通过 SSH
+完成部署，之后截图只经过一条 SSH 隧道发给服务器识别。
+
+- **要求**：Linux（x86_64 / aarch64）、可用的 SSH 密钥或 ssh-agent、`curl` 或 `wget`、
+  `tar`、`sha256sum`；不支持密码登录，也不需要 Docker。
+- **入口**：设置 → 识别 → 「部署到服务器」。填服务器地址、SSH 用户名/端口、
+  远程目录（默认 `~/.ocr4code`）、服务端口和隧道端口，然后点「一键部署」。
+- **部署内容**：服务器缺少运行时时，自动下载 llama.cpp `b12018`（CPU / Vulkan / CUDA）；
+  缺少模型时按「模型来源」处理——`自动` 和 `服务器下载` 在服务器上下载，
+  `上传本机模型` 流式上传本机同精度 GGUF + mmproj。所有文件走 SHA-256 校验。
+- **安全**：远程 `llama-server` 只绑定 `127.0.0.1`，本机 `ssh -L` 隧道同样只监听回环地址；
+  host / user 会拒绝 `-` 开头的 option injection，SSH 使用 `BatchMode=yes`。
+- **识别行为**：远程已启用时不再启动本机模型；未部署时截图页会引导去设置部署。
+  部署一次后，截图会按需启动远程服务并复用隧道。
+- **隐私**：启用远程后，截图会发到这台服务器，不再只在本机处理；关于页会同步显示这一点。
 
 ---
 
@@ -132,6 +151,7 @@ render(text/markdown/json) ──► 剪贴板
 | Web UI | `src/App.tsx`、`src/views/`、`src/components/` | 窗口 chrome、Capture / History / Settings、首启向导、快捷键录制、toast |
 | 桥接 | `src/lib/bridge.ts` | Tauri `invoke`/`listen` 的类型化封装；浏览器预览自动切 mock |
 | 引擎管理 | `src-tauri/src/engine.rs` | 模型 manifest、断点续传、SHA-256、llama-server 生命周期、端口/健康检查、下载事件 |
+| 远程部署 | `src-tauri/src/remote.rs` | SSH 探测/部署、运行时与模型下载或上传、远程 llama-server、隧道、健康检查、进度事件 |
 | 截图 | `src-tauri/src/capture.rs`、`src-tauri/src/capture/win.rs`、`src/overlay/` | macOS 原生选区；Windows GDI 抓屏 + Tauri 浮层选区；OCR 流程、剪贴板、托盘提示 |
 | 更新 | `src/lib/updater.ts`、`tauri-plugin-updater` | 检查/下载/安装、进度、签名校验、重启；安装前 stop 引擎 |
 | 设置 | `src-tauri/src/settings.rs` | `settings.json` 读写、校验、`Settings → pipeline::Config` |
@@ -147,9 +167,13 @@ render(text/markdown/json) ──► 剪贴板
 | `ocr:error` | `{ message, hint, code? }` | 错误卡片；`setup-required` 自动打开向导 |
 | `engine:download` | `DownloadProgress` | 百分比、速度、ETA、阶段、错误 |
 | `engine:state` | `ServerInfo` | 服务 stopped/starting/online/failed |
+| `remote:progress` | `RemoteProgress` | 远程探测/下载/上传/校验/启动进度 |
+| `remote:state` | `RemoteState` | 远程 enabled/phase/url/tunnel/deployed/error |
 
 ### 引擎行为
 
+- 远程已启用：优先使用 SSH 隧道指向的服务器；`auto` 失败时仍可回退本机/tesseract，
+  `llamacpp` 失败会直接报错并给出部署入口。
 - `auto`：优先外部 `llama_url` → 内置 server → tesseract 兜底。
 - 显式 `llamacpp`：只用 llama.cpp；模型没装会提示 setup。
 - 显式 `tesseract`：完全绕过模型下载。
