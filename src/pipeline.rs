@@ -16,7 +16,9 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::assemble::{assemble, AssembleStats, Opts};
-use crate::engine::{llamacpp, tesseract, Engine, EngineOutput, Spec};
+use crate::engine::{
+    self, llamacpp, tesseract, Engine, EngineOutput, ImageFormat, ImageInput, Spec,
+};
 use crate::geom;
 use crate::pool::Semaphore;
 use crate::render::Format;
@@ -70,6 +72,10 @@ pub struct Config {
     pub keep_gutter: bool,
     /// output shape; applied by the caller through [`crate::render::render`]
     pub format: Format,
+    /// encoding used when an image has to be turned into bytes for the engine
+    /// (every tile; whole images forward their original bytes as-is while this
+    /// stays the default `Png`)
+    pub image_format: ImageFormat,
     /// markdown fence language; `None` = guess from the text
     pub language: Option<String>,
     /// how many engine calls may be in flight (only matters when tiling)
@@ -94,6 +100,7 @@ impl Default for Config {
             join_wrap: false,
             keep_gutter: false,
             format: Format::Text,
+            image_format: ImageFormat::Png,
             language: None,
             jobs: 1,
             mock_text: None,
@@ -224,7 +231,13 @@ pub fn recognize(
     cfg: &Config,
     limiter: &Semaphore,
 ) -> Result<Outcome> {
-    let img = image::open(path).with_context(|| format!("opening image {}", path.display()))?;
+    // Read the file once: decode for the geometry layer and keep the encoded
+    // bytes for the engine, instead of letting the engine re-read the path.
+    let bytes =
+        std::fs::read(path).with_context(|| format!("reading image {}", path.display()))?;
+    let img = image::load_from_memory(&bytes)
+        .with_context(|| format!("decoding image {}", path.display()))?;
+    let input = ImageInput::with_source(&img, &bytes, engine::mime_for_path(path));
     let geom = geom::analyze(&img.to_luma8());
     let adv = geom.advance_prior();
 
@@ -234,7 +247,7 @@ pub fn recognize(
         None
     };
 
-    let mut out = run_engine(engine, path, &img, plan.as_ref(), cfg, limiter)?;
+    let mut out = run_engine(engine, &input, plan.as_ref(), cfg, limiter)?;
     let mut used = plan;
     let mut retry_trace = None;
 
@@ -247,7 +260,7 @@ pub fn recognize(
         if let Some(forced) = tile::plan_forced(&geom, adv, cfg.max_tokens) {
             let first_rows = out.lines.len();
             let tiles = forced.tiles.len();
-            let retry = run_engine(engine, path, &img, Some(&forced), cfg, limiter)?;
+            let retry = run_engine(engine, &input, Some(&forced), cfg, limiter)?;
             let retry_rows = retry.lines.len();
             let accepted = tile::is_better(retry_rows, first_rows, geom.bands.len());
             if accepted {
@@ -325,17 +338,19 @@ fn trace(
 }
 
 /// Run the engine on the whole image, or tile by tile when a plan is given.
+///
+/// Crops are encoded in memory and handed to the engine as pixels, so the tile
+/// path never writes to (or reads back from) the temp directory.
 fn run_engine(
     engine: &dyn Engine,
-    path: &Path,
-    img: &image::DynamicImage,
+    input: &ImageInput<'_>,
     plan: Option<&tile::Plan>,
     cfg: &Config,
     limiter: &Semaphore,
 ) -> Result<EngineOutput> {
     let Some(p) = plan else {
         let _permit = limiter.acquire();
-        return engine.recognize(path);
+        return engine.recognize_image(input, cfg.image_format);
     };
 
     // Tiles are independent, so they run concurrently — bounded by the same
@@ -345,20 +360,14 @@ fn run_engine(
     // by the concurrency factor (3 tiles in parallel are not 3× the time).
     let started = std::time::Instant::now();
     type TileOut = (u64, Vec<crate::engine::RawLine>);
-    let results = crate::pool::map(&p.tiles, cfg.jobs.max(1), |k, t| -> Result<TileOut> {
-        let crop = img.crop_imm(0, t.y0, img.width(), t.y1.saturating_sub(t.y0));
-        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let tmp = std::env::temp_dir().join(format!(
-            "ocr4code-tile-{}-{seq}-{k}.png",
-            std::process::id()
-        ));
-        crop.save(&tmp).with_context(|| "writing tile")?;
+    let results = crate::pool::map(&p.tiles, cfg.jobs.max(1), |_, t| -> Result<TileOut> {
+        let crop = input
+            .image
+            .crop_imm(0, t.y0, input.image.width(), t.y1.saturating_sub(t.y0));
         let out = {
             let _permit = limiter.acquire();
-            engine.recognize(&tmp)?
+            engine.recognize_image(&ImageInput::from_pixels(&crop), cfg.image_format)?
         };
-        let _ = std::fs::remove_file(&tmp);
         Ok((out.ms, out.lines))
     });
 
@@ -373,4 +382,138 @@ fn run_engine(
         lines: tile::stitch(per_tile),
         ms,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
+
+    use image::{DynamicImage, Rgb, RgbImage};
+
+    /// An in-memory engine: it records what it was handed and refuses to fall
+    /// back to the path-based flow.
+    struct MemoryEngine {
+        formats: Mutex<Vec<ImageFormat>>,
+        had_source: Mutex<Vec<bool>>,
+        path_calls: AtomicUsize,
+    }
+
+    impl MemoryEngine {
+        fn new() -> Self {
+            Self {
+                formats: Mutex::new(Vec::new()),
+                had_source: Mutex::new(Vec::new()),
+                path_calls: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    impl Engine for MemoryEngine {
+        fn name(&self) -> &str {
+            "memory"
+        }
+
+        fn recognize(&self, _image: &Path) -> Result<EngineOutput> {
+            self.path_calls.fetch_add(1, Ordering::Relaxed);
+            Ok(EngineOutput {
+                engine: "memory".into(),
+                lines: vec![],
+                ms: 0,
+            })
+        }
+
+        fn recognize_image(
+            &self,
+            input: &ImageInput<'_>,
+            format: ImageFormat,
+        ) -> Result<EngineOutput> {
+            self.formats.lock().unwrap().push(format);
+            self.had_source.lock().unwrap().push(input.source.is_some());
+            Ok(EngineOutput {
+                engine: "memory".into(),
+                lines: vec![],
+                ms: 0,
+            })
+        }
+    }
+
+    fn sample() -> DynamicImage {
+        DynamicImage::ImageRgb8(RgbImage::from_pixel(40, 30, Rgb([250, 250, 250])))
+    }
+
+    fn plan() -> tile::Plan {
+        tile::Plan {
+            tiles: vec![
+                tile::Tile { first_band: 0, last_band: 1, y0: 0, y1: 10 },
+                tile::Tile { first_band: 1, last_band: 2, y0: 10, y1: 20 },
+                tile::Tile { first_band: 2, last_band: 3, y0: 20, y1: 30 },
+            ],
+            rows_per_tile: 2,
+            tokens_per_row: 10,
+            reason: "test",
+        }
+    }
+
+    #[test]
+    fn tiles_are_encoded_in_memory_and_never_written_to_disk() {
+        let img = sample();
+        let engine = MemoryEngine::new();
+        let cfg = Config {
+            tile: true,
+            jobs: 1,
+            image_format: ImageFormat::Jpeg { quality: 55 },
+            ..Default::default()
+        };
+        let limiter = limiter(1);
+
+        let out = run_engine(
+            &engine,
+            &ImageInput::from_pixels(&img),
+            Some(&plan()),
+            &cfg,
+            &limiter,
+        )
+        .expect("tiled run");
+
+        assert!(out.lines.is_empty());
+        assert_eq!(
+            engine.path_calls.load(Ordering::Relaxed),
+            0,
+            "the disk-backed recognize(path) path must not be used for tiles"
+        );
+        let formats = engine.formats.lock().unwrap();
+        assert_eq!(formats.len(), 3, "one in-memory call per tile");
+        assert!(formats.iter().all(|f| *f == ImageFormat::Jpeg { quality: 55 }));
+        assert!(
+            engine.had_source.lock().unwrap().iter().all(|s| !s),
+            "crops must not carry (or need) the source file bytes"
+        );
+    }
+
+    #[test]
+    fn a_whole_image_hands_the_engine_both_pixels_and_source_bytes() {
+        let img = sample();
+        let engine = MemoryEngine::new();
+        let cfg = Config::default();
+        let limiter = limiter(1);
+
+        run_engine(
+            &engine,
+            &ImageInput::with_source(&img, b"encoded-source", "image/png"),
+            None,
+            &cfg,
+            &limiter,
+        )
+        .expect("whole image");
+
+        assert_eq!(engine.path_calls.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            engine.formats.lock().unwrap().as_slice(),
+            &[ImageFormat::Png]
+        );
+        assert_eq!(engine.had_source.lock().unwrap().as_slice(), &[true]);
+    }
 }

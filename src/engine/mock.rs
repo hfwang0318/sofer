@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use super::{Engine, EngineOutput, RawLine};
+use super::{Engine, EngineOutput, ImageFormat, ImageInput, RawLine};
 
 pub struct Mock {
     text: Option<String>,
@@ -19,14 +19,9 @@ impl Mock {
     pub fn new(text: Option<String>, text_file: Option<PathBuf>) -> Result<Self> {
         Ok(Self { text, text_file })
     }
-}
 
-impl Engine for Mock {
-    fn name(&self) -> &str {
-        "mock"
-    }
-
-    fn recognize(&self, _image: &Path) -> Result<EngineOutput> {
+    /// The mock never looks at pixels, so it can answer without a file at all.
+    fn replay(&self) -> Result<EngineOutput> {
         let text = if let Some(t) = &self.text {
             t.clone()
         } else if let Some(p) = &self.text_file {
@@ -47,5 +42,23 @@ impl Engine for Mock {
             lines,
             ms: 0,
         })
+    }
+}
+
+impl Engine for Mock {
+    fn name(&self) -> &str {
+        "mock"
+    }
+
+    fn recognize(&self, _image: &Path) -> Result<EngineOutput> {
+        self.replay()
+    }
+
+    fn recognize_image(
+        &self,
+        _input: &ImageInput<'_>,
+        _format: ImageFormat,
+    ) -> Result<EngineOutput> {
+        self.replay()
     }
 }
