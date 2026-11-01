@@ -72,6 +72,12 @@ export const FIRST_CAPTURE_KEY = "ocr4code.onboarding.firstCapture";
 export const SETTINGS_KEY = "ocr4code.settings.v1";
 export const HISTORY_KEY = "ocr4code.history.v1";
 
+/**
+ * Hard storage cap. Thumbnails are base64 PNGs, so the saved list has to stay
+ * bounded even when the user picks the largest history limit (50).
+ */
+export const MAX_HISTORY_ENTRIES = 50;
+
 const DEMO_TEXT = `async fn load_user(pool: &PgPool, id: UserId) -> Result<User> {
     let user = sqlx::query_as::<_, User>(
         "SELECT id, email, created_at FROM users WHERE id = $1",
@@ -143,7 +149,10 @@ export const DEMO_RESULT: OcrResult = {
 };
 
 export const DEMO_HISTORY: HistoryEntry[] = [
-  historyEntry(42_000, DEMO_TEXT, "llamacpp(http://127.0.0.1:8099)", "rust", 864),
+  {
+    ...historyEntry(42_000, DEMO_TEXT, "llamacpp(http://127.0.0.1:8099)", "rust", 864),
+    thumbnail: DEMO_THUMB,
+  },
   historyEntry(
     8 * 60_000,
     `$ cargo test --workspace

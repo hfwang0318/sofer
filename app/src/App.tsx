@@ -41,7 +41,14 @@ import {
   modelTotalBytes,
   SETUP_DISMISSED_KEY,
 } from "./lib/defaults";
-import { fromResult, loadHistory, saveHistory } from "./lib/history";
+import {
+  fromResult,
+  insertHistoryEntry,
+  loadHistory,
+  saveHistory,
+  toggleHistoryPin,
+  trimHistory,
+} from "./lib/history";
 import {
   checkForUpdate,
   downloadUpdate,
@@ -305,11 +312,7 @@ export default function App() {
   const addHistory = useCallback((next: OcrResult) => {
     setHistory((current) => {
       const limit = settingsRef.current.historyLimit || 20;
-      const entry = fromResult(next);
-      const merged = [entry, ...current.filter((item) => item.id !== entry.id)].slice(
-        0,
-        limit,
-      );
+      const merged = insertHistoryEntry(current, fromResult(next), limit);
       saveHistory(merged);
       return merged;
     });
@@ -765,6 +768,14 @@ export default function App() {
     });
   }, []);
 
+  const handleTogglePin = useCallback((id: string) => {
+    setHistory((current) => {
+      const next = toggleHistoryPin(current, id);
+      saveHistory(next);
+      return next;
+    });
+  }, []);
+
   const handleClearHistory = useCallback(() => {
     setHistory([]);
     saveHistory([]);
@@ -923,7 +934,7 @@ export default function App() {
     if (!settings.historyLimit) return;
     setHistory((current) => {
       if (current.length <= settings.historyLimit) return current;
-      const next = current.slice(0, settings.historyLimit);
+      const next = trimHistory(current, settings.historyLimit);
       saveHistory(next);
       return next;
     });
@@ -1032,6 +1043,7 @@ export default function App() {
                 onDelete={handleDeleteHistory}
                 onClear={handleClearHistory}
                 onCapture={() => void handleCapture()}
+                onTogglePin={handleTogglePin}
               />
             )}
             {view === "settings" && (

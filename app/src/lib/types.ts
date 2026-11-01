@@ -225,6 +225,12 @@ export interface HistoryEntry {
   chars: number;
   lines: number;
   capturedAt: number;
+  /** Data URL of the source screenshot. Optional for entries saved before
+   *  thumbnails were kept, and dropped when storage is near quota. */
+  thumbnail?: string | null;
+  /** Keep this entry above newer ones. Optional for entries saved before
+   *  pinning existed; treat a missing value as false. */
+  pinned?: boolean;
 }
 
 export interface PhasePayload {
