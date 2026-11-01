@@ -12,6 +12,8 @@ export type SettingsSection =
   | "about";
 export type OutputFormat = "text" | "markdown" | "json";
 export type View = "capture" | "history" | "settings";
+/** Which engine action is currently running, if any. */
+export type EngineBusy = "start" | "stop" | "remove" | null;
 export type Phase = "idle" | "selecting" | "starting" | "recognizing";
 export type ScreenAccess = "granted" | "denied" | "not-needed" | "unknown";
 export type ReadinessState =
