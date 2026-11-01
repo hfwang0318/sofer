@@ -52,6 +52,15 @@ export const DEFAULT_SETTINGS: Settings = {
   jobs: 3,
 };
 
+/**
+ * Formats the kernel's `image` decoder is built for. Mirrors
+ * `SUPPORTED_IMAGE_EXTENSIONS` / `MAX_IMAGE_BYTES` in
+ * src-tauri/src/capture.rs; the Rust side is authoritative.
+ */
+export const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "bmp", "tiff"] as const;
+export const IMAGE_FORMAT_LABEL = "PNG、JPG、WebP、BMP 或 TIFF";
+export const MAX_IMAGE_BYTES = 40 * 1024 * 1024;
+
 export const MODEL_TOTAL_BYTES_HIGH = 1_434_837_056;
 export const MODEL_TOTAL_BYTES_LOW = 1_032_918_784;
 export const MODEL_NAME_HIGH = "GLM-OCR Q8_0";

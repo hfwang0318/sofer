@@ -224,6 +224,27 @@ export interface OcrError {
   code?: string | null;
 }
 
+/** Mirrors `InputError` in src-tauri/src/capture.rs. */
+export interface InputError {
+  message: string;
+  hint: string;
+}
+
+/** Mirrors `DragPayload` in src-tauri/src/capture.rs. */
+export interface DragPayload {
+  active: boolean;
+  accepted: boolean;
+}
+
+/** A file dropped onto the window, or chosen in the preview file picker. */
+export interface DroppedImage {
+  /** Absolute path in the desktop app; the file name in the browser preview. */
+  path: string;
+  name: string;
+  /** The browser preview knows the size; the desktop app checks it in Rust. */
+  size: number | null;
+}
+
 export interface HistoryEntry {
   id: string;
   text: string;

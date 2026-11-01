@@ -9,6 +9,68 @@
   flex-shrink: 0;
 }
 
+/* A file is hovering over the window. Below the dialogs (60) so an open
+   setup/permission modal is never covered by the drop target. */
+.drop-overlay {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  border: 1px dashed rgba(203, 245, 108, 0.45);
+  background: rgba(8, 9, 11, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+
+.drop-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 320px;
+  padding: 24px 30px;
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  background: rgba(20, 21, 26, 0.92);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+.drop-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 4px;
+  border-radius: 12px;
+  background: rgba(203, 245, 108, 0.12);
+  color: var(--accent);
+}
+
+.drop-card strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.drop-card p {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.drop-overlay.is-rejected {
+  border-color: rgba(242, 200, 107, 0.5);
+}
+
+.drop-overlay.is-rejected .drop-icon {
+  background: rgba(242, 200, 107, 0.14);
+  color: var(--warn);
+}
+
 .hero {
   position: relative;
   display: grid;

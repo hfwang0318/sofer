@@ -1,9 +1,9 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 
 import { Icon } from "../components/Icon";
 import { retryCapture } from "../lib/bridge";
 import { duration, relativeTime } from "../lib/history";
-import { isMac, shortcutText } from "../lib/platform";
+import { isMac, isPreview, shortcutText } from "../lib/platform";
 import type {
   OcrError,
   OcrPartial,
@@ -25,6 +25,8 @@ interface CaptureViewProps {
   showSteps: boolean;
   firstCaptureTip: boolean;
   onCapture: () => void;
+  onClipboard: () => void;
+  onPickImage: (file: { name: string; size: number }) => void;
   onCopy: (text: string) => void;
   onOpenHistory: () => void;
   onOpenSettings: (section?: SettingsSection) => void;
@@ -126,7 +128,7 @@ function BusyStrip({ phase }: { phase: Phase }) {
           ? "拖选要识别的区域，按 Esc 取消。"
           : phase === "starting"
             ? "正在加载模型。"
-            : "正在识别截图…"}
+            : "正在识别…"}
       </span>
     </div>
   );
@@ -514,6 +516,8 @@ export function CaptureView({
   showSteps,
   firstCaptureTip,
   onCapture,
+  onClipboard,
+  onPickImage,
   onCopy,
   onOpenHistory,
   onOpenSettings,
@@ -521,6 +525,7 @@ export function CaptureView({
   onPermission,
   onDismissTip,
 }: CaptureViewProps) {
+  const fileInput = useRef<HTMLInputElement>(null);
   const busy = phase !== "idle";
   const showResult = !error && Boolean(result);
   const blocking = setupBlocking || permissionDenied;
@@ -535,7 +540,9 @@ export function CaptureView({
           <div>
             <p className="eyebrow">工作区</p>
             <h1>截图</h1>
-            <p className="lede">截代码、终端输出或报错。结果直接进剪贴板。</p>
+            <p className="lede">
+              截代码、终端输出或报错。也可以把图片文件拖进窗口，结果直接进剪贴板。
+            </p>
           </div>
           {!error &&
             (blocking ? (
@@ -548,15 +555,53 @@ export function CaptureView({
                 {setupBlocking ? (remote ? "去部署" : "下载模型") : "去授权"}
               </button>
             ) : (
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={onCapture}
-                disabled={busy}
-              >
-                <Icon name={busy ? "spark" : "capture"} size={15} />
-                {headerLabel}
-              </button>
+              <div className="head-actions">
+                {/* A browser drop never reveals a path, so the preview also
+                    offers a picker; the desktop app uses the native drop. */}
+                {isPreview && (
+                  <>
+                    <input
+                      ref={fileInput}
+                      type="file"
+                      hidden
+                      accept="image/png,image/jpeg,image/webp,image/bmp,image/tiff"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) onPickImage({ name: file.name, size: file.size });
+                        // Allow picking the same file twice in a row.
+                        event.target.value = "";
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => fileInput.current?.click()}
+                      disabled={busy}
+                    >
+                      <Icon name="image" size={14} />
+                      选择图片
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={onClipboard}
+                  disabled={busy}
+                >
+                  <Icon name="clipboard" size={14} />
+                  从剪贴板识别
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={onCapture}
+                  disabled={busy}
+                >
+                  <Icon name={busy ? "spark" : "capture"} size={15} />
+                  {headerLabel}
+                </button>
+              </div>
             ))}
         </header>
 

@@ -5,6 +5,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   DEFAULT_SETTINGS,
   DEMO_RESULT,
+  IMAGE_EXTENSIONS,
+  IMAGE_FORMAT_LABEL,
+  MAX_IMAGE_BYTES,
   MODEL_LICENSE,
   modelName,
   modelTotalBytes,
@@ -14,7 +17,10 @@ import { isTauri } from "./platform";
 import type {
   AppInfo,
   DownloadProgress,
+  DragPayload,
+  DroppedImage,
   EngineStatus,
+  InputError,
   OcrError,
   OcrPartial,
   OcrResult,
@@ -261,9 +267,10 @@ function startMockSetup() {
   }, 120);
 }
 
-async function previewCapture() {
-  emitPreview("ocr:phase", { phase: "selecting" } satisfies PhasePayload);
-  await sleep(650);
+/** The recognition half of the preview, shared by capture, drop and clipboard. */
+async function previewRecognize() {
+  // Without a model the real pipeline stops before recognition; the preview
+  // shows the same setup-required panel instead of a fake result.
   if (!mockInstalled || mockServer !== "online") {
     emitPreview("ocr:phase", { phase: "idle" } satisfies PhasePayload);
     emitPreview("ocr:error", {
@@ -332,6 +339,39 @@ async function previewRetry() {
   if (settings.autoCopy) await copyText(result.text).catch(() => undefined);
   emitPreview("ocr:result", result);
   emitPreview("ocr:phase", { phase: "idle" } satisfies PhasePayload);
+}
+
+async function previewCapture() {
+  emitPreview("ocr:phase", { phase: "selecting" } satisfies PhasePayload);
+  await sleep(650);
+  await previewRecognize();
+}
+
+/**
+ * Preview-only copy of the Rust checks, so the browser can demo the same
+ * toast the desktop app shows for a rejected file.
+ */
+function previewImageError(file: DroppedImage): InputError | null {
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  if (!(IMAGE_EXTENSIONS as readonly string[]).includes(extension)) {
+    return {
+      message: "不支持这个格式",
+      hint: `换成 ${IMAGE_FORMAT_LABEL} 再试。`,
+    };
+  }
+  if (file.size !== null && file.size > MAX_IMAGE_BYTES) {
+    return {
+      message: "图片太大了",
+      hint: `上限 ${MAX_IMAGE_BYTES / (1024 * 1024)} MB，先压缩或裁剪再试。`,
+    };
+  }
+  return null;
+}
+
+/** Tauri drop events carry absolute paths; the name is only for display. */
+function toDroppedImage(path: string): DroppedImage {
+  const parts = path.split(/[\\/]/);
+  return { path, name: parts[parts.length - 1] || path, size: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -631,6 +671,88 @@ export async function retryCapture(): Promise<void> {
     return;
   }
   void previewRetry();
+}
+
+/** Recognize a dropped or picked image. Rejects with `InputError` for bad input. */
+export async function ocrImageFile(file: DroppedImage): Promise<void> {
+  if (isTauri) {
+    await invoke("ocr_image_file", { path: file.path });
+    return;
+  }
+  const invalid = previewImageError(file);
+  if (invalid) throw invalid;
+  await previewRecognize();
+}
+
+/** Recognize the image currently on the clipboard. */
+export async function ocrClipboardImage(): Promise<void> {
+  if (isTauri) {
+    await invoke("ocr_clipboard_image");
+    return;
+  }
+  // Browsers cannot read an image from the OS clipboard without a permission
+  // prompt, so the preview replays the demo recognition instead.
+  await previewRecognize();
+}
+
+/**
+ * Files dropped onto the window. The desktop shell emits the paths from its
+ * native drag handler; the browser preview reads HTML5 `File` objects, which
+ * carry a name and size but never a path.
+ */
+export function onImageDrop(
+  handler: (files: DroppedImage[]) => void,
+): Promise<UnlistenFn> {
+  if (isTauri) {
+    return subscribe<string[]>("ocr:drop", (paths) =>
+      handler(paths.map(toDroppedImage)),
+    );
+  }
+  const onDrop = (event: DragEvent) => {
+    event.preventDefault();
+    const files = Array.from(event.dataTransfer?.files ?? []).map((file) => ({
+      path: file.name,
+      name: file.name,
+      size: file.size,
+    }));
+    if (files.length > 0) handler(files);
+  };
+  window.addEventListener("drop", onDrop);
+  return Promise.resolve(() => window.removeEventListener("drop", onDrop));
+}
+
+/** Drag-in / drag-out for the drop target overlay. */
+export function onDragState(
+  handler: (payload: DragPayload) => void,
+): Promise<UnlistenFn> {
+  if (isTauri) return subscribe<DragPayload>("ocr:drag", handler);
+
+  let depth = 0;
+  const over = (event: DragEvent) => event.preventDefault();
+  const enter = (event: DragEvent) => {
+    if (!event.dataTransfer?.types.includes("Files")) return;
+    depth += 1;
+    handler({ active: true, accepted: true });
+  };
+  const leave = () => {
+    depth = Math.max(0, depth - 1);
+    if (depth === 0) handler({ active: false, accepted: true });
+  };
+  const drop = (event: DragEvent) => {
+    event.preventDefault();
+    depth = 0;
+    handler({ active: false, accepted: true });
+  };
+  window.addEventListener("dragenter", enter);
+  window.addEventListener("dragleave", leave);
+  window.addEventListener("dragover", over);
+  window.addEventListener("drop", drop);
+  return Promise.resolve(() => {
+    window.removeEventListener("dragenter", enter);
+    window.removeEventListener("dragleave", leave);
+    window.removeEventListener("dragover", over);
+    window.removeEventListener("drop", drop);
+  });
 }
 
 export async function copyText(text: string): Promise<void> {

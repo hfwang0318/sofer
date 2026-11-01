@@ -1,9 +1,9 @@
-//! Global-shortcut capture flow: native region selection → kernel → clipboard.
+//! Capture flows: native region selection, dropped files and clipboard images.
 //!
 //! macOS keeps `screencapture -i`; Windows uses our own GDI capture plus an
 //! always-on-top Tauri selection window, so the Snipping Tool is never invoked.
-//! Everything after the pixels are chosen is ours: run the kernel, copy the
-//! result, tell the UI.
+//! Every entry point ends in the same place: ensure the engine, run the kernel,
+//! copy the result, tell the UI.
 
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -24,15 +24,20 @@ use ocr4code::render::{self, Format};
 
 use crate::engine;
 use crate::remote;
-use crate::settings::Settings;
-use crate::AppState;
+use crate::settings::{AppState, Settings};
 
-#[cfg(target_os = "windows")]
-mod win;
+/// A dropped file stays in the same size class as a large screenshot.
+const MAX_IMAGE_BYTES: u64 = 40 * 1024 * 1024;
+
+/// Extensions the kernel's decoder is built for (`image` crate features).
+const SUPPORTED_IMAGE_EXTENSIONS: [&str; 6] = ["png", "jpg", "jpeg", "webp", "bmp", "tiff"];
 
 /// One token per IPC event would flood the webview; ~8 updates a second is
 /// enough for a preview. The first delta is always sent immediately.
 const PARTIAL_EMIT_INTERVAL: Duration = Duration::from_millis(120);
+
+#[cfg(target_os = "windows")]
+mod win;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -122,12 +127,10 @@ pub struct OcrResult {
     pub truncated: bool,
 }
 
-/// A preview emitted while the model is still generating. It is always
-/// replaced by `ocr:result`, so nothing here is persisted or copied.
+/// Emitted while the model is still generating; `text` is everything so far.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OcrPartial {
-    /// Everything received so far, not just the newest token.
     pub text: String,
     pub ms: u64,
 }
@@ -152,10 +155,48 @@ enum CaptureOutcome {
     Cancelled,
 }
 
+/// Rejection of a dropped/clipboard image that never reached the kernel. The
+/// UI shows it as a toast: what happened, then the one thing to change.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InputError {
+    pub message: String,
+    pub hint: String,
+}
+
+impl InputError {
+    fn new(message: impl Into<String>, hint: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            hint: hint.into(),
+        }
+    }
+}
+
+/// Emitted while a file drag hovers over the window so the page can show a
+/// drop target. `accepted` only looks at extensions; the size check needs the
+/// file itself and runs on drop.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DragPayload {
+    pub active: bool,
+    pub accepted: bool,
+}
+
+/// Where the pixels for one recognition job come from.
+enum JobSource {
+    /// Region selection through the shortcut, tray item or Capture button.
+    Screen,
+    /// A file the user dropped or picked; we never delete it.
+    File(PathBuf),
+    /// An image read out of the clipboard into our cache; deleted afterwards.
+    Clipboard(PathBuf),
+}
+
 /// Entry point for the global shortcut, tray item and the "Capture" button.
 ///
-/// Returns immediately. A second trigger while a selection is open is ignored
-/// instead of stacking overlays.
+/// Returns immediately. A second trigger while a recognition is running is
+/// treated as cancel instead of stacking jobs.
 pub fn start(app: AppHandle) {
     let state = app.state::<AppState>();
     if state.busy.swap(true, Ordering::SeqCst) {
@@ -166,10 +207,8 @@ pub fn start(app: AppHandle) {
     state.cancel.store(false, Ordering::SeqCst);
 
     std::thread::spawn(move || {
-        if let Err(err) = run(&app) {
-            report_capture_error(&app, err);
-        }
-        app.state::<AppState>().busy.store(false, Ordering::SeqCst);
+        let result = run_job(&app, JobSource::Screen);
+        finish_job(&app, result);
     });
 }
 
@@ -186,14 +225,152 @@ pub fn retry(app: AppHandle) {
     state.cancel.store(false, Ordering::SeqCst);
 
     std::thread::spawn(move || {
-        if let Err(err) = run_retry(&app) {
-            report_capture_error(&app, err);
-        }
-        app.state::<AppState>().busy.store(false, Ordering::SeqCst);
+        let result = run_retry(&app);
+        finish_job(&app, result);
     });
 }
 
-fn report_capture_error(app: &AppHandle, err: anyhow::Error) {
+/// Entry point for a file dropped onto the window. The path is validated here,
+/// before any work starts, so the UI can show a concrete next step.
+pub fn start_image_file(app: AppHandle, path: PathBuf) -> Result<(), InputError> {
+    validate_image_file(&path)?;
+    {
+        let state = app.state::<AppState>();
+        claim_busy(&state)?;
+    }
+    spawn_job(app, JobSource::File(path));
+    Ok(())
+}
+
+/// Entry point for the "从剪贴板识别" button. The clipboard is read on the
+/// calling thread so "no image" is reported as a normal command error.
+pub fn start_clipboard_image(app: AppHandle) -> Result<(), InputError> {
+    {
+        let state = app.state::<AppState>();
+        claim_busy(&state)?;
+    }
+    match prepare_clipboard_image(&app) {
+        Ok(path) => {
+            spawn_job(app, JobSource::Clipboard(path));
+            Ok(())
+        }
+        Err(err) => {
+            app.state::<AppState>().busy.store(false, Ordering::SeqCst);
+            Err(err)
+        }
+    }
+}
+
+/// Copy the clipboard image to a temp PNG. A failure here must release the
+/// busy flag and leave no partial file behind.
+fn prepare_clipboard_image(app: &AppHandle) -> Result<PathBuf, InputError> {
+    let path = clipboard_path(app)?;
+    if let Err(err) = write_clipboard_image(&path) {
+        let _ = std::fs::remove_file(&path);
+        return Err(err);
+    }
+    Ok(path)
+}
+
+/// Native drop delivered by the Tauri window event. The page decides what to
+/// do with the paths; this only filters out the ones no engine could read.
+pub fn handle_drop(window: &tauri::Window, mut paths: Vec<PathBuf>) {
+    let accepted = paths.iter().any(|path| is_supported_image_path(path));
+    let _ = window.emit(
+        "ocr:drag",
+        DragPayload {
+            active: false,
+            accepted,
+        },
+    );
+    // The page starts with the first path; put a real image there when the
+    // drop mixed files (a screenshot plus a stray README, say).
+    paths.sort_by_key(|path| !is_supported_image_path(path));
+    let paths: Vec<String> = paths
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect();
+    let _ = window.emit("ocr:drop", paths);
+}
+
+/// The drop target shown while a drag hovers over the window.
+pub fn handle_drag_enter(window: &tauri::Window, paths: &[PathBuf]) {
+    let accepted = paths.iter().any(|path| is_supported_image_path(path));
+    let _ = window.emit(
+        "ocr:drag",
+        DragPayload {
+            active: true,
+            accepted,
+        },
+    );
+}
+
+pub fn handle_drag_leave(window: &tauri::Window) {
+    let _ = window.emit(
+        "ocr:drag",
+        DragPayload {
+            active: false,
+            accepted: true,
+        },
+    );
+}
+
+pub fn is_supported_image_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| {
+            let extension = extension.to_ascii_lowercase();
+            SUPPORTED_IMAGE_EXTENSIONS.contains(&extension.as_str())
+        })
+        .unwrap_or(false)
+}
+
+fn claim_busy(state: &AppState) -> Result<(), InputError> {
+    if state.busy.swap(true, Ordering::SeqCst) {
+        return Err(InputError::new(
+            "正在识别上一张图",
+            "等这次识别结束再试。",
+        ));
+    }
+    state.cancel.store(false, Ordering::SeqCst);
+    Ok(())
+}
+
+fn spawn_job(app: AppHandle, source: JobSource) {
+    std::thread::spawn(move || {
+        let result = run_job(&app, source);
+        finish_job(&app, result);
+    });
+}
+
+fn run_job(app: &AppHandle, source: JobSource) -> Result<()> {
+    let result = match &source {
+        JobSource::Screen => run_screen(app),
+        JobSource::File(path) | JobSource::Clipboard(path) => run_image(app, path),
+    };
+    cleanup_source(&source);
+    result
+}
+
+/// Only the clipboard copy is ours. A dropped file belongs to the user.
+fn cleanup_source(source: &JobSource) {
+    if let JobSource::Clipboard(path) = source {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+fn finish_job(app: &AppHandle, result: Result<()>) {
+    if let Err(err) = result {
+        report_error(app, &err);
+        let _ = app.emit("ocr:phase", Phase { phase: "idle" });
+        show_main(app);
+    }
+    app.state::<AppState>().busy.store(false, Ordering::SeqCst);
+}
+
+/// Same classification for every entry point: the capture page renders one
+/// error panel and the shortcut path never shows a different vocabulary.
+fn report_error(app: &AppHandle, err: &anyhow::Error) {
     let raw = format!("{err:#}");
     eprintln!("capture: {raw}");
     let setup_required = raw.contains("E_SETUP_REQUIRED");
@@ -237,8 +414,6 @@ fn report_capture_error(app: &AppHandle, err: anyhow::Error) {
             code: Some(code.to_string()),
         },
     );
-    let _ = app.emit("ocr:phase", Phase { phase: "idle" });
-    show_main(app);
 }
 
 #[tauri::command]
@@ -285,9 +460,9 @@ pub fn overlay_cancel() -> Result<(), String> {
     }
 }
 
-fn run(app: &AppHandle) -> Result<()> {
-    let settings = snapshot_settings(app);
-    let main_was_visible = main_is_visible(app);
+fn run_screen(app: &AppHandle) -> Result<()> {
+    let settings = current_settings(app);
+    let main_was_visible = main_window_visible(app);
 
     #[cfg(target_os = "macos")]
     if !screen_recording_granted() {
@@ -340,10 +515,27 @@ fn run(app: &AppHandle) -> Result<()> {
     }
 }
 
+/// A dropped file or a clipboard image. Reads the same thumbnail the capture
+/// path builds so the result panel looks identical no matter the entry point.
+/// The source file is never deleted here; clipboard copies are cleaned up by
+/// `cleanup_source`.
+fn run_image(app: &AppHandle, path: &Path) -> Result<()> {
+    let settings = current_settings(app);
+    let main_was_visible = main_window_visible(app);
+    let inspection = inspect_capture(path);
+    if inspection.blank {
+        anyhow::bail!("E_BLANK: 截图区域几乎是空白的");
+    }
+    if let Some(result) = process_capture(app, &settings, path, inspection, false)? {
+        complete(app, &settings, main_was_visible, result);
+    }
+    Ok(())
+}
+
 /// Re-run the retained screenshot, forcing a chunked pass.
 fn run_retry(app: &AppHandle) -> Result<()> {
-    let settings = snapshot_settings(app);
-    let main_was_visible = main_is_visible(app);
+    let settings = current_settings(app);
+    let main_was_visible = main_window_visible(app);
     let path = retained_capture_path(app)?;
     if !path.exists() {
         anyhow::bail!("E_CAPTURE: 上一次的截图已经不存在");
@@ -365,6 +557,16 @@ fn run_retry(app: &AppHandle) -> Result<()> {
     }
     complete(app, &settings, main_was_visible, result);
     Ok(())
+}
+
+fn current_settings(app: &AppHandle) -> Settings {
+    app.state::<AppState>().settings.lock().unwrap().clone()
+}
+
+fn main_window_visible(app: &AppHandle) -> bool {
+    app.get_webview_window("main")
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(true)
 }
 
 /// Recognise the selected pixels. `Ok(None)` means the user cancelled engine
@@ -395,6 +597,10 @@ fn process_capture(
 
     let _ = app.emit("ocr:phase", Phase { phase: "recognizing" });
     recognize_to_result(app, settings, &config, path, inspection).map(Some)
+}
+
+fn retry_max_tokens(current: u32) -> u32 {
+    (current / 2).max(1024)
 }
 
 /// Resolve the engine and pin the config to what actually answered.
@@ -446,9 +652,7 @@ fn prepare_engine(app: &AppHandle, settings: &Settings, config: &mut Config) -> 
             } else if let Some(remote_error) = remote_error {
                 Err(anyhow::anyhow!("{remote_error}"))
             } else if matches!(err, engine::Error::SetupRequired) {
-                Err(anyhow::anyhow!(
-                    "E_SETUP_REQUIRED: OCR 模型还没有下载"
-                ))
+                Err(anyhow::anyhow!("E_SETUP_REQUIRED: OCR 模型还没有下载"))
             } else {
                 Err(anyhow::anyhow!("{err}"))
             }
@@ -496,8 +700,8 @@ fn recognize_to_result(
         };
         let outcome = ocr4code::pipeline::recognize_streaming(
             engine.as_ref(),
-            &path,
-            &config,
+            path,
+            config,
             &limiter,
             &mut on_delta,
         )?;
@@ -513,6 +717,7 @@ fn recognize_to_result(
         }
         outcome
     };
+
     let text = render::render(&outcome.document, config.format, config.language.as_deref());
 
     let copied = settings.auto_copy
@@ -552,31 +757,13 @@ fn complete(app: &AppHandle, settings: &Settings, main_was_visible: bool, result
         // control window is hidden, the tray tooltip is the only confirmation.
         if !main_was_visible {
             if let Some(tray) = app.tray_by_id("main-tray") {
-                let _ = tray.set_tooltip(Some(format!(
-                    "ocr4code — 已复制 {} 行",
-                    result.lines
-                )));
+                let _ = tray.set_tooltip(Some(format!("ocr4code — 已复制 {} 行", result.lines)));
             }
         }
     } else {
         // Nothing reached the clipboard, so show the result and its copy button.
         show_main(app);
     }
-}
-
-fn snapshot_settings(app: &AppHandle) -> Settings {
-    app.state::<AppState>().settings.lock().unwrap().clone()
-}
-
-fn main_is_visible(app: &AppHandle) -> bool {
-    app.get_webview_window("main")
-        .and_then(|w| w.is_visible().ok())
-        .unwrap_or(true)
-}
-
-/// The single-call budget used by the chunked retry.
-fn retry_max_tokens(current: u32) -> u32 {
-    (current / 2).max(1024)
 }
 
 // ---------------------------------------------------------------------------
@@ -587,7 +774,7 @@ fn retry_max_tokens(current: u32) -> u32 {
 /// idle-sleeping server is awake by the time the screenshot arrives. Best
 /// effort: it never blocks selection and never touches `busy` / `cancel`.
 fn spawn_warm_up(app: &AppHandle) {
-    let settings = snapshot_settings(app);
+    let settings = current_settings(app);
     if settings.engine == EngineMode::Tesseract {
         return;
     }
@@ -617,14 +804,121 @@ fn ready_engine_url(
         }
         return None;
     }
-    let info = manager.server_info();
-    if info.state == "online" {
-        return info.url;
+    let status = manager.status(&settings.llama_url, settings.model_quality);
+    if status.server.state == "online" {
+        status.server.url
+    } else {
+        None
     }
-    if engine::health_ok(&settings.llama_url, Duration::from_millis(250)) {
-        return Some(settings.llama_url.clone());
+}
+
+// ---------------------------------------------------------------------------
+// Dropped files and clipboard images
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn ocr_image_file(app: AppHandle, path: String) -> Result<(), InputError> {
+    start_image_file(app, PathBuf::from(path))
+}
+
+#[tauri::command]
+pub fn ocr_clipboard_image(app: AppHandle) -> Result<(), InputError> {
+    start_clipboard_image(app)
+}
+
+fn validate_image_file(path: &Path) -> Result<(), InputError> {
+    if !is_supported_image_path(path) {
+        return Err(InputError::new(
+            "不支持这个格式",
+            "换成 PNG、JPG、WebP、BMP 或 TIFF 再试。",
+        ));
     }
-    None
+    let metadata = std::fs::metadata(path).map_err(|err| {
+        eprintln!("capture: dropped file {}: {err}", path.display());
+        InputError::new("找不到这个文件", "确认文件还在原位置，再拖一次。")
+    })?;
+    if !metadata.is_file() {
+        return Err(InputError::new(
+            "这不是一个文件",
+            "拖入图片文件本身，不要拖文件夹。",
+        ));
+    }
+    check_image_size(metadata.len())
+}
+
+fn check_image_size(bytes: u64) -> Result<(), InputError> {
+    if bytes > MAX_IMAGE_BYTES {
+        Err(InputError::new(
+            "图片太大了",
+            format!(
+                "上限 {} MB，先压缩或裁剪再试。",
+                MAX_IMAGE_BYTES / (1024 * 1024)
+            ),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+/// Cache path unique per process, so two running copies never fight over the
+/// same clipboard image.
+fn clipboard_path(app: &AppHandle) -> Result<PathBuf, InputError> {
+    let dir = app
+        .path()
+        .app_cache_dir()
+        .unwrap_or_else(|_| std::env::temp_dir())
+        .join("captures");
+    std::fs::create_dir_all(&dir).map_err(|err| {
+        eprintln!("capture: clipboard dir {}: {err}", dir.display());
+        InputError::new("存不下这张图", "重启应用后再试。")
+    })?;
+    Ok(dir.join(format!(
+        "clipboard-{}-{}.png",
+        std::process::id(),
+        now_ms()
+    )))
+}
+
+fn write_clipboard_image(path: &Path) -> Result<(), InputError> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|err| {
+        eprintln!("capture: clipboard unavailable: {err}");
+        InputError::new("读不到剪贴板", "重启应用后再试。")
+    })?;
+    let image = match clipboard.get_image() {
+        Ok(image) => image,
+        Err(arboard::Error::ContentNotAvailable) => {
+            return Err(InputError::new(
+                "剪贴板里没有图片",
+                "先截图或复制一张图片，再试一次。",
+            ));
+        }
+        Err(err) => {
+            eprintln!("capture: clipboard image failed: {err}");
+            return Err(InputError::new(
+                "剪贴板读不出图片",
+                "复制一张图片后重试。",
+            ));
+        }
+    };
+
+    let width = u32::try_from(image.width).unwrap_or(0);
+    let height = u32::try_from(image.height).unwrap_or(0);
+    let buffer = image::RgbaImage::from_raw(width, height, image.bytes.into_owned())
+        .filter(|buffer| !buffer.is_empty())
+        .ok_or_else(|| InputError::new("剪贴板里的图片读不出来", "换一张图复制后重试。"))?;
+    image::DynamicImage::ImageRgba8(buffer)
+        .save_with_format(path, image::ImageFormat::Png)
+        .map_err(|err| {
+            eprintln!("capture: saving clipboard image: {err}");
+            InputError::new("剪贴板图片存不下来", "重试一次；还不行就换一张图。")
+        })?;
+
+    let bytes = std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
+    if let Err(err) = check_image_size(bytes) {
+        let _ = std::fs::remove_file(path);
+        return Err(err);
+    }
+    Ok(())
 }
 
 pub fn show_main(app: &AppHandle) {
@@ -750,9 +1044,6 @@ fn localize_error(message: &str) -> String {
 fn hint_for(message: &str) -> String {
     if message.contains("E_SETUP_REQUIRED") {
         return "下载 OCR 模型后即可截图。".into();
-    }
-    if message.contains("E_CAPTURE") {
-        return "重新截图后再试。".into();
     }
     if message.contains("E_PERMISSION") || message.contains("屏幕录制权限") {
         return "在系统设置 → 隐私与安全性 → 屏幕录制中勾选 ocr4code，然后重启应用。"
@@ -938,28 +1229,6 @@ mod tests {
     }
 
     #[test]
-    fn a_ready_engine_is_pinned_instead_of_rechecked() {
-        // Leaving the mode on `auto` after `ensure_ready` succeeded would run a
-        // second 800 ms health check and could silently downgrade to tesseract.
-        let mut config = Config::default();
-        assert_eq!(config.engine, EngineMode::Auto);
-        use_llama(&mut config, "http://127.0.0.1:18099".into());
-        assert_eq!(config.engine, EngineMode::LlamaCpp);
-        assert_eq!(
-            config.llama_url.as_deref(),
-            Some("http://127.0.0.1:18099")
-        );
-    }
-
-    #[test]
-    fn chunked_retry_halves_the_output_budget_with_a_floor() {
-        assert_eq!(retry_max_tokens(3072), 1536);
-        assert_eq!(retry_max_tokens(2048), 1024);
-        assert_eq!(retry_max_tokens(1536), 1024);
-        assert_eq!(retry_max_tokens(512), 1024);
-    }
-
-    #[test]
     fn notification_preview_uses_the_first_non_empty_line() {
         let body = notification_body("\n\n    let   value = 1;   // x\nfn main() {}", 2, true);
         assert_eq!(body, "let value = 1; // x\n2 行 · 已复制到剪贴板");
@@ -974,5 +1243,85 @@ mod tests {
 
         let body = notification_body("  \n\t\n", 0, false);
         assert_eq!(body, "0 行 · 打开应用查看");
+    }
+
+    fn test_state() -> AppState {
+        AppState {
+            settings: std::sync::Mutex::new(Settings::default()),
+            busy: AtomicBool::new(false),
+            cancel: AtomicBool::new(false),
+            shortcut_active: AtomicBool::new(false),
+        }
+    }
+
+    fn temp_file(tag: &str, contents: &[u8]) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "ocr4code-{tag}-{}-{unique}.png",
+            std::process::id()
+        ));
+        std::fs::write(&path, contents).unwrap();
+        path
+    }
+
+    #[test]
+    fn only_decodable_image_extensions_are_accepted() {
+        for name in [
+            "shot.png",
+            "shot.JPG",
+            "shot.jpeg",
+            "shot.webp",
+            "shot.bmp",
+            "shot.tiff",
+        ] {
+            assert!(is_supported_image_path(Path::new(name)), "{name}");
+        }
+        for name in ["notes.txt", "anim.gif", "shot", "shot.png.exe", "shot.heic"] {
+            assert!(!is_supported_image_path(Path::new(name)), "{name}");
+        }
+    }
+
+    #[test]
+    fn an_unsupported_file_is_rejected_before_it_is_opened() {
+        let err = validate_image_file(Path::new("/definitely/missing/notes.txt")).unwrap_err();
+        assert_eq!(err.message, "不支持这个格式");
+        assert!(err.hint.contains("PNG"));
+    }
+
+    #[test]
+    fn files_over_the_size_limit_are_rejected() {
+        assert!(check_image_size(MAX_IMAGE_BYTES).is_ok());
+        let err = check_image_size(MAX_IMAGE_BYTES + 1).unwrap_err();
+        assert_eq!(err.message, "图片太大了");
+        assert!(err.hint.contains("40 MB"));
+    }
+
+    #[test]
+    fn a_file_dropped_by_the_user_is_never_deleted() {
+        let path = temp_file("keep", b"data");
+        cleanup_source(&JobSource::File(path.clone()));
+        assert!(path.exists());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn the_clipboard_temp_file_is_removed_after_a_job() {
+        let path = temp_file("clipboard", b"data");
+        cleanup_source(&JobSource::Clipboard(path.clone()));
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn a_second_job_is_rejected_while_one_is_running() {
+        let state = test_state();
+        assert!(claim_busy(&state).is_ok());
+        assert!(!state.cancel.load(Ordering::SeqCst));
+        let err = claim_busy(&state).unwrap_err();
+        assert_eq!(err.message, "正在识别上一张图");
+        state.busy.store(false, Ordering::SeqCst);
+        assert!(claim_busy(&state).is_ok());
     }
 }

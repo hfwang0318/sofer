@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { Icon } from "./components/Icon";
 import { PermissionDialog } from "./components/PermissionDialog";
 import { PreviewDesktop } from "./components/PreviewDesktop";
 import { SetupDialog } from "./components/SetupDialog";
@@ -13,9 +14,13 @@ import {
   copyText,
   engineStatus,
   loadSettings,
+  ocrClipboardImage,
+  ocrImageFile,
+  onDragState,
   onEngineDownload,
   onEngineState,
   onError,
+  onImageDrop,
   onPartial,
   onPhase,
   onRemoteProgress,
@@ -38,6 +43,8 @@ import {
   DEFAULT_SETTINGS,
   DEMO_RESULT,
   FIRST_CAPTURE_KEY,
+  IMAGE_FORMAT_LABEL,
+  MAX_IMAGE_BYTES,
   modelName,
   modelTotalBytes,
   SETUP_DISMISSED_KEY,
@@ -54,8 +61,11 @@ import { isMac, isPreview, isTauri } from "./lib/platform";
 import { captureReadiness } from "./lib/status";
 import type {
   DownloadProgress,
+  DragPayload,
+  DroppedImage,
   EngineStatus,
   HistoryEntry,
+  InputError,
   OcrError,
   OcrPartial,
   OcrResult,
@@ -108,6 +118,8 @@ const DEMO_ERROR: OcrError = {
   code: "engine",
 };
 
+const IMAGE_FORMATS = `${IMAGE_FORMAT_LABEL}，最大 ${MAX_IMAGE_BYTES / (1024 * 1024)} MB`;
+
 export default function App() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [status, setStatus] = useState<EngineStatus | null>(null);
@@ -121,6 +133,7 @@ export default function App() {
   const [result, setResult] = useState<OcrResult | null>(
     demo === "result" ? DEMO_RESULT : null,
   );
+  const [drag, setDrag] = useState<DragPayload | null>(null);
   const [error, setError] = useState<OcrError | null>(demo === "error" ? DEMO_ERROR : null);
   const [history, setHistory] = useState<HistoryEntry[]>(loadHistory);
   const [shortcutActive, setShortcutActive] = useState(true);
@@ -592,6 +605,100 @@ export default function App() {
     screenAccessState,
   ]);
 
+  /** A rejected file is the command's `InputError`; anything else is a bug. */
+  const showInputError = useCallback(
+    (cause: unknown) => {
+      if (cause && typeof cause === "object") {
+        const input = cause as Partial<InputError>;
+        if (typeof input.message === "string" && typeof input.hint === "string") {
+          pushToast("error", input.message, input.hint);
+          return;
+        }
+      }
+      pushToast(
+        "error",
+        "这张图片没有识别",
+        cause instanceof Error ? cause.message : String(cause),
+      );
+    },
+    [pushToast],
+  );
+
+  // Dropped files and clipboard images enter the same pipeline as a capture:
+  // the shell only hands over the pixels, everything else is shared.
+  const handleDroppedFiles = useCallback(
+    async (files: DroppedImage[]) => {
+      const first = files[0];
+      if (!first) return;
+      if (phaseRef.current !== "idle") {
+        pushToast("info", "正在识别上一张图", "等这次识别结束再试。");
+        return;
+      }
+      if (files.length > 1) {
+        pushToast("info", "一次识别一张图", "先处理第一张，完成后再拖下一张。");
+      }
+      setError(null);
+      try {
+        await ocrImageFile(first);
+      } catch (cause) {
+        showInputError(cause);
+      }
+    },
+    [pushToast, showInputError],
+  );
+
+  const handleClipboardImage = useCallback(async () => {
+    if (phaseRef.current !== "idle") {
+      pushToast("info", "正在识别上一张图", "等这次识别结束再试。");
+      return;
+    }
+    setError(null);
+    try {
+      await ocrClipboardImage();
+    } catch (cause) {
+      showInputError(cause);
+    }
+  }, [pushToast, showInputError]);
+
+  const handlePickedImage = useCallback(
+    (file: { name: string; size: number }) => {
+      void handleDroppedFiles([
+        { path: file.name, name: file.name, size: file.size },
+      ]);
+    },
+    [handleDroppedFiles],
+  );
+
+  useEffect(() => {
+    let disposed = false;
+    const unsubscribers: Array<() => void> = [];
+    const track = (subscription: Promise<() => void>) => {
+      subscription
+        .then((unsubscribe) => {
+          if (disposed) unsubscribe();
+          else unsubscribers.push(unsubscribe);
+        })
+        .catch(() => undefined);
+    };
+
+    track(
+      onDragState((payload) => {
+        setDrag(payload.active ? payload : null);
+      }),
+    );
+    track(
+      onImageDrop((files) => {
+        setDrag(null);
+        void handleDroppedFiles(files);
+      }),
+    );
+
+    return () => {
+      disposed = true;
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
+    };
+  }, [handleDroppedFiles]);
+
   const requestPermission = useCallback(() => {
     setSetupOpen(false);
     setPermissionOpen(true);
@@ -1039,6 +1146,8 @@ export default function App() {
                 showSteps={showSteps}
                 firstCaptureTip={firstCaptureTip}
                 onCapture={() => void handleCapture()}
+                onClipboard={() => void handleClipboardImage()}
+                onPickImage={handlePickedImage}
                 onCopy={(text) => void handleCopy(text)}
                 onOpenHistory={() => setView("history")}
                 onOpenSettings={openSettings}
@@ -1096,6 +1205,29 @@ export default function App() {
             )}
           </div>
         </main>
+        {/* Dropping works on every view, so the target belongs to the window
+            rather than the capture page. */}
+        {drag?.active && (
+          <div
+            className={`drop-overlay${drag.accepted ? "" : " is-rejected"}`}
+            role="status"
+            aria-live="polite"
+          >
+            <div className="drop-card">
+              <span className="drop-icon">
+                <Icon name={drag.accepted ? "image" : "alert"} size={22} />
+              </span>
+              <strong>
+                {drag.accepted ? "松开，识别这张图片" : "只支持图片文件"}
+              </strong>
+              <p>
+                {drag.accepted
+                  ? `${IMAGE_FORMATS}。`
+                  : `换成 ${IMAGE_FORMAT_LABEL} 再拖一次。`}
+              </p>
+            </div>
+          </div>
+        )}
         {toast && <Toast toast={toast} onDismiss={dismissToast} />}
       </div>
       <SetupDialog
