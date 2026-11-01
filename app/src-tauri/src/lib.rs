@@ -18,7 +18,7 @@ use std::time::Duration;
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
+use tauri::{AppHandle, DragDropEvent, Emitter, Manager, State, WindowEvent};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
@@ -691,6 +691,8 @@ pub fn run() {
             capture::overlay_info,
             capture::overlay_finish,
             capture::overlay_cancel,
+            capture::ocr_image_file,
+            capture::ocr_clipboard_image,
             engine_status,
             setup_engine,
             cancel_engine_setup,
@@ -794,13 +796,30 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Closing the control window parks the app in the menu bar so the
-            // global shortcut keeps working. Quit lives in the tray menu.
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
+            if window.label() != "main" {
+                return;
+            }
+            match event {
+                // Closing the control window parks the app in the menu bar so
+                // the global shortcut keeps working. Quit lives in the tray menu.
+                WindowEvent::CloseRequested { api, .. } => {
                     api.prevent_close();
                     let _ = window.hide();
                 }
+                // The native drag handler suppresses the webview's HTML5 drop
+                // events, so file drops are reported from here. The page then
+                // calls `ocr_image_file`; both entry points validate the same
+                // way and share the busy flag.
+                WindowEvent::DragDrop(DragDropEvent::Enter { paths, .. }) => {
+                    capture::handle_drag_enter(window, paths);
+                }
+                WindowEvent::DragDrop(DragDropEvent::Leave) => {
+                    capture::handle_drag_leave(window);
+                }
+                WindowEvent::DragDrop(DragDropEvent::Drop { paths, .. }) => {
+                    capture::handle_drop(window, paths.clone());
+                }
+                _ => {}
             }
         })
         .build(tauri::generate_context!())
