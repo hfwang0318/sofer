@@ -219,7 +219,7 @@ export function SetupDialog({
 
         {mode === "ready" ? (
           <>
-            <p className="eyebrow">{firstRun ? "首次使用" : "识别模型"}</p>
+            <p className="eyebrow">{firstRun ? "首次使用" : "OCR 模型"}</p>
             <h2 id="setup-title">可以开始截图了</h2>
             <p className="setup-lede">
               按 <Keycaps accelerator={shortcut} size="sm" /> 框选屏幕上的代码，结果会直接进剪贴板。
@@ -264,7 +264,7 @@ export function SetupDialog({
           </>
         ) : mode === "busy" ? (
           <>
-            <p className="eyebrow">{firstRun ? "首次使用" : "识别模型"}</p>
+            <p className="eyebrow">{firstRun ? "首次使用" : "OCR 模型"}</p>
             <h2 id="setup-title">{progressTitle}</h2>
             <p className="setup-lede">
               {download?.phase === "starting"
@@ -373,21 +373,21 @@ export function SetupDialog({
           </>
         ) : (
           <>
-            <p className="eyebrow">{firstRun ? "首次使用" : "识别模型"}</p>
+            <p className="eyebrow">{firstRun ? "首次使用" : "OCR 模型"}</p>
             <h2 id="setup-title">
-              {status.model.installed ? "启动识别服务" : "启用本地识别"}
+              {status.model.installed ? "启动 OCR 引擎" : "启用本地 OCR 引擎"}
             </h2>
             <p className="setup-lede">
               {status.model.installed
                 ? "模型已经装好，启动后就能截图。"
-                : "下载一次识别模型，之后截图都在本机处理。"}
+                : "下载一次 OCR 模型，之后截图都在本机处理。"}
             </p>
 
             {firstRun && <Steps shortcut={shortcut} />}
 
             <div className="setup-checklist">
               <CheckRow
-                title="识别模型"
+                title="OCR 模型"
                 detail={
                   status.model.installed
                     ? `${formatBytes(status.model.bytes)} · 已安装`

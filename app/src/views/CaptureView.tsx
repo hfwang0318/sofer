@@ -32,7 +32,7 @@ interface CaptureViewProps {
 
 function engineLabel(engine: string): string {
   if (engine.startsWith("llamacpp")) return "本地模型";
-  if (engine.startsWith("tesseract")) return "备用识别";
+  if (engine.startsWith("tesseract")) return "tesseract";
   if (engine.startsWith("mock")) return "预览";
   return engine;
 }
@@ -136,8 +136,8 @@ function SetupBanner({ onSetup, remote }: { onSetup: () => void; remote: boolean
         <Icon name="spark" size={20} />
       </div>
       <div className="setup-banner-copy">
-        <p className="eyebrow">{remote ? "远程识别" : "识别模型"}</p>
-        <h2>{remote ? "先把模型部署到服务器" : "先下载识别模型"}</h2>
+        <p className="eyebrow">{remote ? "远程 OCR 引擎" : "OCR 模型"}</p>
+        <h2>{remote ? "先把模型部署到服务器" : "先下载 OCR 模型"}</h2>
         <p>
           {remote
             ? "部署一次，截图会发到你的服务器识别。"
@@ -204,11 +204,11 @@ function errorCopy(error: OcrError): ErrorCopy {
     case "permission":
       return { title: "需要屏幕录制权限", badge: "需要授权", tone: "warn" };
     case "setup-required":
-      return { title: "先下载识别模型", badge: "需要设置", tone: "warn" };
+      return { title: "先下载 OCR 模型", badge: "需要设置", tone: "warn" };
     case "blank":
       return { title: "截图区域是空白的", badge: "截图失败", tone: "danger" };
     case "engine":
-      return { title: "识别没有完成", badge: "识别问题", tone: "danger" };
+      return { title: "识别没有完成", badge: "OCR 引擎问题", tone: "danger" };
     default:
       return { title: "这次截图没有成功", badge: "截图失败", tone: "danger" };
   }

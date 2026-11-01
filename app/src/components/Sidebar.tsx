@@ -31,7 +31,7 @@ const NAV = [
 
 const SETTINGS_NAV: Array<{ id: SettingsSection; label: string }> = [
   { id: "general", label: "通用" },
-  { id: "recognition", label: "识别" },
+  { id: "recognition", label: "OCR" },
   { id: "output", label: "输出" },
   { id: "advanced", label: "高级" },
   { id: "about", label: "关于" },
@@ -79,8 +79,8 @@ export function Sidebar({
       ? downloadSummary(download)
       : engineMode === "tesseract"
         ? status?.tesseract
-          ? { label: "备用识别已就绪", detail: "Tesseract · 不需要模型", tone: "ok" as const }
-          : { label: "备用识别不可用", detail: "请安装 tesseract", tone: "danger" as const }
+          ? { label: "tesseract 已就绪", detail: "tesseract · 不需要模型", tone: "ok" as const }
+          : { label: "tesseract 不可用", detail: "请安装 tesseract", tone: "danger" as const }
         : engineSummary(status);
 
   return (
@@ -143,7 +143,7 @@ export function Sidebar({
         type="button"
         className="engine-card"
         onClick={() => onSettingsSection("recognition")}
-        title="识别设置"
+        title="OCR 设置"
       >
         <span className={`status-dot tone-${engine.tone}`} />
         <span className="engine-copy">

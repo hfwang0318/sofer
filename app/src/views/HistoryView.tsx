@@ -16,7 +16,7 @@ interface HistoryViewProps {
 
 function engineLabel(engine: string): string {
   if (engine.startsWith("llamacpp")) return "本地模型";
-  if (engine.startsWith("tesseract")) return "备用识别";
+  if (engine.startsWith("tesseract")) return "tesseract";
   if (engine.startsWith("mock")) return "预览";
   return engine;
 }

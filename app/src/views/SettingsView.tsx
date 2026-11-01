@@ -181,7 +181,7 @@ function LocalEnginePanel({
       <div className="runtime-head">
         <div className="runtime-heading">
           <span className={`status-dot tone-${status.llama ? "ok" : model.installed ? "warn" : "danger"}`} />
-          <strong>本地识别</strong>
+          <strong>本地 OCR 引擎</strong>
           <span className="badge">
             {runtime.bundled ? "内置运行时" : runtime.system ? "系统运行时" : "运行时缺失"}
           </span>
@@ -546,7 +546,7 @@ export function SettingsView({
             ? next.remote.url ?? "远程服务已连接。"
             : next.remote.deployed
               ? "截图时会自动连接服务器。"
-              : "到 识别 → 部署到服务器 里完成部署。",
+              : "到 OCR → 部署到服务器 里完成部署。",
         );
         return;
       }
@@ -556,7 +556,7 @@ export function SettingsView({
         next.llama
           ? next.llamaUrl
           : next.tesseract
-            ? "本地模型没有响应，但备用识别可用。"
+            ? "本地模型没有响应，但 tesseract 可用。"
             : "先下载模型，或安装 tesseract。",
       );
     } catch (error) {
@@ -650,6 +650,18 @@ export function SettingsView({
             />
           </SettingRow>
           <SettingRow
+            title="识别完成通知"
+            description="应用不在前台时，用系统通知显示结果首行；通知内容可能包含代码。"
+          >
+            <Switch
+              checked={draft.notifyOnResult}
+              onChange={(notifyOnResult) =>
+                update("notifyOnResult", notifyOnResult)
+              }
+              label="识别完成通知"
+            />
+          </SettingRow>
+          <SettingRow
             title="界面缩放"
             description="调整窗口内的字号和控件大小。"
           >
@@ -702,8 +714,8 @@ export function SettingsView({
 
         <Section
           id="recognition"
-          title="识别"
-          description="截图交给哪个模型，以及模型放在哪里。"
+          title="OCR"
+          description="截图交给哪个 OCR 引擎，以及模型放在哪里。"
           meta={
             <div className={`engine-health tone-${engine.tone}`}>
               <span className="status-dot" />
@@ -969,7 +981,7 @@ export function SettingsView({
           description="影响识别质量和内存占用。一般保持默认。"
         >
           <SettingRow
-            title="识别引擎"
+            title="引擎模式"
             description={
               draft.engine === "auto"
                 ? "优先用本地模型，不可用时回落到 tesseract。"
@@ -979,7 +991,7 @@ export function SettingsView({
             }
           >
             <Segmented
-              label="识别引擎"
+              label="引擎模式"
               value={draft.engine}
               onChange={(next) => update("engine", next)}
               options={[
@@ -1110,14 +1122,14 @@ export function SettingsView({
             <div className={draft.engine === "auto" ? "engine-fallback" : ""}>
               {draft.engine === "auto" && (
                 <div className="fallback-label">
-                  <span>备用识别</span>
+                  <span>备用</span>
                   <span className="fallback-line" />
                   <span>tesseract</span>
                 </div>
               )}
               <div className="field-grid">
                 <Field
-                  label="Tesseract 语言"
+                  label="tesseract 语言"
                   error={draft.engine === "tesseract" ? langError : null}
                   hint="需要先安装语言包，例如 eng+chi_sim。"
                 >
@@ -1125,7 +1137,7 @@ export function SettingsView({
                     className="input mono"
                     value={draft.tessLang}
                     spellCheck={false}
-                    aria-label="Tesseract 语言"
+                    aria-label="tesseract 语言"
                     onChange={(event) => update("tessLang", event.target.value)}
                   />
                 </Field>
@@ -1137,7 +1149,7 @@ export function SettingsView({
                     <select
                       className="input select"
                       value={draft.psm}
-                      aria-label="Tesseract 页面分割模式"
+                      aria-label="tesseract 页面分割模式"
                       onChange={(event) => update("psm", Number(event.target.value))}
                     >
                       {PSM_OPTIONS.map((option) => (
@@ -1162,7 +1174,7 @@ export function SettingsView({
         >
           <div className="about-grid">
             <div>
-              <span className="about-label">识别</span>
+              <span className="about-label">OCR 引擎</span>
               <span className={`about-value tone-${engine.tone}`}>
                 <span className="status-dot" />
                 {engine.label}

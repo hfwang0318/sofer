@@ -26,6 +26,7 @@ export type ReadinessState =
 export interface Settings {
   shortcut: string;
   autoCopy: boolean;
+  notifyOnResult: boolean;
   historyLimit: number;
   useMirror: boolean;
   proxyUrl: string;

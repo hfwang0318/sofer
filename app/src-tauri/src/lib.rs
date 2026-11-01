@@ -305,7 +305,7 @@ fn remote_config(app: &AppHandle) -> Result<remote::RemoteConfig, String> {
     let settings = app.state::<AppState>().settings.lock().unwrap().clone();
     settings
         .remote_config()?
-        .ok_or_else(|| "先在设置 → 识别中启用远程识别。".to_string())
+        .ok_or_else(|| "先在设置 → OCR 中启用远程部署。".to_string())
 }
 
 fn merge_remote(
@@ -355,7 +355,7 @@ async fn start_engine(app: AppHandle) -> Result<DesktopStatus, String> {
         Ok::<_, String>((status, remote_manager.state()))
     })
     .await
-    .map_err(|e| format!("无法启动识别服务：{e}"))??;
+    .map_err(|e| format!("无法启动 OCR 引擎：{e}"))??;
     Ok(merge_remote(result.0, settings.remote_enabled, result.1))
 }
 
@@ -374,7 +374,7 @@ async fn stop_engine(app: AppHandle) -> Result<(), String> {
         }
     })
     .await
-    .map_err(|e| format!("无法停止识别服务：{e}"))?;
+    .map_err(|e| format!("无法停止 OCR 引擎：{e}"))?;
     Ok(())
 }
 
@@ -397,7 +397,7 @@ async fn prepare_update(app: AppHandle) -> Result<(), String> {
         }
     })
     .await
-    .map_err(|e| format!("无法停止识别服务：{e}"))?;
+    .map_err(|e| format!("无法停止 OCR 引擎：{e}"))?;
     Ok(())
 }
 
@@ -471,7 +471,7 @@ async fn engine_status(app: AppHandle) -> Result<DesktopStatus, String> {
         (status, remote_manager.state())
     })
     .await
-    .map_err(|e| format!("无法检查识别状态：{e}"))?;
+    .map_err(|e| format!("无法检查 OCR 引擎状态：{e}"))?;
     status.tesseract = tesseract::available();
     Ok(merge_remote(status, settings.remote_enabled, remote_state))
 }
@@ -501,7 +501,7 @@ fn remote_deploy(app: AppHandle, source: Option<remote::Source>) -> Result<(), S
     }
     let cfg = settings
         .remote_config()?
-        .ok_or_else(|| "先在设置 → 识别中启用远程识别。".to_string())?;
+        .ok_or_else(|| "先在设置 → OCR 中启用远程部署。".to_string())?;
     let manager = app.state::<Arc<remote::Manager>>().inner().clone();
     if manager.deploy_running.swap(true, Ordering::SeqCst) {
         return Ok(());
@@ -523,7 +523,7 @@ async fn remote_start(app: AppHandle) -> Result<DesktopStatus, String> {
     let settings = app.state::<AppState>().settings.lock().unwrap().clone();
     let cfg = settings
         .remote_config()?
-        .ok_or_else(|| "先在设置 → 识别中启用远程识别。".to_string())?;
+        .ok_or_else(|| "先在设置 → OCR 中启用远程部署。".to_string())?;
     let url = settings.llama_url.clone();
     let quality = settings.model_quality;
     let (mut status, remote_state) = tauri::async_runtime::spawn_blocking(move || {
@@ -535,7 +535,7 @@ async fn remote_start(app: AppHandle) -> Result<DesktopStatus, String> {
         Ok::<_, String>((status, remote_manager.state()))
     })
     .await
-    .map_err(|e| format!("无法启动远程识别服务：{e}"))??;
+    .map_err(|e| format!("无法启动远程 OCR 引擎：{e}"))??;
     status.tesseract = tesseract::available();
     Ok(merge_remote(status, settings.remote_enabled, remote_state))
 }
@@ -559,7 +559,7 @@ async fn remote_stop(app: AppHandle) -> Result<DesktopStatus, String> {
         (status, remote_manager.state())
     })
     .await
-    .map_err(|e| format!("无法停止远程识别服务：{e}"))?;
+    .map_err(|e| format!("无法停止远程 OCR 引擎：{e}"))?;
     status.tesseract = tesseract::available();
     Ok(merge_remote(status, settings.remote_enabled, remote_state))
 }
@@ -675,6 +675,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             load_settings,
             save_settings,

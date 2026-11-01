@@ -58,7 +58,7 @@ export function captureReadiness({
       return { state: "starting", label: "正在启动", tone: "ok" };
     }
     if (remote.phase === "failed") {
-      return { state: "error", label: "远程识别服务出错", tone: "danger" };
+      return { state: "error", label: "远程 OCR 引擎出错", tone: "danger" };
     }
     if (!remote.deployed) {
       return { state: "needs-setup", label: "需要部署模型", tone: "warn" };
@@ -79,13 +79,13 @@ export function captureReadiness({
   if (engine === "tesseract") {
     return status.tesseract
       ? { state: "ready", label: "就绪", tone: "ok" }
-      : { state: "error", label: "备用识别不可用", tone: "danger" };
+      : { state: "error", label: "tesseract 不可用", tone: "danger" };
   }
   if (status.server.state === "starting") {
     return { state: "starting", label: "正在启动", tone: "ok" };
   }
   if (status.server.state === "failed") {
-    return { state: "error", label: "识别服务出错", tone: "danger" };
+    return { state: "error", label: "OCR 引擎出错", tone: "danger" };
   }
   if (!status.runtime.bundled && !status.runtime.system) {
     return { state: "error", label: "运行时缺失", tone: "danger" };
@@ -115,34 +115,34 @@ function remoteSummary(remote: NonNullable<EngineStatus["remote"]>): EngineSumma
     return { label: "正在启动", detail: "远程服务器", tone: "ok" };
   }
   if (remote.phase === "failed") {
-    return { label: "远程识别服务出错", detail: "检查设置后重试", tone: "danger" };
+    return { label: "远程 OCR 引擎出错", detail: "检查设置后重试", tone: "danger" };
   }
   if (!remote.deployed) {
     return { label: "未部署模型", detail: "到设置里部署到服务器", tone: "danger" };
   }
   if (remote.phase === "online") {
-    return { label: "识别已就绪", detail: "远程服务器", tone: "ok" };
+    return { label: "OCR 引擎已就绪", detail: "远程服务器", tone: "ok" };
   }
   return { label: "待启动", detail: "截图时自动启动", tone: "muted" };
 }
 
 export function engineSummary(status: EngineStatus | null): EngineSummary {
   if (!status) {
-    return { label: "检查识别服务…", detail: "本地识别", tone: "muted" };
+    return { label: "检查 OCR 引擎…", detail: "本地 OCR 引擎", tone: "muted" };
   }
   if (status.remote?.enabled) {
     return remoteSummary(status.remote);
   }
   if (status.llama) {
     return {
-      label: "识别已就绪",
+      label: "OCR 引擎已就绪",
       detail: status.server.managed ? "本地模型" : "外部服务",
       tone: "ok",
     };
   }
   if (status.tesseract) {
     return {
-      label: "备用识别",
+      label: "tesseract",
       detail: status.model.installed ? "本地模型未启动" : "本地模型未下载",
       tone: "warn",
     };
@@ -161,7 +161,7 @@ export function engineSummary(status: EngineStatus | null): EngineSummary {
     return { label: "正在启动", detail: "正在加载模型", tone: "ok" };
   }
   if (status.server.state === "failed") {
-    return { label: "识别服务启动失败", detail: "可在设置中重试", tone: "danger" };
+    return { label: "OCR 引擎启动失败", detail: "可在设置中重试", tone: "danger" };
   }
   return { label: "待启动", detail: "截图时自动启动", tone: "warn" };
 }
@@ -173,8 +173,8 @@ export function engineForMode(
 ): EngineSummary {
   if (mode === "tesseract") {
     return status?.tesseract
-      ? { label: "备用识别已就绪", detail: "Tesseract · 不需要模型", tone: "ok" }
-      : { label: "备用识别不可用", detail: "安装 tesseract，或换回本地模型", tone: "danger" };
+      ? { label: "tesseract 已就绪", detail: "tesseract · 不需要模型", tone: "ok" }
+      : { label: "tesseract 不可用", detail: "安装 tesseract，或换回本地模型", tone: "danger" };
   }
 
   if (!status) return engineSummary(null);
@@ -183,13 +183,13 @@ export function engineForMode(
     return { label: "运行时缺失", detail: "请使用完整安装包", tone: "danger" };
   }
   if (status.llama) {
-    return { label: "识别已就绪", detail: status.llamaUrl, tone: "ok" };
+    return { label: "OCR 引擎已就绪", detail: status.llamaUrl, tone: "ok" };
   }
   if (status.server.state === "starting") {
     return { label: "正在启动", detail: "正在加载模型", tone: "ok" };
   }
   if (status.server.state === "failed") {
-    return { label: "识别服务启动失败", detail: "重试或重新设置", tone: "danger" };
+    return { label: "OCR 引擎启动失败", detail: "重试或重新设置", tone: "danger" };
   }
   if (!status.model.installed) {
     return {

@@ -266,7 +266,7 @@ async function previewCapture() {
   if (!mockInstalled || mockServer !== "online") {
     emitPreview("ocr:phase", { phase: "idle" } satisfies PhasePayload);
     emitPreview("ocr:error", {
-      message: "识别模型还没有下载。",
+      message: "OCR 模型还没有下载。",
       hint: "下载一次即可，之后截图都在本机处理。",
       code: "setup-required",
     } satisfies OcrError);
@@ -480,7 +480,7 @@ function startMockDeploy(source: RemoteSource) {
     },
     {
       phase: "starting",
-      message: "正在启动识别服务",
+      message: "正在启动 OCR 引擎",
       file: null,
       downloaded: 0,
       total: 0,

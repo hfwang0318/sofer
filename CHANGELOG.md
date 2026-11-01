@@ -6,12 +6,20 @@ All notable changes to the desktop app. The root OCR kernel keeps its own
 ## Unreleased
 
 - Added optional remote deployment: put the OCR model on a Linux server and use it
-  from the desktop over an SSH tunnel. Settings → 识别 → 部署到服务器 probes the
+  from the desktop over an SSH tunnel. Settings → OCR → 部署到服务器 probes the
   host, installs the llama.cpp runtime when missing, downloads the model on the
   server or streams the local copy, verifies SHA-256, starts `llama-server` on
   loopback and forwards it with `ssh -L`. Remote-only mode surfaces a deploy CTA
   instead of the local setup dialog, and the About page privacy copy follows the
-  selected mode.
+  selected mode. When the verified model is already on the server the action
+  becomes **连接** instead of **一键部署**, so it no longer looks like a
+  re-download is required. Server-side downloads use four ranged connections in
+  parallel and fall back to a single connection when Range is unsupported.
+- Added a completion notification: when OCR finishes and the main window is not
+  focused, a system notification shows the first line, row count and whether the
+  text reached the clipboard. It can be turned off under
+  通用 → 识别完成通知. macOS uses Notification Center, Windows 10/11 uses Toast
+  (dev builds may be attributed to Windows PowerShell).
 - Added a high/low precision model option: high uses the official Q8_0 pack,
   low uses the verified `mradermacher/GLM-OCR-GGUF` Q4_K_M pack. Both share the
   same mmproj; switching precision stops the old server and guides the user
@@ -35,7 +43,7 @@ All notable changes to the desktop app. The root OCR kernel keeps its own
   row, automatic re-check on app focus, and a screenshot-time guard.
 - Captures that are almost entirely one colour now fail with an actionable
   `permission`/`blank` error instead of silently producing empty text.
-- Settings is now five sections — 通用 / 识别 / 输出 / 高级 / 关于 — with engine
+- Settings is now five sections — 通用 / OCR / 输出 / 高级 / 关于 — with engine
   status, downloads and permission in context, and technical knobs tucked into
   the 高级 fold and disclosure rows. The save bar reports unsaved changes.
 - Capture and history pages now share one readiness state (checking, setup,

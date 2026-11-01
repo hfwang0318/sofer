@@ -37,6 +37,20 @@ const LOCAL_PORT_END: u16 = 28_120;
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(240);
 const SSH_TIMEOUT: Duration = Duration::from_secs(30);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(4 * 60 * 60);
+/// Files at least this large use ranged, multi-connection downloads.
+const PARALLEL_MIN_BYTES: u64 = 16 * 1024 * 1024;
+/// Range requests run in parallel; 4 is a good balance between speed and the
+/// server/CDN tolerating the connections.
+const DOWNLOAD_CONNECTIONS: u32 = 4;
+
+/// What `run_script` should poll for download progress.
+#[derive(Debug, Clone, Copy)]
+enum PollTarget<'a> {
+    /// A single file, e.g. `model.gguf.part`.
+    File(&'a str),
+    /// A directory of `part-*` files used by a ranged download.
+    Parts(&'a str),
+}
 
 /// Where the weights come from when the server does not have them yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -375,6 +389,8 @@ impl Manager {
     pub fn deploy(&self, cfg: &RemoteConfig, source: Source) -> Result<(), Error> {
         let _lifecycle = self.lifecycle.lock().unwrap();
         validate(cfg)?;
+        // shutdown() needs the config to release a server started by deploy.
+        self.remember(cfg);
         self.cancel.store(false, Ordering::SeqCst);
         {
             let mut slot = self.slot.lock().unwrap();
@@ -466,12 +482,12 @@ impl Manager {
                 slot.deployed = false;
             }
             return Err(Error::NotDeployed(
-                "服务器上还没有识别模型。到设置 → 识别中完成部署。".into(),
+                "服务器上还没有 OCR 模型。到设置 → OCR 中完成部署。".into(),
             ));
         }
         if probe.runtime.is_none() {
             return Err(Error::NotDeployed(
-                "服务器上还没有识别运行时。到设置 → 识别中重新部署。".into(),
+                "服务器上还没有 OCR 运行时。到设置 → OCR 中重新部署。".into(),
             ));
         }
         {
@@ -509,13 +525,13 @@ impl Manager {
         // that case skip the process restart and reuse it.
         let healthy = self.remote_healthy(cfg).unwrap_or(false);
         if !healthy {
-            self.progress("starting", Some("正在启动识别服务".into()), None, 0, 0);
+            self.progress("starting", Some("正在启动 OCR 引擎".into()), None, 0, 0);
             let script = start_script(cfg, probe);
             let output = self.run_script(cfg, &script, SSH_TIMEOUT, None)?;
             if output.contains("START_ERROR") {
                 self.stop_tunnel();
                 return Err(Error::Remote(format!(
-                    "识别服务没有启动起来。\n{}",
+                    "OCR 引擎没有启动起来。\n{}",
                     tail_text(&output)
                 )));
             }
@@ -539,14 +555,14 @@ impl Manager {
                     slot.url = Some(url.clone());
                     slot.remote_url = Some(format!("http://127.0.0.1:{}", cfg.server_port));
                 }
-                self.progress("ready", Some("识别服务已就绪".into()), None, 0, 0);
+                self.progress("ready", Some("OCR 引擎已就绪".into()), None, 0, 0);
                 return Ok(url);
             }
             thread::sleep(Duration::from_millis(400));
         }
         self.stop_tunnel();
         Err(Error::Timeout(
-            "识别服务在 240 秒内没有就绪。查看服务器日志后重试。".into(),
+            "OCR 引擎在 240 秒内没有就绪。查看服务器日志后重试。".into(),
         ))
     }
 
@@ -627,7 +643,9 @@ impl Manager {
         self.stop_tunnel();
         if validate(cfg).is_ok() {
             let script = stop_script(cfg);
-            let _ = self.run_script(cfg, &script, Duration::from_secs(12), None);
+            // The cancel flag is set above to abort any in-flight deploy; it
+            // must not abort the stop script itself.
+            let _ = self.run_script_inner(cfg, &script, Duration::from_secs(12), None, false);
         }
         self.set_phase(Phase::Stopped, None);
     }
@@ -639,7 +657,9 @@ impl Manager {
         if let Some(cfg) = cfg {
             if validate(&cfg).is_ok() {
                 let script = stop_script(&cfg);
-                let _ = self.run_script(&cfg, &script, Duration::from_secs(5), None);
+                // Quitting must still release the remote process after cancel
+                // was raised for an in-flight deploy.
+                let _ = self.run_script_inner(&cfg, &script, Duration::from_secs(5), None, false);
             }
         }
     }
@@ -700,7 +720,7 @@ impl Manager {
         let assets = runtime_assets(&probe.arch, cfg.accel)?;
         self.progress(
             "runtime",
-            Some("正在安装识别运行时".into()),
+            Some("正在安装 OCR 运行时".into()),
             None,
             0,
             0,
@@ -763,20 +783,36 @@ impl Manager {
             let url = model_url(file, cfg.use_mirror);
             let target = format!("{}/models/{}", probe.dir, file.name);
             let part = format!("{target}.part");
+            let parts = format!("{target}.parts");
+            let parallel = probe.curl && file.bytes >= PARALLEL_MIN_BYTES;
             self.progress_bytes("downloading", file.name, 0, file.bytes, Instant::now());
-            let script = format!(
-                "set -u\nDIR={dir}\nmkdir -p \"$DIR/models\"\n{download}\n\
-                 fetch {url} {part} || {{ echo OCR4CODE FETCH_FAILED=1; exit 3; }}\n\
-                 mv -f {part} {target}\n\
-                 echo OCR4CODE FILE_OK=1\n",
-                dir = shell_quote(&probe.dir),
-                download = download_function(),
-                url = shell_quote(&url),
-                part = shell_quote(&part),
-                target = shell_quote(&target),
-            );
+            let script = if parallel {
+                parallel_download_script(&url, &target, file.bytes, DOWNLOAD_CONNECTIONS)
+            } else {
+                format!(
+                    "set -u\nDIR={dir}\nmkdir -p \"$DIR/models\"\n{download}\n\
+                     fetch {url} {part} || {{ echo OCR4CODE FETCH_FAILED=1; exit 3; }}\n\
+                     mv -f {part} {target}\n\
+                     echo OCR4CODE FILE_OK=1\n",
+                    dir = shell_quote(&probe.dir),
+                    download = download_function(),
+                    url = shell_quote(&url),
+                    part = shell_quote(&part),
+                    target = shell_quote(&target),
+                )
+            };
+            let poll = if parallel {
+                PollTarget::Parts(parts.as_str())
+            } else {
+                PollTarget::File(part.as_str())
+            };
             let started = Instant::now();
-            let output = self.run_script(cfg, &script, DOWNLOAD_TIMEOUT, Some((part.as_str(), file.name, file.bytes)))?;
+            let output = self.run_script(
+                cfg,
+                &script,
+                DOWNLOAD_TIMEOUT,
+                Some((poll, file.name, file.bytes)),
+            )?;
             if output.contains("FETCH_FAILED") {
                 return Err(Error::Remote(format!(
                     "下载 {} 失败。检查服务器网络，或开启下载镜像。",
@@ -984,7 +1020,21 @@ impl Manager {
         cfg: &RemoteConfig,
         script: &str,
         timeout: Duration,
-        poll: Option<(&str, &str, u64)>,
+        poll: Option<(PollTarget<'_>, &str, u64)>,
+    ) -> Result<String, Error> {
+        self.run_script_inner(cfg, script, timeout, poll, true)
+    }
+
+    /// `cancelable = false` is used by the stop scripts: `stop_with` and
+    /// `shutdown` raise `cancel` first, and a cancelled stop would leave
+    /// `llama-server` running on the server.
+    fn run_script_inner(
+        &self,
+        cfg: &RemoteConfig,
+        script: &str,
+        timeout: Duration,
+        poll: Option<(PollTarget<'_>, &str, u64)>,
+        cancelable: bool,
     ) -> Result<String, Error> {
         let mut cmd = ssh_base(cfg)?;
         cmd.arg("sh")
@@ -1019,7 +1069,7 @@ impl Manager {
         let mut last_bytes = 0u64;
         let mut last_bytes_at = Instant::now();
         let status = loop {
-            if self.cancel.load(Ordering::SeqCst) {
+            if cancelable && self.cancel.load(Ordering::SeqCst) {
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(Error::Cancelled);
@@ -1039,9 +1089,9 @@ impl Manager {
                     return Err(Error::Ssh(format!("等待 ssh 失败：{e}")));
                 }
             }
-            if let Some((path, file, total)) = poll {
+            if let Some((target, file, total)) = poll {
                 if last_poll.elapsed() >= Duration::from_secs(2) {
-                    let bytes = self.remote_file_size(cfg, path).unwrap_or(0);
+                    let bytes = self.remote_progress_bytes(cfg, target).unwrap_or(0);
                     last_poll = Instant::now();
                     if bytes != last_bytes {
                         let elapsed = last_bytes_at.elapsed().as_secs_f64().max(0.001);
@@ -1074,7 +1124,17 @@ impl Manager {
             .map(|handle| handle.join().unwrap_or_default())
             .unwrap_or_default();
         if !status.success() {
-            let detail = String::from_utf8_lossy(&err).trim().to_string();
+            // Scripts such as start_script put the interesting log tail on
+            // stdout (and exit non-zero), so keep it instead of reporting only
+            // the sometimes-empty stderr.
+            let mut detail = String::from_utf8_lossy(&err).trim().to_string();
+            let stdout_tail = tail_text(&String::from_utf8_lossy(&out));
+            if !stdout_tail.trim().is_empty() {
+                if !detail.is_empty() {
+                    detail.push('\n');
+                }
+                detail.push_str(stdout_tail.trim());
+            }
             return Err(Error::Remote(if detail.is_empty() {
                 "服务器命令执行失败。检查服务器环境后重试。".into()
             } else {
@@ -1084,15 +1144,16 @@ impl Manager {
         Ok(String::from_utf8_lossy(&out).to_string())
     }
 
-    fn remote_file_size(&self, cfg: &RemoteConfig, path: &str) -> Result<u64, Error> {
+    fn remote_progress_bytes(
+        &self,
+        cfg: &RemoteConfig,
+        target: PollTarget<'_>,
+    ) -> Result<u64, Error> {
         let mut cmd = ssh_base(cfg)?;
-        cmd.arg(format!(
-            "stat -c %s {} 2>/dev/null || echo 0",
-            shell_quote(path)
-        ))
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+        cmd.arg(progress_command(target))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
         let output = cmd
             .output()
             .map_err(|e| Error::Ssh(format!("查询文件大小失败：{e}")))?;
@@ -1236,10 +1297,14 @@ fn probe_script(cfg: &RemoteConfig) -> String {
          elif command -v llama-server >/dev/null 2>&1; then echo \"OCR4CODE RUNTIME=$(command -v llama-server)\"; fi\n",
     );
     for file in model_files(cfg.quality) {
+        // The pinned names contain only [A-Za-z0-9._-]; emit the bare name so
+        // parse_probe sees the same string as model_files(). Quoting here used
+        // to leak the quotes into ProbeFile::name and made every deployment
+        // look like the model was missing.
         script.push_str(&format!(
-            "if [ -f \"$DIR/models/\"{name} ]; then GOT=$(stat -c %s \"$DIR/models/\"{name} 2>/dev/null || echo 0); else GOT=0; fi\n\
+            "if [ -f \"$DIR/models/{name}\" ]; then GOT=$(stat -c %s \"$DIR/models/{name}\" 2>/dev/null || echo 0); else GOT=0; fi\n\
              echo \"OCR4CODE FILE={name}:$GOT:{bytes}\"\n",
-            name = shell_quote(file.name),
+            name = file.name,
             bytes = file.bytes
         ));
     }
@@ -1250,6 +1315,138 @@ fn probe_script(cfg: &RemoteConfig) -> String {
         cfg.quality.as_str()
     ));
     script
+}
+
+/// Multi-connection ranged download for one large file.
+///
+/// Each worker appends complete range chunks to `part-N`, so a cancelled or
+/// interrupted run resumes from the bytes already on disk. If the server
+/// ignores `Range` (returns the whole file), the script falls back to the
+/// single-connection `fetch` used by the sequential path.
+fn parallel_download_script(url: &str, target: &str, total: u64, connections: u32) -> String {
+    // Never create an empty segment: a model file is always large, but keep
+    // the invariant so the assembly loop can require an exact size.
+    let n = (connections.max(1) as u64).min(total.max(1));
+    let segment = total.div_ceil(n);
+    let part = format!("{target}.part");
+    let parts = format!("{target}.parts");
+    let template = r#"set -u
+URL=__URL__
+TARGET=__TARGET__
+PART=__PART__
+PARTS=__PARTS__
+TOTAL=__TOTAL__
+SEG=__SEG__
+N=__N__
+mkdir -p "$(dirname "$TARGET")" "$PARTS"
+PIDS=""
+trap 'for p in $PIDS; do kill "$p" 2>/dev/null; done' EXIT HUP INT TERM
+__DOWNLOAD__
+RANGE_CODE=$(curl -fsL --range 0-0 -o /dev/null -w '%{http_code}' "$URL" 2>/dev/null || echo 000)
+if [ "$RANGE_CODE" != "206" ]; then
+  echo OCR4CODE RANGE_UNSUPPORTED=1
+  fetch "$URL" "$PARTS/part-fallback" || { echo OCR4CODE FETCH_FAILED=1; exit 3; }
+  mv -f "$PARTS/part-fallback" "$TARGET"
+  rm -rf "$PARTS"
+  echo OCR4CODE FILE_OK=1
+  exit 0
+fi
+segment() {
+  I=$1
+  START=$((I * SEG))
+  END=$((START + SEG - 1))
+  if [ "$START" -ge "$TOTAL" ]; then return 0; fi
+  if [ "$END" -ge "$TOTAL" ]; then END=$((TOTAL - 1)); fi
+  WANT=$((END - START + 1))
+  PARTFILE="$PARTS/part-$I"
+  HAVE=0
+  if [ -f "$PARTFILE" ]; then HAVE=$(stat -c %s "$PARTFILE" 2>/dev/null || echo 0); fi
+  if [ "$HAVE" -gt "$WANT" ]; then HAVE=0; rm -f "$PARTFILE"; fi
+  TRIES=0
+  while [ "$HAVE" -lt "$WANT" ]; do
+    FROM=$((START + HAVE))
+    # No curl --retry here: a retried response would be appended after the
+    # partial bytes from the failed attempt. The outer loop resumes from the
+    # file size instead, which also works after a cancel/restart.
+    curl -fL --no-progress-meter --range "$FROM-$END" "$URL" >> "$PARTFILE"
+    NEW=$(stat -c %s "$PARTFILE" 2>/dev/null || echo 0)
+    if [ "$NEW" -gt "$WANT" ]; then rm -f "$PARTFILE"; return 2; fi
+    if [ "$NEW" -le "$HAVE" ]; then
+      TRIES=$((TRIES + 1))
+      if [ "$TRIES" -ge 3 ]; then return 1; fi
+    else
+      TRIES=0
+    fi
+    HAVE=$NEW
+  done
+  return 0
+}
+I=0
+while [ "$I" -lt "$N" ]; do
+  segment "$I" &
+  PIDS="$PIDS $!"
+  I=$((I + 1))
+done
+FAIL=0
+RANGE_UNSUPPORTED=0
+for P in $PIDS; do
+  wait "$P"
+  RC=$?
+  if [ "$RC" -eq 2 ]; then RANGE_UNSUPPORTED=1; elif [ "$RC" -ne 0 ]; then FAIL=1; fi
+done
+PIDS=""
+if [ "$RANGE_UNSUPPORTED" -eq 1 ]; then
+  rm -rf "$PARTS"
+  mkdir -p "$PARTS"
+  echo OCR4CODE RANGE_UNSUPPORTED=1
+  fetch "$URL" "$PARTS/part-fallback" || { echo OCR4CODE FETCH_FAILED=1; exit 3; }
+  mv -f "$PARTS/part-fallback" "$TARGET"
+  rm -rf "$PARTS"
+  echo OCR4CODE FILE_OK=1
+  exit 0
+fi
+if [ "$FAIL" -ne 0 ]; then
+  echo OCR4CODE FETCH_FAILED=1
+  exit 3
+fi
+I=0
+while [ "$I" -lt "$N" ]; do
+  START=$((I * SEG)); END=$((START + SEG - 1))
+  if [ "$END" -ge "$TOTAL" ]; then END=$((TOTAL - 1)); fi
+  WANT=$((END - START + 1))
+  HAVE=$(stat -c %s "$PARTS/part-$I" 2>/dev/null || echo 0)
+  if [ "$HAVE" -ne "$WANT" ]; then echo OCR4CODE FETCH_FAILED=1; exit 3; fi
+  I=$((I + 1))
+done
+: > "$PART"
+I=0
+while [ "$I" -lt "$N" ]; do cat "$PARTS/part-$I" >> "$PART"; I=$((I + 1)); done
+mv -f "$PART" "$TARGET"
+rm -rf "$PARTS"
+echo OCR4CODE FILE_OK=1
+"#;
+    template
+        .replace("__URL__", &shell_quote(url))
+        .replace("__TARGET__", &shell_quote(target))
+        .replace("__PART__", &shell_quote(&part))
+        .replace("__PARTS__", &shell_quote(&parts))
+        .replace("__TOTAL__", &total.to_string())
+        .replace("__SEG__", &segment.to_string())
+        .replace("__N__", &n.to_string())
+        .replace("__DOWNLOAD__", &download_function())
+}
+
+fn progress_command(target: PollTarget<'_>) -> String {
+    match target {
+        PollTarget::File(path) => format!(
+            "stat -c %s {} 2>/dev/null || echo 0",
+            shell_quote(path)
+        ),
+        PollTarget::Parts(dir) => format!(
+            "find {} -type f -name 'part-*' -exec stat -c %s {{}} + 2>/dev/null | awk '{{s+=$1}} END {{print s+0}}'",
+            shell_quote(dir)
+        ),
+    }
 }
 
 fn download_function() -> String {
@@ -1675,9 +1872,70 @@ OCR4CODE FILE=GLM-OCR.Q4_K_M.gguf:100:548515136
     fn probe_script_expands_tilde_and_lists_both_files() {
         let script = probe_script(&config());
         assert!(script.contains("${DIR_RAW#\\~/}"));
-        assert!(script.contains("GLM-OCR.Q4_K_M.gguf"));
-        assert!(script.contains("mmproj-GLM-OCR-Q8_0.gguf"));
+        assert!(script.contains("OCR4CODE FILE=GLM-OCR.Q4_K_M.gguf:"));
+        assert!(script.contains("OCR4CODE FILE=mmproj-GLM-OCR-Q8_0.gguf:"));
+        assert!(!script.contains("FILE='"));
         assert!(script.contains("verified-low.json"));
+    }
+
+    #[test]
+    fn parallel_download_script_uses_ranges_and_falls_back() {
+        let script = parallel_download_script(
+            "https://example.com/model.gguf",
+            "/home/ocr/.ocr4code/models/model.gguf",
+            1000,
+            4,
+        );
+        // 1000 bytes / 4 connections rounds up to 250-byte segments.
+        assert!(script.contains("SEG=250"));
+        assert!(script.contains("N=4"));
+        assert!(script.contains("--range 0-0"));
+        assert!(script.contains("RANGE_CODE"));
+        assert!(script.contains("--range \"$FROM-$END\""));
+        assert!(script.contains("part-$I"));
+        assert!(script.contains("RANGE_UNSUPPORTED"));
+        assert!(script.contains("fetch \"$URL\" \"$PARTS/part-fallback\""));
+        assert!(script.contains("'https://example.com/model.gguf'"));
+        assert!(script.contains("'/home/ocr/.ocr4code/models/model.gguf.parts'"));
+        assert!(script.contains("'/home/ocr/.ocr4code/models/model.gguf.part'"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn parallel_download_script_parses_with_posix_sh() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+
+        let script = parallel_download_script(
+            "https://example.com/model.gguf",
+            "/tmp/model.gguf",
+            1024 * 1024,
+            4,
+        );
+        let mut child = Command::new("sh")
+            .arg("-n")
+            .stdin(Stdio::piped())
+            .spawn()
+            .expect("spawn sh");
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(script.as_bytes())
+            .unwrap();
+        assert!(child.wait().unwrap().success());
+    }
+
+    #[test]
+    fn progress_command_sums_finished_and_inflight_parts() {
+        let command = progress_command(PollTarget::Parts("/tmp/parts"));
+        assert!(command.contains("find '/tmp/parts'"));
+        assert!(command.contains("-name 'part-*'"));
+        assert!(!command.contains("tmp-*"));
+        assert!(command.contains("awk '{s+=$1} END {print s+0}'"));
+
+        let command = progress_command(PollTarget::File("/tmp/a.part"));
+        assert_eq!(command, "stat -c %s '/tmp/a.part' 2>/dev/null || echo 0");
     }
 
     #[test]

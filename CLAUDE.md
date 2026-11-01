@@ -14,8 +14,8 @@ not a suggestion. The gates that reviewers enforce:
 - Every blocking state keeps a visible exit: banner + primary page action
   (download model / grant permission). An old result must not hide the exit.
 - Model setup comes before screen-recording permission.
-- Terminology: 识别模型 / 识别服务 / 备用识别 / 运行时 / 截图 / 历史.
-  Do not leak `llama-server`, GGUF, OCR engine or stack traces into first-layer copy.
+- Terminology: OCR 引擎 / 引擎模式 / OCR 模型 / tesseract / 运行时 / 截图 / 历史.
+  Do not leak `llama-server`, GGUF or stack traces into first-layer copy.
 - Errors follow `[发生了什么] + [下一步]` and use the `OcrError.code` taxonomy
   (`permission` / `setup-required` / `blank` / `engine` / `capture`).
 - Dialogs trap focus, refocus after branch changes, restore focus on close, and

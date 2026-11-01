@@ -317,7 +317,7 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::SetupRequired => write!(f, "识别模型还没有下载"),
+            Error::SetupRequired => write!(f, "OCR 模型还没有下载"),
             Error::Cancelled => write!(f, "设置已取消"),
             Error::RuntimeMissing(m) => write!(f, "{m}"),
             Error::Download(m) => write!(f, "{m}"),
@@ -535,7 +535,7 @@ impl Manager {
     ) -> Result<(), Error> {
         if !self.runtime_ready() {
             return Err(Error::RuntimeMissing(
-                "这个安装包缺少内置识别运行时。请重新安装完整版本。".into(),
+                "这个安装包缺少内置 OCR 运行时。请重新安装完整版本。".into(),
             ));
         }
 
@@ -1058,7 +1058,7 @@ impl Manager {
         }
         if !self.runtime_ready() {
             return Err(Error::RuntimeMissing(
-                "缺少内置识别运行时；请使用完整安装包。"
+                "缺少内置 OCR 运行时；请使用完整安装包。"
                     .into(),
             ));
         }
@@ -1091,7 +1091,7 @@ impl Manager {
         self.stop_child();
 
         let exe = self.runtime_executable().ok_or_else(|| {
-            Error::RuntimeMissing("缺少内置识别运行时。请重新安装完整版本。".into())
+            Error::RuntimeMissing("缺少内置 OCR 运行时。请重新安装完整版本。".into())
         })?;
         if !self.model_info(config.quality).installed {
             return Err(Error::SetupRequired);

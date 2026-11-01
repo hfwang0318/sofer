@@ -123,7 +123,7 @@ export function RemotePanel({
   async function handleProbe() {
     if (working) return;
     if (!draft.remoteEnabled) {
-      onNotify("info", "先启用远程识别", "打开上面的开关并保存后再检测。");
+      onNotify("info", "先启用远程 OCR 引擎", "打开上面的开关并保存后再检测。");
       return;
     }
     if (!(await saveFirst())) return;
@@ -150,6 +150,9 @@ export function RemotePanel({
     if (!(await saveFirst())) return;
     try {
       await remoteDeploy(source);
+      // The old probe describes the pre-deploy state; keeping it would make
+      // the actions show "重新部署" even after the model has been installed.
+      setProbe(null);
       setError(null);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
@@ -167,7 +170,7 @@ export function RemotePanel({
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
-      onNotify("error", "无法启动远程识别", message);
+      onNotify("error", "无法启动远程 OCR 引擎", message);
     }
   }
 
@@ -179,7 +182,7 @@ export function RemotePanel({
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
-      onNotify("error", "无法停止远程识别", message);
+      onNotify("error", "无法停止远程 OCR 引擎", message);
     }
   }
 
@@ -201,6 +204,15 @@ export function RemotePanel({
       : 0;
   const missingModel =
     Boolean(probe) && !remote.deployed && !probe?.modelInstalled;
+  const modelReady = Boolean(probe?.modelInstalled && probe?.modelVerified);
+  // A deployed server does not need another "deploy": the deploy action would
+  // only probe, reuse the verified weights and start the service. Only ask for
+  // a deploy when something is actually missing or unverified.
+  const needsDeploy =
+    remote.phase === "deploying" ||
+    !remote.deployed ||
+    (probe !== null && !modelReady);
+  const canConnect = remote.deployed && !needsDeploy && remote.phase !== "online";
 
   return (
     <details className="settings-disclosure" open={draft.remoteEnabled}>
@@ -218,23 +230,23 @@ export function RemotePanel({
       </summary>
       <div className="disclosure-body">
         <p className="field-hint">
-          把识别模型放到一台 Linux 服务器上，本机通过 SSH 隧道使用它。适合本机内存紧张时；
+          把 OCR 模型放到一台 Linux 服务器上，本机通过 SSH 隧道使用它。适合本机内存紧张时；
           截图会发到这台服务器，不再启动本机模型。
         </p>
         {draft.engine === "tesseract" && (
           <p className="field-hint">
-            当前引擎是备用识别，远程部署不会生效；在高级里换成「自动」或
+            当前引擎是 tesseract，远程部署不会生效；在高级里换成「自动」或
             「llama.cpp」后再使用。
           </p>
         )}
 
         <div className="field field-full">
           <div className="field-head">
-            <span className="field-label">启用远程识别</span>
+            <span className="field-label">启用远程 OCR 引擎</span>
             <Switch
               checked={draft.remoteEnabled}
               onChange={(remoteEnabled) => onUpdate("remoteEnabled", remoteEnabled)}
-              label="启用远程识别"
+              label="启用远程 OCR 引擎"
             />
           </div>
           <span className="field-hint">
@@ -422,36 +434,41 @@ export function RemotePanel({
               >
                 {probing || remote.phase === "probing" ? "检测中…" : "检测服务器"}
               </button>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                onClick={() => void handleDeploy(draft.remoteSource)}
-                disabled={working}
-              >
-                <Icon name="arrow-right" size={14} />
-                {working && remote.phase === "deploying" ? "正在部署…" : "一键部署"}
-              </button>
-              {remote.deployed && (
-                remote.phase === "online" ? (
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => void handleStop()}
-                    disabled={working}
-                  >
-                    停止远程服务
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => void handleStart()}
-                    disabled={working}
-                  >
-                    <Icon name="power" size={14} />
-                    {remote.phase === "starting" ? "正在启动…" : "连接"}
-                  </button>
-                )
+              {needsDeploy && (
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => void handleDeploy(draft.remoteSource)}
+                  disabled={working}
+                >
+                  <Icon name="arrow-right" size={14} />
+                  {working && remote.phase === "deploying"
+                    ? "正在部署…"
+                    : remote.deployed
+                      ? "重新部署"
+                      : "一键部署"}
+                </button>
+              )}
+              {canConnect && (
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => void handleStart()}
+                  disabled={working}
+                >
+                  <Icon name="power" size={14} />
+                  {remote.phase === "starting" ? "正在启动…" : "连接"}
+                </button>
+              )}
+              {remote.deployed && remote.phase === "online" && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => void handleStop()}
+                  disabled={working}
+                >
+                  停止远程服务
+                </button>
               )}
               {remote.phase === "deploying" && (
                 <button
@@ -463,6 +480,12 @@ export function RemotePanel({
                 </button>
               )}
             </div>
+
+            {remote.deployed && !needsDeploy && remote.phase !== "online" && (
+              <p className="field-hint">
+                模型已在服务器上，连接会复用它，不会重新下载。
+              </p>
+            )}
 
             {progress && remote.phase !== "online" && (
               <div className="runtime-download" role="status" aria-live="polite">
@@ -497,7 +520,7 @@ export function RemotePanel({
                   <span className="runtime-value mono">{probe.dir}</span>
                 </div>
                 <div>
-                  <span className="runtime-label">识别模型</span>
+                  <span className="runtime-label">OCR 模型</span>
                   <span className="runtime-value">
                     {probe.modelInstalled
                       ? `${probe.modelVerified ? "已校验" : "未校验"} · 已就绪`
@@ -533,7 +556,7 @@ export function RemotePanel({
             {missingModel && (
               <div className="remote-source-choice">
                 <p>
-                  服务器还没有识别模型。选择一种来源；1.0–1.4 GB，只需一次。
+                  服务器还没有 OCR 模型。选择一种来源；1.0–1.4 GB，只需一次。
                 </p>
                 <div>
                   <button

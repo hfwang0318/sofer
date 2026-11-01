@@ -101,8 +101,8 @@ function initialScreenAccess(): ScreenAccess {
 }
 
 const DEMO_ERROR: OcrError = {
-  message: "本地识别服务没有响应。",
-  hint: "可能是模型还没加载完。稍等几秒再试，或到设置里检查识别状态。",
+  message: "本地 OCR 引擎没有响应。",
+  hint: "可能是模型还没加载完。稍等几秒再试，或到设置里检查 OCR 引擎状态。",
   code: "engine",
 };
 
@@ -458,7 +458,7 @@ export default function App() {
           );
           pushToast(
             "ok",
-            "识别模型已就绪",
+            "OCR 模型已就绪",
             `${modelName(settingsRef.current.modelQuality)} 已安装，可以截图了。`,
           );
           void refreshStatus();
@@ -838,11 +838,11 @@ export default function App() {
     try {
       const next = await startEngine();
       setStatus(next);
-      pushToast("ok", "识别服务已启动");
+      pushToast("ok", "OCR 引擎已启动");
     } catch (cause) {
       pushToast(
         "error",
-        "无法启动识别服务",
+        "无法启动 OCR 引擎",
         cause instanceof Error ? cause.message : String(cause),
       );
       void refreshStatus();
@@ -856,11 +856,11 @@ export default function App() {
     try {
       await stopEngine();
       await refreshStatus();
-      pushToast("info", "识别服务已停止", "下次截图会自动启动。");
+      pushToast("info", "OCR 引擎已停止", "下次截图会自动启动。");
     } catch (cause) {
       pushToast(
         "error",
-        "无法停止识别服务",
+        "无法停止 OCR 引擎",
         cause instanceof Error ? cause.message : String(cause),
       );
     } finally {
@@ -877,7 +877,7 @@ export default function App() {
       writeFlag(SETUP_DISMISSED_KEY, false);
       await refreshStatus();
       setSetupOpen(true);
-      pushToast("info", "模型已移除", "需要本地识别时重新下载即可。");
+      pushToast("info", "模型已移除", "需要本地 OCR 引擎时重新下载即可。");
     } catch (cause) {
       pushToast(
         "error",

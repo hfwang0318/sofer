@@ -82,6 +82,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 | 原生截图 | macOS `screencapture -i`；Windows 自绘选区浮层 + GDI 抓屏（不调用系统截屏工具） |
 | 自动识别 | 复用 `ocr4code::pipeline`：引擎 → 切块/重试 → 几何层 → 修复 → 渲染 |
 | 自动复制 | 成功后直接写剪贴板；窗口隐藏时不抢焦点，托盘提示「copied N lines」 |
+| 识别完成通知 | 主窗口不在前台时发系统通知，带结果首行、行数和是否已复制；可在通用设置关闭 |
 | 引擎管理 | 内置运行时、模型状态、服务状态、启动/停止、移除/重新下载，全部在设置里 |
 | 远程模型（可选） | 一键把模型和 llama.cpp 运行时部署到 Linux 服务器，本机通过 SSH 隧道识别；适合本机内存紧张 |
 | 设置面板 | 模型精度（高/低）、代理地址/用户名/密码、使用镜像、空闲释放、KV 量化、外部 server URL、prompt、token 预算、并发、tesseract 参数、版面开关、输出格式、历史条数 |
@@ -112,8 +113,9 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 完成部署，之后截图只经过一条 SSH 隧道发给服务器识别。
 
 - **要求**：Linux（x86_64 / aarch64）、可用的 SSH 密钥或 ssh-agent、`curl` 或 `wget`、
-  `tar`、`sha256sum`；不支持密码登录，也不需要 Docker。
-- **入口**：设置 → 识别 → 「部署到服务器」。填服务器地址、SSH 用户名/端口、
+  `tar`、`sha256sum`、`libgomp1`（llama.cpp 运行时依赖的 OpenMP 库，大多数发行版
+  默认已装）；不支持密码登录，也不需要 Docker。
+- **入口**：设置 → OCR → 「部署到服务器」。填服务器地址、SSH 用户名/端口、
   远程目录（默认 `~/.ocr4code`）、服务端口和隧道端口，然后点「一键部署」。
 - **部署内容**：服务器缺少运行时时，自动下载 llama.cpp `b12018`（CPU / Vulkan / CUDA）；
   缺少模型时按「模型来源」处理——`自动` 和 `服务器下载` 在服务器上下载，
@@ -121,8 +123,51 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 - **安全**：远程 `llama-server` 只绑定 `127.0.0.1`，本机 `ssh -L` 隧道同样只监听回环地址；
   host / user 会拒绝 `-` 开头的 option injection，SSH 使用 `BatchMode=yes`。
 - **识别行为**：远程已启用时不再启动本机模型；未部署时截图页会引导去设置部署。
-  部署一次后，截图会按需启动远程服务并复用隧道。
+  部署一次后，截图会按需启动远程服务并复用隧道。模型已验证时主操作变为
+  「连接」，「一键部署」不再出现；重复连接只会复用，不会重新下载。
+- **下载方式**：服务器下载按 4 条 range 连接并行拉取每个大文件；服务器不支持
+  Range 时自动退回单连接，已下载的分段在取消/失败后可续传。
 - **隐私**：启用远程后，截图会发到这台服务器，不再只在本机处理；关于页会同步显示这一点。
+
+#### 本地 Docker 联调
+
+没有可用服务器时，用 Docker 里的 Ubuntu 容器模拟一台（只用于开发验证，不是产品依赖）：
+
+```bash
+app/scripts/dev-remote-server.sh up   # 构建并启动 127.0.0.1:2222，打印应用设置项
+```
+
+`remote_probe` 直接调用应用里的 `remote::Manager`，走真实 SSH 完成探测、
+运行时安装、服务器下载/本地上传、启动服务和隧道连接：
+
+```bash
+export OCR4CODE_REMOTE_KEY=/tmp/ocr4code-ssh-test/test_key
+export OCR4CODE_REMOTE_SSH_PORT=2222 OCR4CODE_REMOTE_ACCEL=cpu OCR4CODE_REMOTE_GPU_LAYERS=0
+
+# 探测
+cargo run --manifest-path app/src-tauri/Cargo.toml --example remote_probe -- probe
+
+# 服务器下载（末尾通过隧道做一次真实 OCR）
+OCR4CODE_REMOTE_SOURCE=download OCR4CODE_TEST_IMAGE=bench/images/cargo-build@1x.png \
+  cargo run --manifest-path app/src-tauri/Cargo.toml --example remote_probe -- deploy
+
+# 本地上传（先把模型从容器复制到本地目录，并清空容器里的模型）
+mkdir -p /tmp/ocr4code-ssh-test/local-models
+docker cp ocr4code-ssh-test:/home/ocr/.ocr4code/models/GLM-OCR.Q4_K_M.gguf /tmp/ocr4code-ssh-test/local-models/
+docker cp ocr4code-ssh-test:/home/ocr/.ocr4code/models/mmproj-GLM-OCR-Q8_0.gguf /tmp/ocr4code-ssh-test/local-models/
+docker exec ocr4code-ssh-test rm -rf /home/ocr/.ocr4code/models
+OCR4CODE_REMOTE_SOURCE=upload \
+OCR4CODE_REMOTE_LOCAL_MODELS=/tmp/ocr4code-ssh-test/local-models \
+OCR4CODE_TEST_IMAGE=bench/images/cargo-build@1x.png \
+  cargo run --manifest-path app/src-tauri/Cargo.toml --example remote_probe -- deploy
+
+# 停止 / 重新连接
+cargo run --manifest-path app/src-tauri/Cargo.toml --example remote_probe -- stop
+cargo run --manifest-path app/src-tauri/Cargo.toml --example remote_probe -- start
+```
+
+清理：`app/scripts/dev-remote-server.sh down`。容器没有 GPU，只覆盖 CPU 运行时；
+CUDA/Vulkan 仍需真机验证。
 
 ---
 
@@ -208,6 +253,7 @@ render(text/markdown/json) ──► 剪贴板
 | Format | `format` | `text` | text / markdown / json |
 | Fence language | `language` | 空=猜 | 仅 markdown |
 | Auto-copy | —（应用层） | 开 | 成功后写剪贴板 |
+| Notify on result | —（应用层） | 开 | 主窗口不在前台时发系统通知 |
 | History limit | —（应用层） | 20 | 只影响 `localStorage` |
 
 `mock_text` / `mock_text_file` 保留给 CLI 测试，不暴露在 UI。
@@ -343,6 +389,7 @@ Finder 启动的 App 可能不继承 shell 环境变量，此时用界面字段�
 | 运行时 | bundled macos-arm64（Metal） | bundled win-cpu-x64（CPU，`-ngl 0`） |
 | 材质 | `NSVisualEffectMaterial::HudWindow` | `apply_acrylic` |
 | 无边框窗口 | 自绘红黄绿 + `data-tauri-drag-region` | 自绘最小化/最大化/关闭 |
+| 识别完成通知 | 系统通知中心；开发模式来源为 Terminal | Windows 10/11 Toast；安装版显示 `ocr4code`，开发版可能显示为 Windows PowerShell |
 | WebView2 | 系统自带 | 安装器 `embedBootstrapper` 自动处理 |
 
 Windows 自绘浮层和 GDI 抓屏已随 v0.1.5 发布，并在实际 Windows 机器上验证过安装、模型启动和更新；
@@ -371,7 +418,7 @@ Windows 自绘浮层和 GDI 抓屏已随 v0.1.5 发布，并在实际 Windows �
 
 ```bash
 cargo test                       # 根 crate: 34 unit + 5 integration
-cd app/src-tauri && cargo test   # 桌面层: 24 tests（manifest/校验/断点续传/设置/快捷键形状/截图判空）
+cd app/src-tauri && cargo test   # 桌面层: 39 tests（manifest/校验/断点续传/设置/快捷键形状/截图判空/远程部署/通知文案）
 cd app && pnpm build             # tsc + vite，通过
 cd app && pnpm tauri build --no-bundle
 ```
@@ -380,7 +427,7 @@ Windows CI（`.github/workflows/release.yml`）在 `windows-latest` 上完成：
 
 - 拉取固定 llama.cpp b12018 Windows CPU runtime；
 - 从 VS 2022 Redist 复制 x64 CRT 到 `llama-server.exe` 同目录，并跑 `--version` 冒烟；
-- 运行 21 个桌面后端测试；
+- 运行 39 个桌面后端测试；
 - 构建 NSIS、生成 `.sig` 和 `latest.json`，上传 GitHub Release。
 
 已在 macOS 真机验证：
@@ -391,7 +438,10 @@ Windows CI（`.github/workflows/release.yml`）在 `windows-latest` 上完成：
 - 应用 autostart 后侧栏显示「llama.cpp 已就绪 · 内置本地引擎」；
 - 通过同一 server 跑通 CLI OCR；
 - SIGTERM 会停止子进程；异常退出留下的 pid 文件会在下次启动时清理；
-- 模型下载代理（地址 + 用户名 + 密码自动编码）、“使用镜像”勾选和系统 TLS 可工作。
+- 模型下载代理（地址 + 用户名 + 密码自动编码）、“使用镜像”勾选和系统 TLS 可工作；
+- 远程部署在本地 Docker Ubuntu SSH 环境跑通：探测、运行时安装、服务器并行下载、
+  本地上传、SHA-256 校验、远程服务启动、`ssh -L` 隧道健康检查和真实 OCR；
+- 通知触发条件和正文截断有单元测试覆盖；系统通知横幅仍需在原生窗口里人工确认。
 
 Windows 实际验证：
 
@@ -401,7 +451,7 @@ Windows 实际验证：
   （应用先 stop + NSIS preinstall hook 兜底 kill）；
 - 快捷键单键/2 键/3 键录制已通过浏览器交互测试；单键在系统全局快捷键上的实际注册仍需更多机器覆盖。
 
-未完全覆盖：Windows 自绘选区在多显示器混合 DPI/HDR/受保护内容上的表现、外部 llama-server 占用运行时目录的场景、代码签名/公证后的嵌套 dylib 签名；自动更新的签名链已通过 `latest.json`/`.sig` 校验，但安装器仍未做 Authenticode 签名。
+未完全覆盖：Windows 自绘选区在多显示器混合 DPI/HDR/受保护内容上的表现、外部 llama-server 占用运行时目录的场景、Windows Toast 在安装版/开发版的实际展示与通知设置、代码签名/公证后的嵌套 dylib 签名；自动更新的签名链已通过 `latest.json`/`.sig` 校验，但安装器仍未做 Authenticode 签名。
 
 ---
 

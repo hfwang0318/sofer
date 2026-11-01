@@ -24,6 +24,9 @@ pub struct Settings {
     // app layer
     pub shortcut: String,
     pub auto_copy: bool,
+    /// Show a system notification with a short preview when OCR finishes while
+    /// the window is not focused.
+    pub notify_on_result: bool,
     pub history_limit: u32,
 
     // model download
@@ -80,6 +83,7 @@ impl Default for Settings {
         Self {
             shortcut: "CommandOrControl+Shift+2".into(),
             auto_copy: true,
+            notify_on_result: true,
             history_limit: 20,
             use_mirror: false,
             proxy_url: String::new(),
@@ -372,10 +376,10 @@ pub fn validate(settings: &Settings) -> Result<(), String> {
         return Err("空闲释放时间应为 0（关闭）或 60–3600 秒。".into());
     }
     if settings.psm > 13 {
-        return Err("Tesseract PSM 应在 0 到 13 之间。".into());
+        return Err("tesseract PSM 应在 0 到 13 之间。".into());
     }
     if settings.tess_lang.trim().is_empty() {
-        return Err("Tesseract 语言不能为空（例如 eng）。".into());
+        return Err("tesseract 语言不能为空（例如 eng）。".into());
     }
     match compose_proxy_url(
         &settings.proxy_url,
@@ -399,7 +403,7 @@ pub fn validate(settings: &Settings) -> Result<(), String> {
         return Err("llama.cpp 地址必须以 http:// 或 https:// 开头。".into());
     }
     if settings.remote_enabled {
-        let config = settings.remote_config()?.ok_or("远程识别配置无效。")?;
+        let config = settings.remote_config()?.ok_or("远程 OCR 引擎配置无效。")?;
         if config.host.is_empty() {
             return Err("远程服务器地址不能为空。".into());
         }
@@ -431,6 +435,7 @@ mod tests {
         assert_eq!(settings.kv_cache_quant, cfg!(target_os = "macos"));
         assert!(!settings.use_mirror);
         assert!(settings.proxy_url.is_empty());
+        assert!(settings.notify_on_result);
     }
 
     #[test]
@@ -517,6 +522,7 @@ mod tests {
         assert!(!settings.use_mirror);
         assert_eq!(settings.model_quality, ModelQuality::Low);
         assert_eq!(settings.ui_scale, 1.15);
+        assert!(settings.notify_on_result);
     }
 
     #[test]
@@ -543,6 +549,7 @@ mod tests {
 
         assert!(json.contains("\"maxTokens\""));
         assert!(json.contains("\"autoCopy\""));
+        assert!(json.contains("\"notifyOnResult\""));
         assert!(json.contains("\"proxyUrl\""));
         assert!(json.contains("\"proxyUsername\""));
         assert!(json.contains("\"proxyPassword\""));

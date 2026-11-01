@@ -16,6 +16,7 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
+use tauri_plugin_notification::NotificationExt;
 
 use ocr4code::engine::tesseract;
 use ocr4code::pipeline::EngineMode;
@@ -323,7 +324,7 @@ fn run(app: &AppHandle) -> Result<()> {
                         return Err(anyhow::anyhow!("{remote_error}"));
                     } else if matches!(err, engine::Error::SetupRequired) {
                         return Err(anyhow::anyhow!(
-                            "E_SETUP_REQUIRED: 识别模型还没有下载"
+                            "E_SETUP_REQUIRED: OCR 模型还没有下载"
                         ));
                     } else {
                         return Err(anyhow::anyhow!("{err}"));
@@ -334,7 +335,7 @@ fn run(app: &AppHandle) -> Result<()> {
     }
 
     let _ = app.emit("ocr:phase", Phase { phase: "recognizing" });
-    let engine = config.engine().context("启动识别服务")?;
+    let engine = config.engine().context("启动 OCR 引擎")?;
     let limiter = ocr4code::pipeline::limiter(config.jobs);
     let outcome = ocr4code::pipeline::recognize(engine.as_ref(), &path, &config, &limiter)?;
     let text = render::render(&outcome.document, config.format, config.language.as_deref());
@@ -367,6 +368,7 @@ fn run(app: &AppHandle) -> Result<()> {
     let _ = std::fs::remove_file(&path);
     let _ = app.emit("ocr:result", result.clone());
     let _ = app.emit("ocr:phase", Phase { phase: "idle" });
+    notify_result(app, settings.notify_on_result, &result);
 
     if result.copied {
         // Never steal focus from the editor the user wants to paste into. If the
@@ -391,6 +393,55 @@ pub fn show_main(app: &AppHandle) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
+    }
+}
+
+/// System notification for a finished capture. Deliberately only when the
+/// window is not focused: with the app in front, the result panel is already
+/// the feedback, and the UI guidelines say not to add a success toast.
+fn notify_result(app: &AppHandle, enabled: bool, result: &OcrResult) {
+    if !enabled {
+        return;
+    }
+    let focused = app
+        .get_webview_window("main")
+        .and_then(|window| window.is_focused().ok())
+        .unwrap_or(false);
+    if focused {
+        return;
+    }
+    if let Err(err) = app
+        .notification()
+        .builder()
+        .title("识别完成")
+        .body(notification_body(&result.text, result.lines, result.copied))
+        .show()
+    {
+        eprintln!("capture: notification failed: {err}");
+    }
+}
+
+/// First non-empty line, whitespace collapsed, capped at 80 characters, plus a
+/// short status line. Kept separate so the wording stays testable.
+fn notification_body(text: &str, lines: usize, copied: bool) -> String {
+    let first = text
+        .lines()
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+        .find(|line| !line.is_empty())
+        .unwrap_or_default();
+    let mut preview: String = first.chars().take(80).collect();
+    if first.chars().count() > 80 {
+        preview.push('…');
+    }
+    let action = if copied {
+        "已复制到剪贴板"
+    } else {
+        "打开应用查看"
+    };
+    if preview.is_empty() {
+        format!("{lines} 行 · {action}")
+    } else {
+        format!("{preview}\n{lines} 行 · {action}")
     }
 }
 
@@ -424,9 +475,9 @@ fn format_name(format: Format) -> String {
 fn localize_error(message: &str) -> String {
     let lower = message.to_lowercase();
     if lower.contains("no engine available") {
-        "没有可用的识别服务。请下载识别模型，或安装 tesseract。".into()
+        "没有可用的 OCR 引擎。请下载 OCR 模型，或安装 tesseract。".into()
     } else if lower.contains("not reachable") {
-        "连不上本地识别服务。请检查服务地址，或重新启动。".into()
+        "连不上本地 OCR 引擎。请检查服务地址，或重新启动。".into()
     } else if lower.contains("tesseract failed") {
         "tesseract 运行失败。请检查安装和语言包。".into()
     } else {
@@ -436,14 +487,14 @@ fn localize_error(message: &str) -> String {
 
 fn hint_for(message: &str) -> String {
     if message.contains("E_SETUP_REQUIRED") {
-        return "下载识别模型后即可截图。".into();
+        return "下载 OCR 模型后即可截图。".into();
     }
     if message.contains("E_PERMISSION") || message.contains("屏幕录制权限") {
         return "在系统设置 → 隐私与安全性 → 屏幕录制中勾选 ocr4code，然后重启应用。"
             .into();
     }
     if message.contains("远程") || message.contains("服务器") {
-        return "到设置 → 识别 → 部署到服务器里检查连接，或重新部署。".into();
+        return "到设置 → OCR → 部署到服务器里检查连接，或重新部署。".into();
     }
     if message.contains("E_BLANK") {
         #[cfg(target_os = "macos")]
@@ -454,7 +505,7 @@ fn hint_for(message: &str) -> String {
     }
     let lower = message.to_lowercase();
     if lower.contains("no engine available") || lower.contains("starting the ocr engine") {
-        "先下载识别模型，或安装 tesseract 后重试。".into()
+        "先下载 OCR 模型，或安装 tesseract 后重试。".into()
     } else if lower.contains("not reachable") || lower.contains("llama") {
         "确认服务正在运行，并检查设置里的地址。".into()
     } else if lower.contains("permission") || lower.contains("screen") {
@@ -619,5 +670,22 @@ mod tests {
             }
         }
         assert!(is_uniform(&image::DynamicImage::ImageRgb8(frame)));
+    }
+
+    #[test]
+    fn notification_preview_uses_the_first_non_empty_line() {
+        let body = notification_body("\n\n    let   value = 1;   // x\nfn main() {}", 2, true);
+        assert_eq!(body, "let value = 1; // x\n2 行 · 已复制到剪贴板");
+    }
+
+    #[test]
+    fn notification_preview_is_capped_and_has_a_fallback() {
+        let long = "x".repeat(120);
+        let body = notification_body(&long, 1, false);
+        assert!(body.starts_with(&format!("{}…", "x".repeat(80))));
+        assert!(body.ends_with("1 行 · 打开应用查看"));
+
+        let body = notification_body("  \n\t\n", 0, false);
+        assert_eq!(body, "0 行 · 打开应用查看");
     }
 }
