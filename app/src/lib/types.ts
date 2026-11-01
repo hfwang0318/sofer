@@ -260,7 +260,8 @@ export interface HistoryEntry {
   /** Dropped by the store when it exceeds the per-entry budget. */
   thumbnail?: string | null;
   capturedAt: number;
-  /** Pinned entries are evicted last when the store is at its limit. */
+  /** Keep this entry above newer ones. Optional for entries saved before
+   *  pinning existed; treat a missing value as false. */
   pinned?: boolean;
 }
 

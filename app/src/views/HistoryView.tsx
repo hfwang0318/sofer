@@ -1,8 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Icon } from "../components/Icon";
 import { Keycaps } from "../components/Controls";
-import { duration, relativeTime } from "../lib/history";
+import {
+  duration,
+  engineLabel,
+  exportEntryJson,
+  exportEntryMarkdown,
+  exportHistoryJson,
+  filterHistory,
+  formatLabel,
+  relativeTime,
+} from "../lib/history";
 import type { HistoryEntry } from "../lib/types";
 
 interface HistoryViewProps {
@@ -12,20 +21,7 @@ interface HistoryViewProps {
   onDelete: (id: string) => void;
   onClear: () => void;
   onCapture: () => void;
-}
-
-function engineLabel(engine: string): string {
-  if (engine.startsWith("llamacpp")) return "本地模型";
-  if (engine.startsWith("tesseract")) return "tesseract";
-  if (engine.startsWith("mock")) return "预览";
-  return engine;
-}
-
-function formatLabel(format: string): string {
-  if (format === "text") return "纯文本";
-  if (format === "markdown") return "Markdown";
-  if (format === "json") return "JSON";
-  return format;
+  onTogglePin: (id: string) => void;
 }
 
 function preview(text: string): string {
@@ -40,9 +36,15 @@ export function HistoryView({
   onDelete,
   onClear,
   onCapture,
+  onTogglePin,
 }: HistoryViewProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement | null>(null);
+
+  const visible = useMemo(() => filterHistory(entries, query), [entries, query]);
+  const trimmedQuery = query.trim();
 
   useEffect(() => {
     if (!copiedId) return;
@@ -51,7 +53,9 @@ export function HistoryView({
   }, [copiedId]);
 
   useEffect(() => {
-    if (entries.length === 0) setConfirmClear(false);
+    if (entries.length > 0) return;
+    setConfirmClear(false);
+    setQuery("");
   }, [entries.length]);
 
   useEffect(() => {
@@ -59,6 +63,11 @@ export function HistoryView({
     const timer = window.setTimeout(() => setConfirmClear(false), 4000);
     return () => window.clearTimeout(timer);
   }, [confirmClear]);
+
+  const resetSearch = () => {
+    setQuery("");
+    searchRef.current?.focus();
+  };
 
   return (
     <div className="view history-view">
@@ -68,12 +77,22 @@ export function HistoryView({
             <p className="eyebrow">工作区</p>
             <h1>历史</h1>
             <p className="lede">
-              {entries.length > 0
-                ? `最近的 ${entries.length} 条结果。点复制可再次使用。`
-                : "截图后，结果会出现在这里。"}
+              {entries.length === 0
+                ? "截图后，结果会出现在这里。"
+                : trimmedQuery
+                  ? `找到 ${visible.length} 条结果，共 ${entries.length} 条。`
+                  : `最近的 ${entries.length} 条结果。点复制可再次使用。`}
             </p>
           </div>
           <div className="head-actions">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => exportHistoryJson(entries)}
+              disabled={entries.length === 0}
+            >
+              导出全部
+            </button>
             <button
               type="button"
               className={`btn btn-ghost btn-danger ${confirmClear ? "is-confirming" : ""}`}
@@ -113,61 +132,164 @@ export function HistoryView({
           </section>
         ) : (
           <>
-            <div className="history-list panel">
-              {entries.map((entry) => {
-                const copied = copiedId === entry.id;
-                return (
-                  <article className="history-row" key={entry.id}>
-                    <div className="history-main">
-                      <div className="history-top">
-                        <time dateTime={new Date(entry.capturedAt).toISOString()}>
-                          {relativeTime(entry.capturedAt)}
-                        </time>
-                        <span className="badge">{formatLabel(entry.format)}</span>
-                        <span className="history-engine">
-                          <span className="meta-dot tone-ok" />
-                          {engineLabel(entry.engine)}
-                        </span>
-                        {entry.language && <span className="badge">{entry.language}</span>}
-                      </div>
-                      <pre className="history-preview">{preview(entry.text)}</pre>
-                    </div>
-                    <div className="history-side">
-                      <span className="history-meta">
-                        {entry.lines} 行 · {duration(entry.ms)}
-                      </span>
-                      <div className="history-actions">
-                        <button
-                          type="button"
-                          className={`icon-btn ${copied ? "is-active" : ""}`}
-                          aria-label={copied ? "已复制到剪贴板" : "复制这条记录"}
-                          title="复制"
-                          onClick={() => {
-                            onCopy(entry.text, entry.id);
-                            setCopiedId(entry.id);
-                          }}
-                        >
-                          <Icon name={copied ? "check" : "copy"} size={15} />
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-btn icon-btn-danger"
-                          aria-label="删除这条记录"
-                          title="删除"
-                          onClick={() => onDelete(entry.id)}
-                        >
-                          <Icon name="close" size={15} />
-                        </button>
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
+            <div className="history-toolbar">
+              <div className="history-search">
+                <input
+                  ref={searchRef}
+                  className="input"
+                  type="search"
+                  value={query}
+                  placeholder="搜索文本、引擎或格式"
+                  aria-label="搜索历史"
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape" && query) {
+                      event.preventDefault();
+                      setQuery("");
+                    }
+                  }}
+                />
+                {query && (
+                  <button
+                    type="button"
+                    className="icon-btn history-search-clear"
+                    aria-label="清空搜索"
+                    title="清空搜索"
+                    onClick={resetSearch}
+                  >
+                    <Icon name="close" size={13} />
+                  </button>
+                )}
+              </div>
+              <span className="history-count" role="status" aria-live="polite">
+                {trimmedQuery
+                  ? `${visible.length} / ${entries.length} 条`
+                  : `${entries.length} 条`}
+              </span>
             </div>
-            <p className="view-footnote">
-              <Icon name="info" size={13} />
-              记录只保存在本机。
-            </p>
+
+            {visible.length === 0 ? (
+              <section className="panel empty-state">
+                <div className="empty-icon">
+                  <Icon name="history" size={24} />
+                </div>
+                <h2>没有匹配的记录</h2>
+                <p>换个关键词，或清空搜索查看全部 {entries.length} 条。</p>
+                <button type="button" className="btn btn-primary" onClick={resetSearch}>
+                  清空搜索
+                </button>
+              </section>
+            ) : (
+              <>
+                <div className="history-list panel">
+                  {visible.map((entry) => {
+                    const copied = copiedId === entry.id;
+                    return (
+                      <article
+                        className={`history-row ${entry.pinned ? "is-pinned" : ""}`}
+                        key={entry.id}
+                      >
+                        {entry.thumbnail ? (
+                          <img
+                            className="history-thumb"
+                            src={entry.thumbnail}
+                            alt=""
+                            loading="lazy"
+                            draggable={false}
+                          />
+                        ) : (
+                          <span
+                            className="history-thumb history-thumb-empty"
+                            aria-hidden="true"
+                          >
+                            <Icon name="image" size={15} />
+                          </span>
+                        )}
+                        <div className="history-main">
+                          <div className="history-top">
+                            <time dateTime={new Date(entry.capturedAt).toISOString()}>
+                              {relativeTime(entry.capturedAt)}
+                            </time>
+                            {entry.pinned && <span className="badge badge-pin">置顶</span>}
+                            <span className="badge">{formatLabel(entry.format)}</span>
+                            <span className="history-engine">
+                              <span className="meta-dot tone-ok" />
+                              {engineLabel(entry.engine)}
+                            </span>
+                            {entry.language && (
+                              <span className="badge">{entry.language}</span>
+                            )}
+                          </div>
+                          <pre className="history-preview">{preview(entry.text)}</pre>
+                        </div>
+                        <div className="history-side">
+                          <span className="history-meta">
+                            {entry.lines} 行 · {duration(entry.ms)}
+                          </span>
+                          <div className="history-actions">
+                            <button
+                              type="button"
+                              className={`icon-btn ${entry.pinned ? "is-active" : ""}`}
+                              aria-label={entry.pinned ? "取消置顶" : "置顶这条记录"}
+                              aria-pressed={Boolean(entry.pinned)}
+                              title={entry.pinned ? "取消置顶" : "置顶"}
+                              onClick={() => onTogglePin(entry.id)}
+                            >
+                              <Icon name="spark" size={15} />
+                            </button>
+                            <button
+                              type="button"
+                              className={`icon-btn ${copied ? "is-active" : ""}`}
+                              aria-label={copied ? "已复制到剪贴板" : "复制这条记录"}
+                              title="复制"
+                              onClick={() => {
+                                onCopy(entry.text, entry.id);
+                                setCopiedId(entry.id);
+                              }}
+                            >
+                              <Icon name={copied ? "check" : "copy"} size={15} />
+                            </button>
+                            <button
+                              type="button"
+                              className="icon-btn icon-btn-label"
+                              aria-label="导出 Markdown"
+                              title="导出 Markdown"
+                              onClick={() => exportEntryMarkdown(entry)}
+                            >
+                              MD
+                            </button>
+                            <button
+                              type="button"
+                              className="icon-btn icon-btn-label"
+                              aria-label="导出 JSON"
+                              title="导出 JSON"
+                              onClick={() => exportEntryJson(entry)}
+                            >
+                              JSON
+                            </button>
+                            <button
+                              type="button"
+                              className="icon-btn icon-btn-danger"
+                              aria-label="删除这条记录"
+                              title="删除"
+                              onClick={() => onDelete(entry.id)}
+                            >
+                              <Icon name="close" size={15} />
+                            </button>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+                <p className="view-footnote">
+                  <Icon name="info" size={13} />
+                  记录只保存在本机。
+                </p>
+              </>
+            )}
           </>
         )}
       </div>

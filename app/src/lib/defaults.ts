@@ -87,6 +87,12 @@ export const HISTORY_KEY = "ocr4code.history.v1";
  */
 export const HISTORY_MIGRATED_KEY = "ocr4code.history.migrated.v1";
 
+/**
+ * Hard storage cap. Thumbnails are base64 PNGs, so the saved list has to stay
+ * bounded even when the user picks the largest history limit (50).
+ */
+export const MAX_HISTORY_ENTRIES = 50;
+
 const DEMO_TEXT = `async fn load_user(pool: &PgPool, id: UserId) -> Result<User> {
     let user = sqlx::query_as::<_, User>(
         "SELECT id, email, created_at FROM users WHERE id = $1",
