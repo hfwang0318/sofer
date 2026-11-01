@@ -3,12 +3,57 @@ import type {
   HistoryEntry,
   ModelQuality,
   OcrResult,
+  PromptPreset,
   Settings,
 } from "./types";
 
 /** Must stay in sync with `Settings::default()` in src-tauri/src/settings.rs. */
 export const DEFAULT_PROMPT =
   "OCR: preserve the original layout, spacing and line breaks exactly.";
+
+/** Must stay in sync with `MAX_PROMPT_CHARS` in src-tauri/src/settings.rs. */
+export const MAX_PROMPT_CHARS = 2000;
+
+export interface PromptPresetOption {
+  value: PromptPreset;
+  label: string;
+  description: string;
+}
+
+/** Labels only; the prompt text itself lives in settings.rs. */
+export const PROMPT_PRESETS: PromptPresetOption[] = [
+  {
+    value: "code",
+    label: "代码截图",
+    description: "编辑器里的代码，保留缩进和行结构。",
+  },
+  {
+    value: "terminal",
+    label: "终端日志",
+    description: "命令行输出，逐行保留，不合并换行。",
+  },
+  {
+    value: "table",
+    label: "表格",
+    description: "表格逐行输出，保持每一列原有的顺序。",
+  },
+  {
+    value: "formula",
+    label: "公式",
+    description: "数学公式尽量转成 LaTeX，周围文字照常识别。",
+  },
+  {
+    value: "custom",
+    label: "自定义",
+    description: "使用高级里的自定义提示词。",
+  },
+];
+
+export function promptPresetOf(value: PromptPreset): PromptPresetOption {
+  return (
+    PROMPT_PRESETS.find((preset) => preset.value === value) ?? PROMPT_PRESETS[0]
+  );
+}
 
 export const DEFAULT_SETTINGS: Settings = {
   shortcut: "CommandOrControl+Shift+2",
@@ -39,7 +84,8 @@ export const DEFAULT_SETTINGS: Settings = {
   remoteAutoStart: true,
   engine: "auto",
   llamaUrl: "http://127.0.0.1:8099",
-  prompt: DEFAULT_PROMPT,
+  promptPreset: "code",
+  customPrompt: "",
   maxTokens: 3072,
   tessLang: "eng",
   psm: 6,

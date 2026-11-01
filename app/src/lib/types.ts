@@ -1,5 +1,7 @@
 export type EngineMode = "auto" | "llamacpp" | "tesseract";
 export type ModelQuality = "high" | "low";
+/** Mirrors `PromptPreset` in src-tauri/src/settings.rs. */
+export type PromptPreset = "code" | "terminal" | "table" | "formula" | "custom";
 export type RemoteSource = "auto" | "download" | "upload";
 export type RemoteAccel = "auto" | "cpu" | "vulkan" | "cuda";
 export type SettingsSection =
@@ -52,7 +54,8 @@ export interface Settings {
   remoteAutoStart: boolean;
   engine: EngineMode;
   llamaUrl: string;
-  prompt: string;
+  promptPreset: PromptPreset;
+  customPrompt: string;
   maxTokens: number;
   tessLang: string;
   psm: number;
