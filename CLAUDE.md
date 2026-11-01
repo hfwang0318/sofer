@@ -309,5 +309,6 @@ Version must stay in sync in `app/package.json`, `app/src-tauri/Cargo.toml` and
 | [bench/SCENES.md](bench/SCENES.md) | What the synthetic scenes cover and how to add one. |
 | [bench/tools/real_capture/README.md](bench/tools/real_capture/README.md) | Collecting real-editor screenshots for geometry validation. |
 | [CHANGELOG.md](CHANGELOG.md) | Desktop release history and the unreleased section; update it for user-visible behavior. |
+| [docs/release-install.md](docs/release-install.md) | Shared install/environment section of the GitHub release page; the per-release changes come from `CHANGELOG.md` via `scripts/release_body.py`. |
 | [app/THIRD_PARTY.md](app/THIRD_PARTY.md) | Licenses for the runtime, model packs and bundled CRT. |
 | [app/src-tauri/runtime/README.md](app/src-tauri/runtime/README.md) | Bundled llama.cpp layout and the pinned version. |

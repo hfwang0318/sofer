@@ -205,6 +205,9 @@ done
       （步骤见 [app/README.md](../app/README.md) 的「本地 Docker 联调」）
 - [ ] app CI（`.github/workflows/ci.yml` 的 `app` job，macOS + Windows）绿
 - [ ] 更新 `.github/workflows/release.yml` 的版本/tag（或 workflow_dispatch）
+- [ ] `CHANGELOG.md` 已有 `## v<version>` 段；发布页正文由
+      `scripts/release_body.py` 从该段和 `docs/release-install.md` 生成，
+      不再在 workflow 里写死
 - [ ] GitHub Secrets 已配置 `TAURI_SIGNING_PRIVATE_KEY` 与
       `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
 - [ ] Windows runner 先 `fetch-runtime.py`，再 `stage-vc-runtime.ps1`，
