@@ -63,18 +63,13 @@ pub const DEFAULT_JPEG_QUALITY: u8 = 85;
 /// The default is [`ImageFormat::Png`], which uses the same encoder settings as
 /// the old `crop.save(tmp.png)` tile path — so the bytes sent to the model are
 /// unchanged unless the caller asks for JPEG.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ImageFormat {
+    #[default]
     Png,
     /// JPEG at `quality` (1–100): smaller uploads for photo-like screenshots.
     Jpeg { quality: u8 },
-}
-
-impl Default for ImageFormat {
-    fn default() -> Self {
-        Self::Png
-    }
 }
 
 impl ImageFormat {
@@ -264,10 +259,8 @@ impl TempImage {
     fn write(bytes: &[u8], ext: &str) -> Result<Self> {
         static SEQ: AtomicU64 = AtomicU64::new(0);
         let seq = SEQ.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "ocr4code-input-{}-{seq}.{ext}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("ocr4code-input-{}-{seq}.{ext}", std::process::id()));
         std::fs::write(&path, bytes)
             .with_context(|| format!("writing temporary image {}", path.display()))?;
         Ok(Self { path })
@@ -288,9 +281,19 @@ impl Drop for TempImage {
 #[derive(Debug, Clone)]
 pub enum Spec {
     /// deterministic engine that echoes known text (tests, debugging the layout layer)
-    Mock { text: Option<String>, text_file: Option<std::path::PathBuf> },
-    Tesseract { lang: String, psm: u32 },
-    LlamaCpp { url: String, prompt: String, max_tokens: u32 },
+    Mock {
+        text: Option<String>,
+        text_file: Option<std::path::PathBuf>,
+    },
+    Tesseract {
+        lang: String,
+        psm: u32,
+    },
+    LlamaCpp {
+        url: String,
+        prompt: String,
+        max_tokens: u32,
+    },
     /// macOS only: Apple Vision, the fast engine (~0.1 s/image, docs §4.2)
     Vision,
     /// pick the best available at runtime
@@ -300,14 +303,12 @@ pub enum Spec {
 impl Spec {
     pub fn build(&self) -> Result<Box<dyn Engine>> {
         match self {
-            Spec::Mock { text, text_file } => Ok(Box::new(mock::Mock::new(
-                text.clone(),
-                text_file.clone(),
-            )?)),
-            Spec::Tesseract { lang, psm } => Ok(Box::new(tesseract::Tesseract::new(
-                lang.clone(),
-                *psm,
-            ))),
+            Spec::Mock { text, text_file } => {
+                Ok(Box::new(mock::Mock::new(text.clone(), text_file.clone())?))
+            }
+            Spec::Tesseract { lang, psm } => {
+                Ok(Box::new(tesseract::Tesseract::new(lang.clone(), *psm)))
+            }
             Spec::LlamaCpp {
                 url,
                 prompt,
@@ -386,7 +387,10 @@ mod tests {
         let on_disk = std::fs::read(&tmp).expect("read");
         let _ = std::fs::remove_file(&tmp);
 
-        assert_eq!(encoded, on_disk, "in-memory PNG must equal crop.save() bytes");
+        assert_eq!(
+            encoded, on_disk,
+            "in-memory PNG must equal crop.save() bytes"
+        );
         // And the encoded bytes are a real image with identical pixels.
         let back = image::load_from_memory(&encoded).expect("decode");
         assert_eq!(back.to_rgb8(), img.to_rgb8());
@@ -415,7 +419,9 @@ mod tests {
         assert!("gif".parse::<ImageFormat>().is_err());
         assert_eq!(ImageFormat::default(), ImageFormat::Png);
 
-        let jpeg = ImageFormat::Jpeg { quality: 70 }.encode(&sample()).expect("encode");
+        let jpeg = ImageFormat::Jpeg { quality: 70 }
+            .encode(&sample())
+            .expect("encode");
         assert!(jpeg.starts_with(&[0xFF, 0xD8]), "JPEG SOI marker");
     }
 
@@ -440,7 +446,10 @@ mod tests {
 
         let seen = engine.seen.lock().unwrap();
         assert_eq!(seen.len(), 2);
-        assert_ne!(seen[0], seen[1], "temp names must be unique within a process");
+        assert_ne!(
+            seen[0], seen[1],
+            "temp names must be unique within a process"
+        );
         assert_eq!(seen[0].extension().and_then(|e| e.to_str()), Some("png"));
         assert_eq!(seen[1].extension().and_then(|e| e.to_str()), Some("jpg"));
         assert!(seen[0]
@@ -448,9 +457,17 @@ mod tests {
             .unwrap()
             .to_string_lossy()
             .starts_with("ocr4code-input-"));
-        assert!(seen[0].to_string_lossy().contains(&std::process::id().to_string()));
-        assert!(!seen[0].exists(), "temp file must be removed after the call");
-        assert!(!seen[1].exists(), "temp file must be removed after the call");
+        assert!(seen[0]
+            .to_string_lossy()
+            .contains(&std::process::id().to_string()));
+        assert!(
+            !seen[0].exists(),
+            "temp file must be removed after the call"
+        );
+        assert!(
+            !seen[1].exists(),
+            "temp file must be removed after the call"
+        );
     }
 
     #[test]

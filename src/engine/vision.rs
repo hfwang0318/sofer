@@ -156,10 +156,7 @@ pub fn merge_fragments(lines: Vec<RawLine>) -> Vec<RawLine> {
         a.center_y()
             .partial_cmp(&b.center_y())
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then(
-                a.x0.partial_cmp(&b.x0)
-                    .unwrap_or(std::cmp::Ordering::Equal),
-            )
+            .then(a.x0.partial_cmp(&b.x0).unwrap_or(std::cmp::Ordering::Equal))
     });
 
     let mut rows: Vec<Vec<RawLine>> = Vec::new();
@@ -197,9 +194,7 @@ fn same_row(row: &[RawLine], line: &RawLine) -> bool {
 fn merge_row(mut row: Vec<RawLine>) -> RawLine {
     row.sort_by(|a, b| {
         let (a, b) = (a.bbox.unwrap(), b.bbox.unwrap());
-        a.x0
-            .partial_cmp(&b.x0)
-            .unwrap_or(std::cmp::Ordering::Equal)
+        a.x0.partial_cmp(&b.x0).unwrap_or(std::cmp::Ordering::Equal)
     });
 
     let text = row
@@ -302,7 +297,9 @@ mod tests {
     fn vision_is_unavailable_off_macos() {
         assert!(!available());
         assert!(shim_path().is_none());
-        let err = Vision::new().recognize(Path::new("whatever.png")).unwrap_err();
+        let err = Vision::new()
+            .recognize(Path::new("whatever.png"))
+            .unwrap_err();
         assert!(err.to_string().contains("only available on macOS"));
     }
 }

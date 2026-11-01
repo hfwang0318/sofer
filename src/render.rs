@@ -46,8 +46,18 @@ mod tests {
             width: 10,
             height: 10,
             lines: vec![
-                Line { text: "def f():".into(), indent: 0, conf: None, x0: None },
-                Line { text: "return 1".into(), indent: 4, conf: None, x0: None },
+                Line {
+                    text: "def f():".into(),
+                    indent: 0,
+                    conf: None,
+                    x0: None,
+                },
+                Line {
+                    text: "return 1".into(),
+                    indent: 4,
+                    conf: None,
+                    x0: None,
+                },
             ],
             language: Some("python".into()),
         }

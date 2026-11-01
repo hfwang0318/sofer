@@ -25,10 +25,11 @@ use crate::render::Format;
 use crate::{boxdraw, lang, repair, tile, Document};
 
 /// Which engine to build.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum EngineMode {
     /// llama.cpp when it is reachable, tesseract otherwise.
+    #[default]
     Auto,
     #[serde(rename = "llamacpp")]
     LlamaCpp,
@@ -37,12 +38,6 @@ pub enum EngineMode {
     Vision,
     /// Deterministic engine for tests and for checking the layout layer.
     Mock,
-}
-
-impl Default for EngineMode {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 /// Every knob the OCR core exposes, in the shape a UI can persist.
@@ -287,18 +282,17 @@ pub fn recognize_streaming(
     Ok(finish(out, used, retry_trace, &luma, &geom, path, cfg))
 }
 
-/// Read and decode the image once, then decide whether it needs tiles.
-fn prepare(
-    path: &Path,
-    cfg: &Config,
-) -> Result<(
+type Prepared = (
     image::DynamicImage,
     Vec<u8>,
     image::GrayImage,
     geom::Geometry,
     f32,
     Option<tile::Plan>,
-)> {
+);
+
+/// Read and decode the image once, then decide whether it needs tiles.
+fn prepare(path: &Path, cfg: &Config) -> Result<Prepared> {
     // Read the file once: decode for the geometry layer and keep the encoded
     // bytes for the engine, instead of letting the engine re-read the path.
     let bytes = std::fs::read(path).with_context(|| format!("reading image {}", path.display()))?;
@@ -314,7 +308,6 @@ fn prepare(
     };
     Ok((img, bytes, luma, geom, adv, plan))
 }
-
 
 /// The budget estimate can be wrong (tokenizers vary, models ramble). If the
 /// first pass came back with far fewer rows than the image has, that is the
@@ -332,8 +325,7 @@ fn retry_if_truncated(
     mut used: Option<tile::Plan>,
 ) -> Result<(EngineOutput, Option<tile::Plan>, Option<RetryTrace>)> {
     let mut retry_trace = None;
-    if cfg.tile && used.is_none() && tile::should_retry(out.lines.len(), geom.bands.len(), false)
-    {
+    if cfg.tile && used.is_none() && tile::should_retry(out.lines.len(), geom.bands.len(), false) {
         if let Some(forced) = tile::plan_forced(geom, adv, cfg.max_tokens) {
             let first_rows = out.lines.len();
             let tiles = forced.tiles.len();
@@ -401,7 +393,14 @@ fn finish(
     };
 
     Outcome {
-        trace: trace(out.lines.len(), geom, &stats, tiling, retry_trace, consistent),
+        trace: trace(
+            out.lines.len(),
+            geom,
+            &stats,
+            tiling,
+            retry_trace,
+            consistent,
+        ),
         document,
     }
 }
@@ -541,9 +540,24 @@ mod tests {
     fn plan() -> tile::Plan {
         tile::Plan {
             tiles: vec![
-                tile::Tile { first_band: 0, last_band: 1, y0: 0, y1: 10 },
-                tile::Tile { first_band: 1, last_band: 2, y0: 10, y1: 20 },
-                tile::Tile { first_band: 2, last_band: 3, y0: 20, y1: 30 },
+                tile::Tile {
+                    first_band: 0,
+                    last_band: 1,
+                    y0: 0,
+                    y1: 10,
+                },
+                tile::Tile {
+                    first_band: 1,
+                    last_band: 2,
+                    y0: 10,
+                    y1: 20,
+                },
+                tile::Tile {
+                    first_band: 2,
+                    last_band: 3,
+                    y0: 20,
+                    y1: 30,
+                },
             ],
             rows_per_tile: 2,
             tokens_per_row: 10,
@@ -580,7 +594,9 @@ mod tests {
         );
         let formats = engine.formats.lock().unwrap();
         assert_eq!(formats.len(), 3, "one in-memory call per tile");
-        assert!(formats.iter().all(|f| *f == ImageFormat::Jpeg { quality: 55 }));
+        assert!(formats
+            .iter()
+            .all(|f| *f == ImageFormat::Jpeg { quality: 55 }));
         assert!(
             engine.had_source.lock().unwrap().iter().all(|s| !s),
             "crops must not carry (or need) the source file bytes"

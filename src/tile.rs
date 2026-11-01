@@ -188,7 +188,12 @@ pub fn plan_forced(geom: &Geometry, adv: f32, max_tokens: u32) -> Option<Plan> {
     let step = rows_per_tile_for(geom, adv, max_tokens)
         .min(bands.len() / 2)
         .max(MIN_ROWS_PER_TILE);
-    Some(build(geom, step, tokens_per_row(geom, adv), "short first pass"))
+    Some(build(
+        geom,
+        step,
+        tokens_per_row(geom, adv),
+        "short first pass",
+    ))
 }
 
 /// Should we retry with tiling? First pass returned far fewer rows than the image
@@ -233,17 +238,17 @@ mod tests {
 
     #[test]
     fn retry_triggers_only_on_a_short_first_pass() {
-        assert!(should_retry(26, 56, false));      // huge-4k truncated
+        assert!(should_retry(26, 56, false)); // huge-4k truncated
         assert!(!should_retry(56, 56, false));
-        assert!(!should_retry(40, 56, false));     // 0.71, borderline -> no retry
-        assert!(!should_retry(10, 56, true));      // already tiled
-        assert!(!should_retry(1, 5, false));       // too few rows to judge
+        assert!(!should_retry(40, 56, false)); // 0.71, borderline -> no retry
+        assert!(!should_retry(10, 56, true)); // already tiled
+        assert!(!should_retry(1, 5, false)); // too few rows to judge
     }
 
     #[test]
     fn retry_keeps_the_row_count_closest_to_reality() {
-        assert!(is_better(56, 26, 56));   // fixed
-        assert!(!is_better(68, 56, 56));  // over-generation loses
+        assert!(is_better(56, 26, 56)); // fixed
+        assert!(!is_better(68, 56, 56)); // over-generation loses
         assert!(is_better(54, 26, 56));
         assert!(!is_better(0, 0, 0));
     }
@@ -296,10 +301,10 @@ mod tests {
         // tile is [prev_overlap, rows..., next_overlap]. Step = 2 rows.
         let mk = |s: &str| crate::engine::RawLine::plain(s);
         let out = stitch(vec![
-            vec![mk("a"), mk("b"), mk("c")],             // bands 0..2 + next
-            vec![mk("b"), mk("c"), mk("d"), mk("e")],    // 2..4 + next
-            vec![mk("d"), mk("e"), mk("f"), mk("g")],    // 4..6 + next
-            vec![mk("f"), mk("g")],                      // 6..7, last
+            vec![mk("a"), mk("b"), mk("c")],          // bands 0..2 + next
+            vec![mk("b"), mk("c"), mk("d"), mk("e")], // 2..4 + next
+            vec![mk("d"), mk("e"), mk("f"), mk("g")], // 4..6 + next
+            vec![mk("f"), mk("g")],                   // 6..7, last
         ]);
         let texts: Vec<&str> = out.iter().map(|l| l.text.as_str()).collect();
         assert_eq!(texts, vec!["a", "b", "c", "d", "e", "f", "g"]);

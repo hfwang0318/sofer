@@ -57,10 +57,11 @@ enum PollTarget<'a> {
 }
 
 /// Where the weights come from when the server does not have them yet.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Source {
     /// Use whatever is already there; otherwise download on the server.
+    #[default]
     Auto,
     /// Always download on the server.
     Download,
@@ -68,26 +69,15 @@ pub enum Source {
     Upload,
 }
 
-impl Default for Source {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
-
 /// Which llama.cpp Linux build to install when the server has none.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Accel {
+    #[default]
     Auto,
     Cpu,
     Vulkan,
     Cuda,
-}
-
-impl Default for Accel {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -356,9 +346,7 @@ impl WatchState {
             },
             WatchState::Reconnecting { attempt } => match event {
                 WatchEvent::AttemptSucceeded => (Self::connected(), WatchAction::Recovered),
-                WatchEvent::AttemptFailed
-                | WatchEvent::TunnelExited
-                | WatchEvent::Unhealthy => {
+                WatchEvent::AttemptFailed | WatchEvent::TunnelExited | WatchEvent::Unhealthy => {
                     let next = attempt + 1;
                     if next > policy.max_attempts {
                         (WatchState::Failed, WatchAction::Exhausted)
@@ -407,9 +395,7 @@ fn backoff_delay(policy: &WatchdogPolicy, attempt: u32, jitter: f64) -> Duration
     // ±25% around the exponential step, then clamp so one attempt never waits
     // longer than max_delay.
     let scaled = base.mul_f64(0.75 + 0.5 * jitter.clamp(0.0, 1.0));
-    scaled
-        .min(policy.max_delay)
-        .max(Duration::from_millis(1))
+    scaled.min(policy.max_delay).max(Duration::from_millis(1))
 }
 
 /// A fresh random value for the backoff jitter, without adding a dependency.
@@ -592,12 +578,7 @@ impl Shared {
 
     /// One reconnect attempt: replace the ssh child and wait for the forwarded
     /// port to answer again. The remote `llama-server` is left untouched.
-    fn reconnect_once(
-        &self,
-        cancel: &AtomicBool,
-        stop: &AtomicBool,
-        cfg: &RemoteConfig,
-    ) -> bool {
+    fn reconnect_once(&self, cancel: &AtomicBool, stop: &AtomicBool, cfg: &RemoteConfig) -> bool {
         let _lifecycle = self.lifecycle.lock().unwrap();
         if !watch_should_run(cancel, stop) {
             return false;
@@ -864,7 +845,11 @@ impl Manager {
         if probe.os != "Linux" {
             return Err(Error::Config(format!(
                 "远程部署目前只支持 Linux 服务器，检测到 {}。",
-                if probe.os.is_empty() { "未知系统" } else { &probe.os }
+                if probe.os.is_empty() {
+                    "未知系统"
+                } else {
+                    &probe.os
+                }
             )));
         }
         Ok(probe)
@@ -1122,7 +1107,14 @@ impl Manager {
         });
     }
 
-    fn progress_bytes(&self, phase: &str, file: &str, downloaded: u64, total: u64, started: Instant) {
+    fn progress_bytes(
+        &self,
+        phase: &str,
+        file: &str,
+        downloaded: u64,
+        total: u64,
+        started: Instant,
+    ) {
         let elapsed = started.elapsed().as_secs_f64().max(0.001);
         let speed = (downloaded as f64 / elapsed) as u64;
         let eta = if speed > 0 && total > downloaded {
@@ -1155,13 +1147,7 @@ impl Manager {
             ));
         }
         let assets = runtime_assets(&probe.arch, cfg.accel)?;
-        self.progress(
-            "runtime",
-            Some("正在安装 OCR 运行时".into()),
-            None,
-            0,
-            0,
-        );
+        self.progress("runtime", Some("正在安装 OCR 运行时".into()), None, 0, 0);
         let mut script = String::from("set -u\n");
         script.push_str(&format!("DIR={}\n", shell_quote(&probe.dir)));
         script.push_str("mkdir -p \"$DIR/runtime\" \"$DIR/runtime.tmp\"\n");
@@ -1384,10 +1370,7 @@ impl Manager {
         } else {
             "sha256sum"
         };
-        let mut script = format!(
-            "cd {}\n",
-            shell_quote(&format!("{}/models", probe.dir))
-        );
+        let mut script = format!("cd {}\n", shell_quote(&format!("{}/models", probe.dir)));
         for file in model_files(cfg.quality) {
             let name = file.name;
             let quoted = shell_quote(name);
@@ -1438,7 +1421,10 @@ impl Manager {
             "{models}/verified-{}.json",
             cfg.quality.as_str()
         )));
-        let script = format!("set -e\nrm -f {}\necho OCR4CODE REMOVED=1\n", paths.join(" "));
+        let script = format!(
+            "set -e\nrm -f {}\necho OCR4CODE REMOVED=1\n",
+            paths.join(" ")
+        );
         self.run_script(cfg, &script, SSH_TIMEOUT, None)?;
         Ok(())
     }
@@ -2030,9 +2016,7 @@ fn runtime_assets(arch: &str, accel: Accel) -> Result<Vec<String>, Error> {
         }
     };
     let names: Vec<String> = match accel {
-        Accel::Auto | Accel::Cpu => vec![format!(
-            "llama-{RUNTIME_TAG}-bin-ubuntu-{arch}.tar.gz"
-        )],
+        Accel::Auto | Accel::Cpu => vec![format!("llama-{RUNTIME_TAG}-bin-ubuntu-{arch}.tar.gz")],
         Accel::Vulkan => vec![format!(
             "llama-{RUNTIME_TAG}-bin-ubuntu-vulkan-{arch}.tar.gz"
         )],
@@ -2168,15 +2152,15 @@ mod tests {
     fn upload_payload_creates_the_part_file_through_a_remote_shell() {
         use std::io::Write as _;
 
-        let root = std::env::temp_dir().join(format!(
-            "ocr4code-upload-{}",
-            std::process::id()
-        ));
+        let root = std::env::temp_dir().join(format!("ocr4code-upload-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let part = root.join("models").join("model name.gguf.part");
         // ssh joins its argv and lets the remote shell parse the result; this
         // `sh -c` hop reproduces that second round of parsing.
-        let remote = format!("sh -c {}", shell_quote(&upload_command(part.to_str().unwrap())));
+        let remote = format!(
+            "sh -c {}",
+            shell_quote(&upload_command(part.to_str().unwrap()))
+        );
         let mut child = Command::new("sh")
             .arg("-c")
             .arg(&remote)
@@ -2185,12 +2169,7 @@ mod tests {
             .stderr(Stdio::null())
             .spawn()
             .unwrap();
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(b"weights")
-            .unwrap();
+        child.stdin.take().unwrap().write_all(b"weights").unwrap();
         assert!(child.wait().unwrap().success());
         assert_eq!(fs::read(&part).unwrap(), b"weights");
         let _ = fs::remove_dir_all(&root);
@@ -2241,7 +2220,13 @@ mod tests {
         let mut cfg = config();
         cfg.accel = Accel::Vulkan;
         cfg.gpu_layers = 42;
-        let args = server_args(&cfg, "/home/dev/model.gguf", "/home/dev/mmproj.gguf", 8099, true);
+        let args = server_args(
+            &cfg,
+            "/home/dev/model.gguf",
+            "/home/dev/mmproj.gguf",
+            8099,
+            true,
+        );
         let value = |key: &str| {
             args.iter()
                 .position(|arg| arg == key)
@@ -2512,8 +2497,11 @@ OCR4CODE FILE=GLM-OCR.Q4_K_M.gguf:100:548515136
     #[test]
     fn a_new_outage_restarts_the_attempt_counter() {
         let policy = policy();
-        let (state, _) =
-            WatchState::Reconnecting { attempt: 4 }.on_event(WatchEvent::AttemptSucceeded, &policy, 0.5);
+        let (state, _) = WatchState::Reconnecting { attempt: 4 }.on_event(
+            WatchEvent::AttemptSucceeded,
+            &policy,
+            0.5,
+        );
         let (next, action) = state.on_event(WatchEvent::TunnelExited, &policy, 0.5);
         assert_eq!(next, WatchState::Reconnecting { attempt: 1 });
         assert!(matches!(action, WatchAction::Reconnect { attempt: 1, .. }));

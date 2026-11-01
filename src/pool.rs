@@ -50,7 +50,6 @@ where
         .collect()
 }
 
-
 /// Counting semaphore with an RAII permit.
 ///
 /// Used to bound the number of *engine calls* in flight. It has to be a single
@@ -119,7 +118,6 @@ mod tests {
         assert!(out.iter().enumerate().all(|(i, &v)| i == v));
     }
 
-
     #[test]
     fn semaphore_bounds_concurrency() {
         use std::sync::atomic::AtomicUsize;
@@ -140,7 +138,11 @@ mod tests {
                 });
             }
         });
-        assert!(peak.load(Ordering::SeqCst) <= 2, "peak {}", peak.load(Ordering::SeqCst));
+        assert!(
+            peak.load(Ordering::SeqCst) <= 2,
+            "peak {}",
+            peak.load(Ordering::SeqCst)
+        );
     }
 
     #[test]

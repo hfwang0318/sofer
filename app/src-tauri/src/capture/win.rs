@@ -20,10 +20,9 @@ use tauri::{
 };
 use windows::Win32::Foundation::POINT;
 use windows::Win32::Graphics::Gdi::{
-    BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC,
-    GetDIBits, GetMonitorInfoW, MonitorFromPoint, ReleaseDC, SelectObject, BITMAPINFO,
-    BITMAPINFOHEADER, BI_RGB, CAPTUREBLT, DIB_RGB_COLORS, MONITORINFO,
-    MONITOR_DEFAULTTONEAREST, SRCCOPY,
+    BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
+    GetMonitorInfoW, MonitorFromPoint, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER,
+    BI_RGB, CAPTUREBLT, DIB_RGB_COLORS, MONITORINFO, MONITOR_DEFAULTTONEAREST, SRCCOPY,
 };
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
@@ -63,7 +62,9 @@ static PENDING: Mutex<Option<Pending>> = Mutex::new(None);
 
 pub(super) fn overlay_info() -> Result<OverlayInfo, String> {
     let pending = PENDING.lock().map_err(|_| "截图状态锁已损坏".to_string())?;
-    let pending = pending.as_ref().ok_or_else(|| "截图会话不存在".to_string())?;
+    let pending = pending
+        .as_ref()
+        .ok_or_else(|| "截图会话不存在".to_string())?;
     Ok(OverlayInfo {
         image: pending.preview.clone(),
     })
@@ -131,9 +132,7 @@ pub(super) fn interactive_capture(
     let preview = preview_data_url(&frame)?;
     let (sender, receiver) = mpsc::channel();
     {
-        let mut pending = PENDING
-            .lock()
-            .map_err(|_| anyhow!("截图状态锁已损坏"))?;
+        let mut pending = PENDING.lock().map_err(|_| anyhow!("截图状态锁已损坏"))?;
         *pending = Some(Pending {
             frame,
             preview,
@@ -164,7 +163,9 @@ pub(super) fn interactive_capture(
 
     let started = Instant::now();
     loop {
-        if cancel.load(Ordering::SeqCst) || started.elapsed() > Duration::from_secs(MAX_OVERLAY_SECONDS) {
+        if cancel.load(Ordering::SeqCst)
+            || started.elapsed() > Duration::from_secs(MAX_OVERLAY_SECONDS)
+        {
             close_overlay(app);
             PENDING.lock().ok().and_then(|mut pending| pending.take());
             return Ok(CaptureOutcome::Cancelled);
@@ -201,20 +202,17 @@ fn create_overlay(app: &AppHandle, monitor: MonitorRect) -> Result<(), String> {
     if let Some(existing) = app.get_webview_window(OVERLAY_LABEL) {
         let _ = existing.close();
     }
-    let window = WebviewWindowBuilder::new(
-        app,
-        OVERLAY_LABEL,
-        WebviewUrl::App("overlay.html".into()),
-    )
-    .title("ocr4code — 选择截图区域")
-    .decorations(false)
-    .resizable(false)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .shadow(false)
-    .visible(false)
-    .build()
-    .map_err(|e| format!("创建截图浮层失败：{e}"))?;
+    let window =
+        WebviewWindowBuilder::new(app, OVERLAY_LABEL, WebviewUrl::App("overlay.html".into()))
+            .title("ocr4code — 选择截图区域")
+            .decorations(false)
+            .resizable(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .shadow(false)
+            .visible(false)
+            .build()
+            .map_err(|e| format!("创建截图浮层失败：{e}"))?;
 
     window
         .set_position(PhysicalPosition::new(monitor.left, monitor.top))
@@ -351,8 +349,7 @@ fn preview_data_url(frame: &Frame) -> Result<String> {
     // virtual screens are reduced. The crop always uses the untouched frame.
     const MAX_PREVIEW_WIDTH: u32 = 5120;
     if image.width() > MAX_PREVIEW_WIDTH {
-        let height = ((image.height() as u64 * MAX_PREVIEW_WIDTH as u64)
-            / image.width() as u64)
+        let height = ((image.height() as u64 * MAX_PREVIEW_WIDTH as u64) / image.width() as u64)
             .max(1) as u32;
         image = imageops::resize(
             &image,
@@ -379,8 +376,7 @@ fn crop(frame: &Frame, selection: Selection) -> Result<RgbaImage> {
         let start = (((y + row) as usize) * (frame.width as usize) + x as usize) * 4;
         rgba.extend_from_slice(&frame.rgba[start..start + (width as usize) * 4]);
     }
-    RgbaImage::from_raw(width as u32, height as u32, rgba)
-        .ok_or_else(|| anyhow!("裁剪截图失败"))
+    RgbaImage::from_raw(width as u32, height as u32, rgba).ok_or_else(|| anyhow!("裁剪截图失败"))
 }
 
 #[cfg(test)]

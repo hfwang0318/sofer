@@ -32,28 +32,67 @@ impl Lang {
 }
 
 const FN_KEYWORDS: &[(Lang, &[&str])] = &[
-    (Lang::Rust, &["fn ", "let mut ", "impl ", "pub fn", "use std", "-> Result", "#[derive", "match "]),
-    (Lang::Python, &["def ", "elif ", "self.", "import ", "from ", "__init__", "f\"", "print("]),
-    (Lang::TypeScript, &["interface ", "export const", ": string", ": number", "async function", "await "]),
-    (Lang::JavaScript, &["const ", "=> {", "function(", "console.log", "require("]),
-    (Lang::Shell, &["$ ", "sudo ", "apt ", "brew ", "export ", "#!/bin/", "| grep", "chmod "]),
+    (
+        Lang::Rust,
+        &[
+            "fn ",
+            "let mut ",
+            "impl ",
+            "pub fn",
+            "use std",
+            "-> Result",
+            "#[derive",
+            "match ",
+        ],
+    ),
+    (
+        Lang::Python,
+        &[
+            "def ", "elif ", "self.", "import ", "from ", "__init__", "f\"", "print(",
+        ],
+    ),
+    (
+        Lang::TypeScript,
+        &[
+            "interface ",
+            "export const",
+            ": string",
+            ": number",
+            "async function",
+            "await ",
+        ],
+    ),
+    (
+        Lang::JavaScript,
+        &["const ", "=> {", "function(", "console.log", "require("],
+    ),
+    (
+        Lang::Shell,
+        &[
+            "$ ", "sudo ", "apt ", "brew ", "export ", "#!/bin/", "| grep", "chmod ",
+        ],
+    ),
     (Lang::Json, &["\"key\"", "\"name\":", "{ \"", "},\n"]),
     (Lang::Go, &["func ", "package ", ":=", "fmt.", "goroutine"]),
-    (Lang::Sql, &["SELECT ", "FROM ", "WHERE ", "INSERT INTO", "GROUP BY"]),
+    (
+        Lang::Sql,
+        &["SELECT ", "FROM ", "WHERE ", "INSERT INTO", "GROUP BY"],
+    ),
 ];
 
 pub fn guess(text: &str) -> Lang {
     let lower = text.to_lowercase();
-    if text.lines().any(|l| l.starts_with("diff --git ") || l.starts_with("@@ ")) {
+    if text
+        .lines()
+        .any(|l| l.starts_with("diff --git ") || l.starts_with("@@ "))
+    {
         return Lang::Diff;
     }
     // A captured *terminal session* is shell output even if it happens to contain
     // python keywords (tracebacks, `def` in a stack frame, ...).
-    if text
-        .lines()
-        .take(3)
-        .any(|l| l.trim_start().starts_with("$ ") || l.contains(" $ ") || l.trim_start().starts_with("~/"))
-    {
+    if text.lines().take(3).any(|l| {
+        l.trim_start().starts_with("$ ") || l.contains(" $ ") || l.trim_start().starts_with("~/")
+    }) {
         return Lang::Shell;
     }
     let mut best = (Lang::Text, 0usize);
@@ -90,7 +129,10 @@ mod tests {
 
     #[test]
     fn terminal_session_wins_over_embedded_keywords() {
-        assert_eq!(guess("~/proj $ pytest -q\n    def test_x():\n"), Lang::Shell);
+        assert_eq!(
+            guess("~/proj $ pytest -q\n    def test_x():\n"),
+            Lang::Shell
+        );
     }
 
     #[test]

@@ -185,10 +185,7 @@ fn temp_path(path: &Path) -> PathBuf {
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "history.json".into());
-    path.with_file_name(format!(
-        "{name}.tmp-{}-{unique}",
-        std::process::id()
-    ))
+    path.with_file_name(format!("{name}.tmp-{}-{unique}", std::process::id()))
 }
 
 /// Write through a sibling temp file and rename, so a crash mid-write leaves the
@@ -262,7 +259,10 @@ pub fn save_history(app: AppHandle, entries: Vec<HistoryEntry>) -> Result<(), St
 }
 
 #[tauri::command]
-pub fn migrate_history(app: AppHandle, legacy: Vec<HistoryEntry>) -> Result<Vec<HistoryEntry>, String> {
+pub fn migrate_history(
+    app: AppHandle,
+    legacy: Vec<HistoryEntry>,
+) -> Result<Vec<HistoryEntry>, String> {
     migrate_entries(&store_path(&app), legacy)
 }
 
@@ -392,7 +392,9 @@ mod tests {
             "pinned entries are evicted last"
         );
         assert!(
-            !loaded.iter().any(|entry| entry.id == format!("e{}", HISTORY_LIMIT + 9)),
+            !loaded
+                .iter()
+                .any(|entry| entry.id == format!("e{}", HISTORY_LIMIT + 9)),
             "the older unpinned tail is evicted"
         );
         fs::remove_dir_all(dir).ok();
@@ -410,7 +412,10 @@ mod tests {
         save_entries(&path, vec![big, edge]).unwrap();
         let loaded = load_entries(&path);
         assert_eq!(ids(&loaded), vec!["big", "edge"]);
-        assert!(loaded[0].thumbnail.is_none(), "oversized preview is dropped");
+        assert!(
+            loaded[0].thumbnail.is_none(),
+            "oversized preview is dropped"
+        );
         assert_eq!(
             loaded[1].thumbnail.as_ref().map(String::len),
             Some(THUMBNAIL_MAX_BYTES),

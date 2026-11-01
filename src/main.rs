@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 
-
 use ocr4code::cli_input::{self, Region};
 use ocr4code::engine::{llamacpp, tesseract, vision, ImageFormat};
 use ocr4code::pipeline::{self, Config, EngineMode};
@@ -29,7 +28,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Cmd {
     /// Recognise one or more images and print the text
-    Ocr(OcrArgs),
+    Ocr(Box<OcrArgs>),
     /// Show which engines are usable on this machine
     Doctor,
 }
@@ -158,7 +157,7 @@ fn main() {
 fn run() -> Result<()> {
     match Cli::parse().cmd {
         Cmd::Doctor => doctor(),
-        Cmd::Ocr(args) => ocr(args),
+        Cmd::Ocr(args) => ocr(*args),
     }
 }
 
@@ -265,7 +264,11 @@ fn ocr(args: OcrArgs) -> Result<()> {
                         print_stats(Path::new(&input.label), &outcome);
                     }
                     let fence = config.language.clone();
-                    Ok(render::render(&outcome.document, config.format, fence.as_deref()))
+                    Ok(render::render(
+                        &outcome.document,
+                        config.format,
+                        fence.as_deref(),
+                    ))
                 }
                 Err(e) => Err((input.label.clone(), format!("{e:#}"))),
             }
@@ -294,8 +297,8 @@ fn ocr(args: OcrArgs) -> Result<()> {
     let joined = rendered.join("\n");
     match &args.out {
         Some(p) => {
-            let mut f = std::fs::File::create(p)
-                .with_context(|| format!("writing {}", p.display()))?;
+            let mut f =
+                std::fs::File::create(p).with_context(|| format!("writing {}", p.display()))?;
             f.write_all(joined.as_bytes())?;
             f.write_all(b"\n")?;
         }
@@ -405,10 +408,7 @@ fn print_stats(path: &Path, outcome: &pipeline::Outcome) {
         doc.ms
     );
     if let Some(r) = &trace.retry {
-        eprintln!(
-            "  retry: {}/{} rows -> {} tiles",
-            r.rows, r.bands, r.tiles
-        );
+        eprintln!("  retry: {}/{} rows -> {} tiles", r.rows, r.bands, r.tiles);
         if !r.accepted {
             eprintln!("  retry rejected: {} rows vs {}", r.retry_rows, r.rows);
         }
@@ -459,7 +459,10 @@ fn doctor() -> Result<()> {
     }
 
     let tess_ok = tesseract::available();
-    println!("[{}] tesseract          (fallback, low-end machines)", mark(tess_ok));
+    println!(
+        "[{}] tesseract          (fallback, low-end machines)",
+        mark(tess_ok)
+    );
     if !tess_ok {
         println!("      brew install tesseract   |   winget install UB-Mannheim.TesseractOCR");
     }

@@ -17,8 +17,18 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
+
+      - name: Formatting
+        run: cargo fmt --all -- --check
+
+      # Warnings are errors: the kernel is shared by the CLI and the desktop
+      # shell, and a clean clippy run is the only static gate either crate has.
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
 
       # unit tests + the golden layout tests (they read bench/images + bench/truth,
       # so both platforms run the *same* geometry assertions on the same pixels)
@@ -51,6 +61,8 @@ jobs:
           cache-dependency-path: app/pnpm-lock.yaml
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - uses: actions/setup-python@v5
         with:
@@ -63,6 +75,11 @@ jobs:
       - name: Install frontend dependencies
         working-directory: app
         run: pnpm install --frozen-lockfile
+
+      # The version is hand-written in three files; a release that updates one
+      # of them ships an About page that disagrees with the updater feed.
+      - name: Check version consistency
+        run: python3 scripts/check-versions.py
 
       # Includes `tsc --noEmit` (strict + noUnused*) and the Vite build.
       - name: Type-check and build frontend
@@ -95,6 +112,44 @@ jobs:
 
       # The desktop crate is not a workspace member, so the root job does not
       # compile or test it.
+      - name: Formatting (desktop)
+        working-directory: app/src-tauri
+        run: cargo fmt -- --check
+
+      - name: Clippy (desktop)
+        working-directory: app/src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+
       - name: Test desktop backend
         working-directory: app/src-tauri
         run: cargo test
+
+  e2e:
+    name: app e2e
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: app
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        working-directory: app
+        run: pnpm exec playwright install chromium
+
+      # Playwright starts `pnpm dev` (mock backend) through the webServer config,
+      # so this covers the browser-preview flows without a model or permissions.
+      - name: Browser preview flows
+        working-directory: app
+        run: pnpm e2e

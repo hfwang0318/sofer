@@ -99,7 +99,7 @@ pub fn ink_mask(img: &GrayImage) -> Vec<bool> {
     // Keep this low enough for thin strokes (underscores, dashes) to survive;
     // the window-border case is handled by cropping the chrome away, not by
     // raising the threshold (raising it lost `_` and `-` in real screenshots).
-    let thr = ((p90 as f32) * 0.35).max(18.0).min(200.0) as i32;
+    let thr = ((p90 as f32) * 0.35).clamp(18.0, 200.0) as i32;
 
     let mut mask = vec![false; (w * h) as usize];
     for (i, p) in img.pixels().enumerate() {

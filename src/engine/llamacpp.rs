@@ -102,7 +102,11 @@ impl LlamaCpp {
             .lines()
             .map(|l| RawLine::plain(l.trim_end().to_string()))
             .collect();
-        while lines.last().map(|l| l.text.trim().is_empty()).unwrap_or(false) {
+        while lines
+            .last()
+            .map(|l| l.text.trim().is_empty())
+            .unwrap_or(false)
+        {
             lines.pop();
         }
         EngineOutput {

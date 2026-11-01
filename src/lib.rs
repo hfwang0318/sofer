@@ -22,10 +22,10 @@ pub mod cli_input;
 pub mod engine;
 pub mod geom;
 pub mod lang;
-pub mod repair;
 pub mod pipeline;
 pub mod pool;
 pub mod render;
+pub mod repair;
 pub mod tile;
 
 pub use engine::{Engine, EngineOutput, ImageFormat, ImageInput, RawLine};

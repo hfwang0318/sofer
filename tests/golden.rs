@@ -49,8 +49,13 @@ fn indent_accuracy(scene: &str) -> f32 {
         if indent_of(t[i]) == o[i].indent as usize {
             hit += 1;
         } else {
-            eprintln!("MISMATCH {scene} line {i}: want {} got {} {:?} / {:?}",
-                      indent_of(t[i]), o[i].indent, t[i], o[i].text);
+            eprintln!(
+                "MISMATCH {scene} line {i}: want {} got {} {:?} / {:?}",
+                indent_of(t[i]),
+                o[i].indent,
+                t[i],
+                o[i].text
+            );
         }
     }
     hit as f32 / n as f32
@@ -81,7 +86,9 @@ fn blank_lines_do_not_shift_alignment() {
         .collect();
     assert_eq!(texts[0], "~/proj $ tree -L 3 --dirsfirst src");
     assert_eq!(texts[1], "src");
-    assert!(texts.iter().any(|t| t.starts_with("\u{251c}\u{2500}\u{2500} cli")));
+    assert!(texts
+        .iter()
+        .any(|t| t.starts_with("\u{251c}\u{2500}\u{2500} cli")));
     assert_eq!(texts.last().unwrap(), &"3 directories, 8 files");
 }
 
@@ -98,7 +105,9 @@ fn gutter_is_detected_and_model_spacing_kept() {
 
 #[test]
 fn soft_wrap_join_is_opt_in() {
-    let img = image::open("bench/images/softwrap@2x.png").unwrap().to_luma8();
+    let img = image::open("bench/images/softwrap@2x.png")
+        .unwrap()
+        .to_luma8();
     let geom = analyze(&img);
     let raw: Vec<RawLine> = truth_lines("softwrap")
         .iter()

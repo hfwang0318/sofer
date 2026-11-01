@@ -55,10 +55,7 @@ fn save_settings(
     shortcuts.unregister_all().map_err(|e| e.to_string())?;
     if let Err(err) = shortcuts.register(settings.shortcut.as_str()) {
         let _ = shortcuts.register(old.shortcut.as_str());
-        return Err(format!(
-            "无法注册快捷键“{}”：{err}",
-            settings.shortcut
-        ));
+        return Err(format!("无法注册快捷键“{}”：{err}", settings.shortcut));
     }
     if let Err(err) = settings::save(&app, &settings) {
         let _ = shortcuts.unregister_all();
@@ -316,11 +313,7 @@ fn remote_config(app: &AppHandle) -> Result<remote::RemoteConfig, String> {
         .ok_or_else(|| "先在设置 → OCR 中启用远程部署。".to_string())
 }
 
-fn merge_remote(
-    mut status: engine::Status,
-    enabled: bool,
-    remote: remote::State,
-) -> DesktopStatus {
+fn merge_remote(mut status: engine::Status, enabled: bool, remote: remote::State) -> DesktopStatus {
     if enabled {
         if remote.phase == "online" {
             status.llama = true;
@@ -352,10 +345,14 @@ async fn start_engine(app: AppHandle) -> Result<DesktopStatus, String> {
     let result = tauri::async_runtime::spawn_blocking(move || {
         match &remote_cfg {
             Some(cfg) => {
-                remote_manager.ensure_ready(cfg).map_err(|e| e.to_string())?;
+                remote_manager
+                    .ensure_ready(cfg)
+                    .map_err(|e| e.to_string())?;
             }
             None => {
-                manager.ensure_ready(&url, config).map_err(|e| e.to_string())?;
+                manager
+                    .ensure_ready(&url, config)
+                    .map_err(|e| e.to_string())?;
             }
         }
         let mut status = manager.status(&url, config.quality);
@@ -493,11 +490,9 @@ async fn engine_status(app: AppHandle) -> Result<DesktopStatus, String> {
 async fn remote_probe(app: AppHandle) -> Result<remote::Probe, String> {
     let cfg = remote_config(&app)?;
     let manager = app.state::<Arc<remote::Manager>>().inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        manager.probe(&cfg).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| format!("检测服务器失败：{e}"))?
+    tauri::async_runtime::spawn_blocking(move || manager.probe(&cfg).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| format!("检测服务器失败：{e}"))?
 }
 
 /// One-click deploy. Returns immediately; progress arrives on `remote:*`.

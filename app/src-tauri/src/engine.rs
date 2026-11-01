@@ -25,17 +25,12 @@ pub const RUNTIME_VERSION: &str = "llama.cpp b12018";
 pub const MODEL_LICENSE: &str = "MIT";
 
 /// Which weights the app should load. Both packs share the same Q8 mmproj.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ModelQuality {
+    #[default]
     High,
     Low,
-}
-
-impl Default for ModelQuality {
-    fn default() -> Self {
-        Self::High
-    }
 }
 
 impl ModelQuality {
@@ -154,11 +149,7 @@ pub fn model_url(file: &ModelFile, use_mirror: bool) -> String {
     model_url_with_base(file, env_base.as_deref(), use_mirror)
 }
 
-fn model_url_with_base(
-    file: &ModelFile,
-    override_base: Option<&str>,
-    use_mirror: bool,
-) -> String {
+fn model_url_with_base(file: &ModelFile, override_base: Option<&str>, use_mirror: bool) -> String {
     // Escape hatch for an internal mirror / offline staging server. The base
     // must include the resolve path, e.g.
     // https://mirror.example/ggml-org/GLM-OCR-GGUF/resolve/<revision>
@@ -168,7 +159,11 @@ fn model_url_with_base(
     {
         return format!("{}/{}", base.trim_end_matches('/'), file.name);
     }
-    let host = if use_mirror { MIRROR_HOST } else { OFFICIAL_HOST };
+    let host = if use_mirror {
+        MIRROR_HOST
+    } else {
+        OFFICIAL_HOST
+    };
     format!(
         "{host}/{}/resolve/{}/{}",
         file.repo, file.revision, file.name
@@ -329,8 +324,9 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum Phase {
+    #[default]
     Stopped,
     Starting,
     Online,
@@ -356,12 +352,6 @@ struct Slot {
     error: Option<String>,
     managed: bool,
     config: Option<ServerConfig>,
-}
-
-impl Default for Phase {
-    fn default() -> Self {
-        Phase::Stopped
-    }
 }
 
 pub struct Manager {
@@ -495,7 +485,10 @@ impl Manager {
         };
         let llama = managed_online || external;
         let llama_url = if managed_online {
-            server.url.clone().unwrap_or_else(|| external_url.to_string())
+            server
+                .url
+                .clone()
+                .unwrap_or_else(|| external_url.to_string())
         } else {
             external_url.to_string()
         };
@@ -589,7 +582,7 @@ impl Manager {
         }
 
         let installed = self.model_info(quality);
-        if let Some(free) = fs2::available_space(&self.paths.models).ok() {
+        if let Ok(free) = fs2::available_space(&self.paths.models) {
             let needed = total.saturating_sub(installed.bytes);
             if free < needed + 256 * 1024 * 1024 {
                 return Err(Error::Download(format!(
@@ -674,14 +667,7 @@ impl Manager {
         let agent = build_agent(&url, options.proxy.as_deref())?;
 
         if spec.bytes >= PARALLEL_MIN_BYTES && ranges_supported(&agent, &url)? {
-            match self.download_parallel(
-                &agent,
-                &url,
-                spec,
-                part,
-                completed_before,
-                total,
-            )? {
+            match self.download_parallel(&agent, &url, spec, part, completed_before, total)? {
                 ParallelOutcome::Done => return Ok(()),
                 ParallelOutcome::RangeUnsupported => {
                     // Probe said 206 but a worker got 200. `download_parallel`
@@ -691,14 +677,7 @@ impl Manager {
             }
         }
 
-        self.download_file_single_with(
-            &agent,
-            &url,
-            spec,
-            part,
-            completed_before,
-            total,
-        )
+        self.download_file_single_with(&agent, &url, spec, part, completed_before, total)
     }
 
     /// Test/helper entry point without a settings override.
@@ -836,8 +815,8 @@ impl Manager {
             });
 
             let mut handles = Vec::with_capacity(chunks.len());
-            for index in 0..chunks.len() {
-                let chunk = chunks[index];
+            for (index, chunk) in chunks.iter().enumerate() {
+                let chunk = *chunk;
                 let path = chunk_path(part, index);
                 let name = spec.name;
                 let worker_agent = agent.clone();
@@ -875,19 +854,15 @@ impl Manager {
                     }
                     Ok(Err(err)) => {
                         abort.store(true, Ordering::Relaxed);
-                        if first_error.is_none()
-                            || matches!(first_error, Some(Error::Cancelled))
-                        {
+                        if first_error.is_none() || matches!(first_error, Some(Error::Cancelled)) {
                             first_error = Some(err);
                         }
                     }
                     Err(_) => {
                         abort.store(true, Ordering::Relaxed);
                         if first_error.is_none() {
-                            first_error = Some(Error::Download(format!(
-                                "{} 下载线程异常退出",
-                                spec.name
-                            )));
+                            first_error =
+                                Some(Error::Download(format!("{} 下载线程异常退出", spec.name)));
                         }
                     }
                 }
@@ -946,12 +921,7 @@ impl Manager {
             Err(ureq::Error::Status(416, _)) if offset == spec.bytes => {
                 return Ok(());
             }
-            Err(err) => {
-                return Err(Error::Download(format!(
-                    "下载 {} 失败：{err}",
-                    spec.name
-                )))
-            }
+            Err(err) => return Err(Error::Download(format!("下载 {} 失败：{err}", spec.name))),
         };
 
         let status = response.status();
@@ -987,9 +957,9 @@ impl Manager {
                 let _ = file.flush();
                 return Err(Error::Cancelled);
             }
-            let n = reader.read(&mut buf).map_err(|e| {
-                Error::Download(format!("读取 {} 失败：{e}", spec.name))
-            })?;
+            let n = reader
+                .read(&mut buf)
+                .map_err(|e| Error::Download(format!("读取 {} 失败：{e}", spec.name)))?;
             if n == 0 {
                 break;
             }
@@ -1045,11 +1015,7 @@ impl Manager {
     }
 
     /// Use an already-running external server, otherwise start the managed one.
-    pub fn ensure_ready(
-        &self,
-        external_url: &str,
-        config: ServerConfig,
-    ) -> Result<String, Error> {
+    pub fn ensure_ready(&self, external_url: &str, config: ServerConfig) -> Result<String, Error> {
         if let Some(url) = self.online_url_if_healthy(config) {
             return Ok(url);
         }
@@ -1058,8 +1024,7 @@ impl Manager {
         }
         if !self.runtime_ready() {
             return Err(Error::RuntimeMissing(
-                "缺少内置 OCR 运行时；请使用完整安装包。"
-                    .into(),
+                "缺少内置 OCR 运行时；请使用完整安装包。".into(),
             ));
         }
         if !self.model_info(config.quality).installed {
@@ -1074,8 +1039,7 @@ impl Manager {
             (slot.url.clone(), slot.phase == Phase::Online, slot.config)
         };
         if let Some(url) = url {
-            if online && current == Some(config) && health_ok(&url, Duration::from_millis(500))
-            {
+            if online && current == Some(config) && health_ok(&url, Duration::from_millis(500)) {
                 return Some(url);
             }
         }
@@ -1130,10 +1094,7 @@ impl Manager {
         }
 
         let child = command.spawn().map_err(|e| {
-            Error::Server(format!(
-                "无法启动 llama-server（{}）：{e}",
-                exe.display()
-            ))
+            Error::Server(format!("无法启动 llama-server（{}）：{e}", exe.display()))
         })?;
         write_pid(&self.pid_file, child.id());
 
@@ -1407,11 +1368,7 @@ fn build_agent(url: &str, proxy_override: Option<&str>) -> Result<ureq::Agent, E
 }
 
 fn ranges_supported(agent: &ureq::Agent, url: &str) -> Result<bool, Error> {
-    match agent
-        .get(url)
-        .set("Range", "bytes=0-0")
-        .call()
-    {
+    match agent.get(url).set("Range", "bytes=0-0").call() {
         Ok(response) => {
             let ok = response.status() == 206;
             if ok {
@@ -1422,12 +1379,11 @@ fn ranges_supported(agent: &ureq::Agent, url: &str) -> Result<bool, Error> {
             Ok(ok)
         }
         Err(ureq::Error::Status(416, _)) => Ok(false),
-        Err(err) => Err(Error::Download(format!(
-            "检查分片下载支持失败：{err}"
-        ))),
+        Err(err) => Err(Error::Download(format!("检查分片下载支持失败：{err}"))),
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn download_chunk_once(
     agent: &ureq::Agent,
     url: &str,
@@ -1507,6 +1463,7 @@ fn download_chunk_once(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn download_chunk(
     agent: &ureq::Agent,
     url: &str,
@@ -1534,9 +1491,7 @@ fn download_chunk(
             }
         }
     }
-    Err(last_error.unwrap_or_else(|| {
-        Error::Download(format!("下载 {name} 分片失败"))
-    }))
+    Err(last_error.unwrap_or_else(|| Error::Download(format!("下载 {name} 分片失败"))))
 }
 
 fn join_chunks(part: &Path, chunks: &[Chunk], total: u64) -> Result<(), Error> {
@@ -1688,8 +1643,7 @@ fn marker_ok(dir: &Path, quality: ModelQuality) -> bool {
     if quality == ModelQuality::High {
         if let Ok(raw) = fs::read_to_string(dir.join("verified.json")) {
             if let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) {
-                return value.get("revision").and_then(|v| v.as_str())
-                    == Some(OFFICIAL_REVISION);
+                return value.get("revision").and_then(|v| v.as_str()) == Some(OFFICIAL_REVISION);
             }
         }
     }
@@ -1899,7 +1853,10 @@ fn hex_value(byte: u8) -> Option<u8> {
 
 fn proxy_for_url(url: &str, override_proxy: Option<&str>) -> Option<ureq::Proxy> {
     let lower = url.to_lowercase();
-    if lower.contains("://127.0.0.1") || lower.contains("://localhost") || lower.contains("://[::1]") {
+    if lower.contains("://127.0.0.1")
+        || lower.contains("://localhost")
+        || lower.contains("://[::1]")
+    {
         return None;
     }
     if let Some(value) = override_proxy
@@ -2174,32 +2131,30 @@ mod tests {
     fn manifest_sizes_match_total() {
         for quality in [ModelQuality::High, ModelQuality::Low] {
             let files = model_files(quality);
-            assert_eq!(model_total(quality), files.iter().map(|f| f.bytes).sum::<u64>());
+            assert_eq!(
+                model_total(quality),
+                files.iter().map(|f| f.bytes).sum::<u64>()
+            );
             assert!(model_total(quality) > 0);
             assert!(files.iter().all(|f| f.bytes > 0 && f.sha256.len() == 64));
-            assert!(files.iter().all(|f| !f.repo.is_empty() && !f.revision.is_empty()));
+            assert!(files
+                .iter()
+                .all(|f| !f.repo.is_empty() && !f.revision.is_empty()));
         }
         assert!(model_total(ModelQuality::High) > model_total(ModelQuality::Low));
     }
 
     #[test]
     fn proxy_credentials_are_percent_encoded_for_the_url() {
-        let url = compose_proxy_url(
-            "127.0.0.1:7890",
-            "user@name",
-            "p@ss:word/?#%",
-        )
-        .unwrap()
-        .unwrap();
+        let url = compose_proxy_url("127.0.0.1:7890", "user@name", "p@ss:word/?#%")
+            .unwrap()
+            .unwrap();
         assert_eq!(
             url,
             "http://user%40name:p%40ss%3Aword%2F%3F%23%25@127.0.0.1:7890"
         );
         let normalized = normalize_proxy_url(&url);
-        assert_eq!(
-            normalized,
-            "http://user@name:p@ss:word/?#%@127.0.0.1:7890"
-        );
+        assert_eq!(normalized, "http://user@name:p@ss:word/?#%@127.0.0.1:7890");
         assert!(ureq::Proxy::new(&normalized).is_ok());
 
         assert_eq!(
@@ -2289,7 +2244,11 @@ mod tests {
                 .and_then(|value| value.trim_end_matches('-').parse::<usize>().ok())
                 .unwrap_or(0);
             let chunk = &body[start..];
-            let status = if start > 0 { "206 Partial Content" } else { "200 OK" };
+            let status = if start > 0 {
+                "206 Partial Content"
+            } else {
+                "200 OK"
+            };
             let header = format!(
                 "HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Range: bytes {}-{}/{}\r\nConnection: close\r\n\r\n",
                 chunk.len(),
@@ -2302,11 +2261,8 @@ mod tests {
             request
         });
 
-        let dir = std::env::temp_dir().join(format!(
-            "ocr4code-resume-{}-{}",
-            std::process::id(),
-            port
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("ocr4code-resume-{}-{}", std::process::id(), port));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let part = dir.join("test.bin.part");
@@ -2352,10 +2308,7 @@ mod tests {
 
     #[test]
     fn removing_one_quality_keeps_the_other_pack() {
-        let dir = std::env::temp_dir().join(format!(
-            "ocr4code-remove-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("ocr4code-remove-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         for file in model_files(ModelQuality::High) {
@@ -2385,10 +2338,8 @@ mod tests {
 
     #[test]
     fn legacy_marker_counts_only_for_high_quality() {
-        let dir = std::env::temp_dir().join(format!(
-            "ocr4code-legacy-marker-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("ocr4code-legacy-marker-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         fs::write(
@@ -2408,11 +2359,8 @@ mod tests {
         use std::sync::Arc;
         use std::thread;
 
-        let body: Arc<Vec<u8>> = Arc::new(
-            (0..1024 * 1024)
-                .map(|index| (index % 251) as u8)
-                .collect(),
-        );
+        let body: Arc<Vec<u8>> =
+            Arc::new((0..1024 * 1024).map(|index| (index % 251) as u8).collect());
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
         let server_body = body.clone();
@@ -2446,10 +2394,7 @@ mod tests {
             }
         });
 
-        let dir = std::env::temp_dir().join(format!(
-            "ocr4code-parallel-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("ocr4code-parallel-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let part = dir.join("model.gguf.part");
@@ -2487,11 +2432,8 @@ mod tests {
         use std::sync::Arc;
         use std::thread;
 
-        let body: Arc<Vec<u8>> = Arc::new(
-            (0..1024 * 1024)
-                .map(|index| (index % 239) as u8)
-                .collect(),
-        );
+        let body: Arc<Vec<u8>> =
+            Arc::new((0..1024 * 1024).map(|index| (index % 239) as u8).collect());
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
         let server_body = body.clone();
@@ -2525,10 +2467,8 @@ mod tests {
             }
         });
 
-        let dir = std::env::temp_dir().join(format!(
-            "ocr4code-parallel-prefix-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("ocr4code-parallel-prefix-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let part = dir.join("model.gguf.part");

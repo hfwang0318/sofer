@@ -19,7 +19,10 @@ const DASHES: &[(char, &str)] = &[
 /// parenthesis for its CJK twin ("main（host）"). Fold it only when it touches
 /// ASCII, i.e. when it is almost certainly code.
 fn touches_ascii(prev: Option<char>, next: Option<char>) -> bool {
-    let ascii = |c: Option<char>| c.map(|c| c.is_ascii() && !c.is_whitespace()).unwrap_or(false);
+    let ascii = |c: Option<char>| {
+        c.map(|c| c.is_ascii() && !c.is_whitespace())
+            .unwrap_or(false)
+    };
     ascii(prev) || ascii(next)
 }
 
@@ -41,9 +44,9 @@ pub fn normalize_line(input: &str) -> String {
             continue;
         }
         match ch {
-            '\u{00a0}' => out.push(' '),        // NBSP
+            '\u{00a0}' => out.push(' '),               // NBSP
             '\u{200b}' | '\u{200c}' | '\u{200d}' => {} // zero-width
-            '\u{feff}' => {}                    // BOM
+            '\u{feff}' => {}                           // BOM
             '\u{2018}' | '\u{2019}' | '\u{201a}' => out.push('\''),
             '\u{201c}' | '\u{201d}' | '\u{201e}' => out.push('"'),
             '\u{ff01}'..='\u{ff5e}' if touches_ascii(prev, next) => {
@@ -51,7 +54,7 @@ pub fn normalize_line(input: &str) -> String {
                 let c = char::from_u32(ch as u32 - 0xfee0).unwrap_or(ch);
                 out.push(c);
             }
-            '\u{3000}' => out.push(' '),  // ideographic space
+            '\u{3000}' => out.push(' '), // ideographic space
             _ => out.push(ch),
         }
     }
@@ -94,7 +97,10 @@ mod tests {
     #[test]
     fn keeps_box_drawing() {
         // box characters carry structure: do not touch them
-        assert_eq!(normalize_line("\u{251c}\u{2500}\u{2500} cli"), "\u{251c}\u{2500}\u{2500} cli");
+        assert_eq!(
+            normalize_line("\u{251c}\u{2500}\u{2500} cli"),
+            "\u{251c}\u{2500}\u{2500} cli"
+        );
     }
 
     #[test]

@@ -183,7 +183,14 @@ fn directory_expansion_filters_extensions_and_sorts() {
     // own alphabetical position ("sub/" before "z.jpeg") rather than after it.
     assert_eq!(
         deep_names,
-        ["a.JPG", "b.png", "c.webp", "sub/e.BMP", "sub/f.tiff", "z.jpeg"]
+        [
+            "a.JPG",
+            "b.png",
+            "c.webp",
+            "sub/e.BMP",
+            "sub/f.tiff",
+            "z.jpeg"
+        ]
     );
 
     assert!(is_supported_image(Path::new("x.PNG")));
@@ -223,7 +230,12 @@ fn stdin_spools_to_unique_temp_files_and_cleans_up() {
         Some("png"),
         "the extension must follow the sniffed format"
     );
-    let name = first.path().file_name().unwrap().to_string_lossy().into_owned();
+    let name = first
+        .path()
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
     assert!(
         name.contains(&std::process::id().to_string()),
         "temp name must carry the pid: {name}"
@@ -242,7 +254,10 @@ fn stdin_rejects_empty_unknown_and_oversized_input() {
     let err = TempImage::read_stdin(Cursor::new(Vec::<u8>::new())).unwrap_err();
     let msg = format!("{err:#}");
     assert!(msg.contains("stdin is empty"), "{msg}");
-    assert!(msg.contains("ocr4code ocr -"), "needs an actionable hint: {msg}");
+    assert!(
+        msg.contains("ocr4code ocr -"),
+        "needs an actionable hint: {msg}"
+    );
 
     let err = TempImage::read_stdin(Cursor::new(b"definitely not an image".to_vec())).unwrap_err();
     let msg = format!("{err:#}");

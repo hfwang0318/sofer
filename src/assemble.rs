@@ -94,7 +94,6 @@ pub fn assemble(lines: &[RawLine], geom: &Geometry, opts: &Opts) -> (Vec<Line>, 
     }
 }
 
-
 /// Cell width. Ink-width per character is stable for monospace text (side
 /// bearings cancel over a long line), while a lattice fit on x0 offsets is
 /// fragile: the left side bearing differs per first glyph, which is the same
@@ -157,13 +156,7 @@ fn assemble_with_boxes(
     let mut out: Vec<Line> = Vec::new();
     for row in &rows {
         let mut sorted: Vec<&RawLine> = row.clone();
-        sorted.sort_by(|a, b| {
-            a.bbox
-                .unwrap()
-                .x0
-                .partial_cmp(&b.bbox.unwrap().x0)
-                .unwrap()
-        });
+        sorted.sort_by(|a, b| a.bbox.unwrap().x0.partial_cmp(&b.bbox.unwrap().x0).unwrap());
         let mut s = String::new();
         let mut confs = Vec::new();
         for l in &sorted {
@@ -252,7 +245,10 @@ fn assemble_with_bands(
     if let Some(m) = map.as_ref() {
         if !gutter {
             let r = ratios_for(&nonblank, texts, geom, &|i| {
-                m.iter().find(|(t, _)| *t == i).map(|(_, b)| *b).unwrap_or(i)
+                m.iter()
+                    .find(|(t, _)| *t == i)
+                    .map(|(_, b)| *b)
+                    .unwrap_or(i)
             });
             adv = estimate_advance(&r, &offsets, typo);
         }
@@ -327,15 +323,13 @@ fn pair_indices(nonblank: &[usize], n_bands: usize) -> Option<Vec<(usize, usize)
             .iter()
             .enumerate()
             .map(|(i, &t)| {
-                let b = ((i as f32) * (n_bands as f32 - 1.0) / ((n as f32 - 1.0).max(1.0)))
-                    .round() as usize;
+                let b = ((i as f32) * (n_bands as f32 - 1.0) / ((n as f32 - 1.0).max(1.0))).round()
+                    as usize;
                 (t, b.min(n_bands - 1))
             })
             .collect(),
     )
 }
-
-
 
 /// ink width per character for long lines, given an index mapping.
 fn ratios_for(
@@ -592,7 +586,11 @@ mod tests {
         let geom = geom_with(&[(14.0, 52.0, 10.0, 1100.0)]);
         let raw = vec![
             RawLine::with_box("NAME", crate::geom::Rect::new(10.0, 14.0, 60.0, 52.0), None),
-            RawLine::with_box("STATUS", crate::geom::Rect::new(330.0, 14.0, 420.0, 52.0), None),
+            RawLine::with_box(
+                "STATUS",
+                crate::geom::Rect::new(330.0, 14.0, 420.0, 52.0),
+                None,
+            ),
         ];
         let (out, st) = assemble(&raw, &geom, &Opts::default());
         assert_eq!(st.mode, "boxes");
@@ -602,9 +600,12 @@ mod tests {
         // 320px gap at ~16px per cell -> a gap of roughly 20 cells; the exact
         // value depends on the advance estimate, the *behaviour* is the column gap
         let gap = out[0].text.len() - "NAME".len() - "STATUS".len();
-        assert!((12..=24).contains(&gap), "gap was {gap}, text {:?}", out[0].text);
+        assert!(
+            (12..=24).contains(&gap),
+            "gap was {gap}, text {:?}",
+            out[0].text
+        );
     }
-
 
     #[test]
     fn width_alignment_absorbs_a_split_row() {
@@ -615,10 +616,10 @@ mod tests {
             (90.0, 128.0, 10.0, 210.0),
         ]);
         let raw = vec![
-            RawLine::plain("aaaaaaaaaa"),             // 10 chars -> 100px
-            RawLine::plain("bbbbbbbbbbbbbbb"),        // 15 chars -> 150px
-            RawLine::plain("ccccccccccccccc"),        // 15 chars -> 150px
-            RawLine::plain("dddddddddddddddddddd"),   // 20 chars -> 200px
+            RawLine::plain("aaaaaaaaaa"),           // 10 chars -> 100px
+            RawLine::plain("bbbbbbbbbbbbbbb"),      // 15 chars -> 150px
+            RawLine::plain("ccccccccccccccc"),      // 15 chars -> 150px
+            RawLine::plain("dddddddddddddddddddd"), // 20 chars -> 200px
         ];
         let (out, st) = assemble(&raw, &geom, &Opts::default());
         assert_eq!(st.bands, 3);
@@ -632,10 +633,7 @@ mod tests {
     #[test]
     fn proportional_pairing_when_counts_differ() {
         let idx: Vec<usize> = (0..10).collect();
-        assert!(pair_indices(&idx, 10)
-            .unwrap()
-            .iter()
-            .all(|(a, b)| a == b));
+        assert!(pair_indices(&idx, 10).unwrap().iter().all(|(a, b)| a == b));
         assert!(pair_indices(&idx, 9).is_some());
         assert!(pair_indices(&idx, 3).is_none(), "too much skew -> give up");
         // blank lines occupy no band: 5 non-blank text lines, 5 bands

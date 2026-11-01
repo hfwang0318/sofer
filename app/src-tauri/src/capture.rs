@@ -329,10 +329,7 @@ pub fn is_supported_image_path(path: &Path) -> bool {
 
 fn claim_busy(state: &AppState) -> Result<(), InputError> {
     if state.busy.swap(true, Ordering::SeqCst) {
-        return Err(InputError::new(
-            "正在识别上一张图",
-            "等这次识别结束再试。",
-        ));
+        return Err(InputError::new("正在识别上一张图", "等这次识别结束再试。"));
     }
     state.cancel.store(false, Ordering::SeqCst);
     Ok(())
@@ -597,7 +594,12 @@ fn process_capture(
         config.max_tokens = retry_max_tokens(config.max_tokens);
     }
 
-    let _ = app.emit("ocr:phase", Phase { phase: "recognizing" });
+    let _ = app.emit(
+        "ocr:phase",
+        Phase {
+            phase: "recognizing",
+        },
+    );
     if settings.fast_preview {
         let limiter = ocr4code::pipeline::limiter(config.jobs);
         emit_fast_preview(app, &config, path, &limiter);
@@ -925,11 +927,7 @@ fn clipboard_path(app: &AppHandle) -> Result<PathBuf, InputError> {
         eprintln!("capture: clipboard dir {}: {err}", dir.display());
         InputError::new("存不下这张图", "重启应用后再试。")
     })?;
-    Ok(dir.join(format!(
-        "clipboard-{}-{}.png",
-        std::process::id(),
-        now_ms()
-    )))
+    Ok(dir.join(format!("clipboard-{}-{}.png", std::process::id(), now_ms())))
 }
 
 fn write_clipboard_image(path: &Path) -> Result<(), InputError> {
@@ -947,10 +945,7 @@ fn write_clipboard_image(path: &Path) -> Result<(), InputError> {
         }
         Err(err) => {
             eprintln!("capture: clipboard image failed: {err}");
-            return Err(InputError::new(
-                "剪贴板读不出图片",
-                "复制一张图片后重试。",
-            ));
+            return Err(InputError::new("剪贴板读不出图片", "复制一张图片后重试。"));
         }
     };
 
@@ -1037,8 +1032,7 @@ fn capture_dir(app: &AppHandle) -> Result<PathBuf> {
         .app_cache_dir()
         .unwrap_or_else(|_| std::env::temp_dir())
         .join("captures");
-    std::fs::create_dir_all(&dir)
-        .with_context(|| format!("创建截图目录 {}", dir.display()))?;
+    std::fs::create_dir_all(&dir).with_context(|| format!("创建截图目录 {}", dir.display()))?;
     Ok(dir)
 }
 
@@ -1055,8 +1049,7 @@ fn retained_capture_path(app: &AppHandle) -> Result<PathBuf> {
 fn retain_capture(app: &AppHandle, path: &Path) -> Result<()> {
     let target = retained_capture_path(app)?;
     let _ = std::fs::remove_file(&target);
-    std::fs::rename(path, &target)
-        .with_context(|| format!("保留截图 {}", target.display()))
+    std::fs::rename(path, &target).with_context(|| format!("保留截图 {}", target.display()))
 }
 
 fn discard_retained_capture(app: &AppHandle) {
@@ -1099,16 +1092,14 @@ fn hint_for(message: &str) -> String {
         return "下载 OCR 模型后即可截图。".into();
     }
     if message.contains("E_PERMISSION") || message.contains("屏幕录制权限") {
-        return "在系统设置 → 隐私与安全性 → 屏幕录制中勾选 ocr4code，然后重启应用。"
-            .into();
+        return "在系统设置 → 隐私与安全性 → 屏幕录制中勾选 ocr4code，然后重启应用。".into();
     }
     if message.contains("远程") || message.contains("服务器") {
         return "到设置 → OCR → 部署到服务器里检查连接，或重新部署。".into();
     }
     if message.contains("E_BLANK") {
         #[cfg(target_os = "macos")]
-        return "如果框选区域本来就有文字，请检查屏幕录制权限，然后重启应用。"
-            .into();
+        return "如果框选区域本来就有文字，请检查屏幕录制权限，然后重启应用。".into();
         #[cfg(not(target_os = "macos"))]
         return "请重新框选包含文字的区域。".into();
     }
@@ -1118,8 +1109,7 @@ fn hint_for(message: &str) -> String {
     } else if lower.contains("not reachable") || lower.contains("llama") {
         "确认服务正在运行，并检查设置里的地址。".into()
     } else if lower.contains("permission") || lower.contains("screen") {
-        "在系统设置 → 隐私与安全性 → 屏幕录制中勾选 ocr4code，然后重启应用。"
-            .into()
+        "在系统设置 → 隐私与安全性 → 屏幕录制中勾选 ocr4code，然后重启应用。".into()
     } else {
         "检查设置后重试。".into()
     }
@@ -1189,7 +1179,11 @@ fn is_uniform(image: &image::DynamicImage) -> bool {
 // ---------------------------------------------------------------------------
 
 #[cfg(target_os = "macos")]
-fn interactive_capture(_app: &AppHandle, dest: &Path, cancel: &AtomicBool) -> Result<CaptureOutcome> {
+fn interactive_capture(
+    _app: &AppHandle,
+    dest: &Path,
+    cancel: &AtomicBool,
+) -> Result<CaptureOutcome> {
     use std::process::Command;
     use std::time::Instant;
 
@@ -1202,10 +1196,7 @@ fn interactive_capture(_app: &AppHandle, dest: &Path, cancel: &AtomicBool) -> Re
     let started = Instant::now();
     loop {
         if let Some(status) = child.try_wait()? {
-            return if status.success()
-                && dest.exists()
-                && std::fs::metadata(dest)?.len() > 0
-            {
+            return if status.success() && dest.exists() && std::fs::metadata(dest)?.len() > 0 {
                 Ok(CaptureOutcome::Selected)
             } else {
                 Ok(CaptureOutcome::Cancelled)

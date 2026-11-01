@@ -206,11 +206,7 @@ impl Default for Settings {
 impl Settings {
     /// Compose the download settings, percent-encoding proxy credentials.
     pub fn download_options(&self) -> Result<DownloadOptions, String> {
-        let proxy = compose_proxy_url(
-            &self.proxy_url,
-            &self.proxy_username,
-            &self.proxy_password,
-        )?;
+        let proxy = compose_proxy_url(&self.proxy_url, &self.proxy_username, &self.proxy_password)?;
         Ok(DownloadOptions {
             quality: self.model_quality,
             use_mirror: self.use_mirror,
@@ -360,7 +356,10 @@ pub fn load(app: &AppHandle) -> Settings {
         Ok(settings) => settings,
         Err(err) => {
             // Keep the broken file for debugging instead of silently overwriting it.
-            eprintln!("settings: {} is invalid ({err}); using defaults", path.display());
+            eprintln!(
+                "settings: {} is invalid ({err}); using defaults",
+                path.display()
+            );
             let _ = fs::rename(&path, path.with_extension("json.bak"));
             Settings::default()
         }
@@ -389,14 +388,8 @@ fn migrate_legacy(value: &mut serde_json::Value) {
             match split_proxy_url(legacy) {
                 Some((url, username, password)) => {
                     object.insert("proxyUrl".into(), serde_json::Value::String(url));
-                    object.insert(
-                        "proxyUsername".into(),
-                        serde_json::Value::String(username),
-                    );
-                    object.insert(
-                        "proxyPassword".into(),
-                        serde_json::Value::String(password),
-                    );
+                    object.insert("proxyUsername".into(), serde_json::Value::String(username));
+                    object.insert("proxyPassword".into(), serde_json::Value::String(password));
                 }
                 None => {
                     object.insert(
@@ -461,8 +454,18 @@ pub fn validate(settings: &Settings) -> Result<(), String> {
         .filter(|part| !part.is_empty())
         .collect();
     let modifiers = [
-        "ALT", "OPTION", "CONTROL", "CTRL", "COMMAND", "CMD", "SUPER", "SHIFT",
-        "COMMANDORCONTROL", "COMMANDORCTRL", "CMDORCTRL", "CMDORCONTROL",
+        "ALT",
+        "OPTION",
+        "CONTROL",
+        "CTRL",
+        "COMMAND",
+        "CMD",
+        "SUPER",
+        "SHIFT",
+        "COMMANDORCONTROL",
+        "COMMANDORCTRL",
+        "CMDORCTRL",
+        "CMDORCONTROL",
     ];
     let modifier_count = parts
         .iter()
@@ -470,9 +473,7 @@ pub fn validate(settings: &Settings) -> Result<(), String> {
         .count();
     let main_count = parts.len().saturating_sub(modifier_count);
     if parts.is_empty() || parts.len() > 3 || main_count != 1 || modifier_count > 2 {
-        return Err(
-            "快捷键必须是 1 个主键、1 个修饰键+主键，或 2 个修饰键+主键。".into(),
-        );
+        return Err("快捷键必须是 1 个主键、1 个修饰键+主键，或 2 个修饰键+主键。".into());
     }
     if settings.max_tokens < 128 || settings.max_tokens > 16384 {
         return Err("最大输出长度应在 128 到 16384 之间。".into());
@@ -491,9 +492,7 @@ pub fn validate(settings: &Settings) -> Result<(), String> {
             return Err("自定义提示词不能为空。".into());
         }
     }
-    if settings.idle_sleep_secs != 0
-        && !(60..=3600).contains(&settings.idle_sleep_secs)
-    {
+    if settings.idle_sleep_secs != 0 && !(60..=3600).contains(&settings.idle_sleep_secs) {
         return Err("空闲释放时间应为 0（关闭）或 60–3600 秒。".into());
     }
     if settings.psm > 13 {
@@ -590,12 +589,7 @@ mod tests {
             settings.shortcut = shortcut.into();
             assert!(validate(&settings).is_ok(), "should accept {shortcut}");
         }
-        for shortcut in [
-            "Control+Shift",
-            "KeyA+KeyB",
-            "Control+Alt+Shift+KeyQ",
-            "",
-        ] {
+        for shortcut in ["Control+Shift", "KeyA+KeyB", "Control+Alt+Shift+KeyQ", ""] {
             settings.shortcut = shortcut.into();
             assert!(validate(&settings).is_err(), "should reject {shortcut}");
         }
@@ -603,11 +597,13 @@ mod tests {
 
     #[test]
     fn download_overrides_are_validated() {
-        let mut settings = Settings::default();
-        settings.proxy_url = "127.0.0.1:7890".into();
-        settings.proxy_username = "user".into();
-        settings.proxy_password = "p@ss:word".into();
-        settings.use_mirror = true;
+        let mut settings = Settings {
+            proxy_url: "127.0.0.1:7890".into(),
+            proxy_username: "user".into(),
+            proxy_password: "p@ss:word".into(),
+            use_mirror: true,
+            ..Settings::default()
+        };
         validate(&settings).unwrap();
         let options = settings.download_options().unwrap();
         assert!(options.use_mirror);
@@ -716,9 +712,11 @@ mod tests {
 
     #[test]
     fn custom_prompt_length_is_limited() {
-        let mut settings = Settings::default();
-        settings.prompt_preset = PromptPreset::Custom;
-        settings.custom_prompt = "x".repeat(MAX_PROMPT_CHARS);
+        let mut settings = Settings {
+            prompt_preset: PromptPreset::Custom,
+            custom_prompt: "x".repeat(MAX_PROMPT_CHARS),
+            ..Settings::default()
+        };
         validate(&settings).unwrap();
 
         settings.custom_prompt.push('x');
@@ -726,7 +724,10 @@ mod tests {
         assert!(error.contains(&MAX_PROMPT_CHARS.to_string()));
 
         settings.custom_prompt.clear();
-        assert!(validate(&settings).is_err(), "empty custom prompt is rejected");
+        assert!(
+            validate(&settings).is_err(),
+            "empty custom prompt is rejected"
+        );
         settings.engine = EngineMode::Tesseract;
         validate(&settings).unwrap();
     }
@@ -758,8 +759,10 @@ mod tests {
 
     #[test]
     fn validation_rejects_bad_engine_settings() {
-        let mut settings = Settings::default();
-        settings.llama_url = "localhost:8099".into();
+        let mut settings = Settings {
+            llama_url: "localhost:8099".into(),
+            ..Settings::default()
+        };
         assert!(validate(&settings).is_err());
 
         settings.llama_url = "http://127.0.0.1:8099".into();

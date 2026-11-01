@@ -142,8 +142,15 @@ pub fn apply(img: &GrayImage, geom: &Geometry, advance: f32, lines: &mut [Line])
 
     for (bi, &li) in nonblank.iter().enumerate() {
         if let Some(br) = branches[bi] {
-            let changed =
-                rewrite_tree_line(&mut lines[li], &vsegs, br, cell, line_h, origin, geom.bands[bi]);
+            let changed = rewrite_tree_line(
+                &mut lines[li],
+                &vsegs,
+                br,
+                cell,
+                line_h,
+                origin,
+                geom.bands[bi],
+            );
             if changed {
                 stats.tree_lines += 1;
             }
@@ -259,9 +266,7 @@ fn span_overlap(a0: f32, a1: f32, b0: f32, b1: f32) -> f32 {
     (a1.min(b1) - a0.max(b0)).max(0.0)
 }
 
-fn has_vertical(
-    vs: &[VSeg], x: f32, y0: f32, y1: f32, min_len: f32, min_overlap: f32,
-) -> bool {
+fn has_vertical(vs: &[VSeg], x: f32, y0: f32, y1: f32, min_len: f32, min_overlap: f32) -> bool {
     vs.iter().any(|v| {
         let x0 = v.x0 as f32;
         let x1 = v.x1 as f32 - 1.0;
@@ -276,12 +281,7 @@ fn has_vertical(
 // Tree reconstruction
 // ---------------------------------------------------------------------------
 
-fn find_branches(
-    geom: &Geometry,
-    hs: &[HSeg],
-    vs: &[VSeg],
-    line_h: f32,
-) -> Vec<Option<RawBranch>> {
+fn find_branches(geom: &Geometry, hs: &[HSeg], vs: &[VSeg], line_h: f32) -> Vec<Option<RawBranch>> {
     // A tree branch is ~2.5 cells of horizontal rule; a table rule is much
     // wider. The line height is a stable proxy for the cell size here.
     let max_w = (line_h * 2.8).max(48.0);
@@ -309,14 +309,7 @@ fn find_branches(
             }
             // Table rules terminate in a vertical at both ends; tree branches
             // end in blank space before the label.
-            if has_vertical(
-                vs,
-                h.x1 as f32,
-                band.y0,
-                band.y1,
-                line_h * 0.5,
-                bh * 0.25,
-            ) {
+            if has_vertical(vs, h.x1 as f32, band.y0, band.y1, line_h * 0.5, bh * 0.25) {
                 continue;
             }
             if best.map(|b| x0 < b.x0 as f32).unwrap_or(true) {
@@ -351,13 +344,7 @@ fn find_branches(
 /// * next branch to the right, with a full-height rule at our column -> a
 ///   descendant below -> `├`;
 /// * otherwise (next branch to the left / no next line) -> `└`.
-fn continues_below(
-    geom: &Geometry,
-    xs: &[Option<f32>],
-    vs: &[VSeg],
-    bi: usize,
-    x: f32,
-) -> bool {
+fn continues_below(geom: &Geometry, xs: &[Option<f32>], vs: &[VSeg], bi: usize, x: f32) -> bool {
     let Some(next_x) = xs.get(bi + 1).copied().flatten() else {
         return false;
     };
@@ -582,13 +569,7 @@ fn columns(vs: &[VSeg], line_h: f32, tol: f32) -> Vec<Column> {
     let mut segs: Vec<(f32, f32, f32)> = vs
         .iter()
         .filter(|v| (v.y1 - v.y0) as f32 >= line_h * 0.5)
-        .map(|v| {
-            (
-                (v.x0 as f32 + v.x1 as f32) / 2.0,
-                v.y0 as f32,
-                v.y1 as f32,
-            )
-        })
+        .map(|v| ((v.x0 as f32 + v.x1 as f32) / 2.0, v.y0 as f32, v.y1 as f32))
         .collect();
     segs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
 
@@ -623,7 +604,11 @@ fn columns(vs: &[VSeg], line_h: f32, tol: f32) -> Vec<Column> {
 }
 
 fn find_table(
-    geom: &Geometry, hs: &[HSeg], cols: &[Column], cell: f32, line_h: f32,
+    geom: &Geometry,
+    hs: &[HSeg],
+    cols: &[Column],
+    cell: f32,
+    line_h: f32,
 ) -> Option<Table> {
     let w = geom.width as f32;
     let min_rule_w = (w * 0.25).max(cell * 6.0);
@@ -700,8 +685,13 @@ fn find_table(
 }
 
 fn rewrite_tables(
-    lines: &mut [Line], nonblank: &[usize], geom: &Geometry, hs: &[HSeg], cols: &[Column],
-    cell: f32, line_h: f32,
+    lines: &mut [Line],
+    nonblank: &[usize],
+    geom: &Geometry,
+    hs: &[HSeg],
+    cols: &[Column],
+    cell: f32,
+    line_h: f32,
 ) -> (usize, usize) {
     let Some(table) = find_table(geom, hs, cols, cell, line_h) else {
         return (0, 0);
@@ -713,10 +703,7 @@ fn rewrite_tables(
         if band.y1 < table.y0 || band.y0 > table.y1 {
             continue;
         }
-        let is_rule = table
-            .rules_y
-            .iter()
-            .any(|y| *y >= band.y0 && *y <= band.y1);
+        let is_rule = table.rules_y.iter().any(|y| *y >= band.y0 && *y <= band.y1);
         let line = &mut lines[li];
 
         if is_rule {
@@ -789,8 +776,8 @@ fn separator(cols: &[f32], left: f32, cell: f32) -> String {
     };
     let mut chars = vec![' '; last + 1];
     for pair in at.windows(2) {
-        for c in pair[0] + 1..pair[1] {
-            chars[c] = '-';
+        for slot in chars.iter_mut().take(pair[1]).skip(pair[0] + 1) {
+            *slot = '-';
         }
     }
     for &c in &at {

@@ -110,7 +110,11 @@ fn run_deploy(manager: &Manager, cfg: &RemoteConfig) -> Result<(), String> {
     let source = match env_or("OCR4CODE_REMOTE_SOURCE", "download").as_str() {
         "download" | "auto" => Source::Download,
         "upload" => Source::Upload,
-        other => return Err(format!("OCR4CODE_REMOTE_SOURCE 只能是 download/upload，收到 {other}")),
+        other => {
+            return Err(format!(
+                "OCR4CODE_REMOTE_SOURCE 只能是 download/upload，收到 {other}"
+            ))
+        }
     };
     manager.deploy(cfg, source).map_err(|e| e.to_string())?;
     println!("[deploy] 完成，source={source:?}");

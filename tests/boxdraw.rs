@@ -270,10 +270,8 @@ fn default_config_keeps_box_art_off() {
 #[test]
 fn pipeline_reconstructs_a_tree_only_with_box_art() {
     let img = tree_scene();
-    let path = std::env::temp_dir().join(format!(
-        "ocr4code-boxdraw-tree-{}.png",
-        std::process::id()
-    ));
+    let path =
+        std::env::temp_dir().join(format!("ocr4code-boxdraw-tree-{}.png", std::process::id()));
     img.save(&path).expect("write synthetic tree");
 
     let mut cfg = Config {
