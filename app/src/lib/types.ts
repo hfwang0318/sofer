@@ -207,6 +207,15 @@ export interface OcrResult {
   copied: boolean;
 }
 
+/**
+ * Mirrors `OcrPartial` in src-tauri/src/capture.rs: the accumulated preview text
+ * emitted while the model is still generating. Always replaced by `OcrResult`.
+ */
+export interface OcrPartial {
+  text: string;
+  ms: number;
+}
+
 export interface OcrError {
   message: string;
   hint: string;

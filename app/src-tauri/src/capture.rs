@@ -9,7 +9,7 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -28,6 +28,10 @@ use crate::AppState;
 
 #[cfg(target_os = "windows")]
 mod win;
+
+/// One token per IPC event would flood the webview; ~8 updates a second is
+/// enough for a preview. The first delta is always sent immediately.
+const PARTIAL_EMIT_INTERVAL: Duration = Duration::from_millis(120);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -112,6 +116,16 @@ pub struct OcrResult {
     pub thumbnail: Option<String>,
     pub captured_at: u64,
     pub copied: bool,
+}
+
+/// A preview emitted while the model is still generating. It is always
+/// replaced by `ocr:result`, so nothing here is persisted or copied.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OcrPartial {
+    /// Everything received so far, not just the newest token.
+    pub text: String,
+    pub ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -337,7 +351,49 @@ fn run(app: &AppHandle) -> Result<()> {
     let _ = app.emit("ocr:phase", Phase { phase: "recognizing" });
     let engine = config.engine().context("启动 OCR 引擎")?;
     let limiter = ocr4code::pipeline::limiter(config.jobs);
-    let outcome = ocr4code::pipeline::recognize(engine.as_ref(), &path, &config, &limiter)?;
+
+    let started = Instant::now();
+    let mut accumulated = String::new();
+    let mut last_emit: Option<Instant> = None;
+    let mut emitted_len = 0usize;
+    let outcome = {
+        let mut on_delta = |delta: &str| {
+            accumulated.push_str(delta);
+            let now = Instant::now();
+            let due = last_emit
+                .map(|last| now.duration_since(last) >= PARTIAL_EMIT_INTERVAL)
+                .unwrap_or(true);
+            if due {
+                last_emit = Some(now);
+                emitted_len = accumulated.len();
+                let _ = app.emit(
+                    "ocr:partial",
+                    OcrPartial {
+                        text: accumulated.clone(),
+                        ms: started.elapsed().as_millis() as u64,
+                    },
+                );
+            }
+        };
+        let outcome = ocr4code::pipeline::recognize_streaming(
+            engine.as_ref(),
+            &path,
+            &config,
+            &limiter,
+            &mut on_delta,
+        )?;
+        // Ship the tail that arrived between the last throttle tick and the end.
+        if emitted_len < accumulated.len() {
+            let _ = app.emit(
+                "ocr:partial",
+                OcrPartial {
+                    text: accumulated.clone(),
+                    ms: started.elapsed().as_millis() as u64,
+                },
+            );
+        }
+        outcome
+    };
     let text = render::render(&outcome.document, config.format, config.language.as_deref());
 
     let copied = settings.auto_copy
