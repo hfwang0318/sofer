@@ -8,6 +8,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 
 
+use ocr4code::cli_input::{self, Region};
 use ocr4code::engine::{llamacpp, tesseract, vision, ImageFormat};
 use ocr4code::pipeline::{self, Config, EngineMode};
 use ocr4code::render::{self, Format};
@@ -35,9 +36,17 @@ enum Cmd {
 
 #[derive(clap::Args)]
 struct OcrArgs {
-    /// image file(s): png / jpg / webp / tiff
+    /// image file(s), a directory, or `-` for stdin: png / jpg / jpeg / webp / bmp / tiff
     #[arg(required = true)]
     images: Vec<PathBuf>,
+
+    /// recurse into subdirectories when an input is a directory
+    #[arg(long)]
+    recursive: bool,
+
+    /// crop each image to a pixel rectangle before recognition: X,Y,W,H
+    #[arg(long, value_name = "X,Y,W,H")]
+    region: Option<String>,
 
     /// engine to use
     #[arg(long, value_enum, default_value_t = EngineArg::Auto)]
@@ -153,6 +162,13 @@ fn run() -> Result<()> {
     }
 }
 
+/// One resolved input file plus the name the user typed. Temp files created for
+/// stdin or a region must never show up in messages or the JSON `source`.
+struct Input {
+    path: PathBuf,
+    label: String,
+}
+
 fn ocr(args: OcrArgs) -> Result<()> {
     let config = Config {
         engine: match args.engine {
@@ -179,6 +195,39 @@ fn ocr(args: OcrArgs) -> Result<()> {
         mock_text: args.mock_text.clone(),
         mock_text_file: args.mock_text_file.clone(),
     };
+    let region = args.region.as_deref().map(Region::parse).transpose()?;
+
+    // Resolve every argument to a real file before touching the engine: a bad
+    // pipe or an empty directory should fail fast, not after a model is loaded.
+    let mut stdin_image: Option<cli_input::TempImage> = None;
+    let mut inputs: Vec<Input> = Vec::new();
+    for arg in &args.images {
+        if cli_input::is_stdin(arg) {
+            if stdin_image.is_some() {
+                anyhow::bail!("stdin (`-`) can be given only once");
+            }
+            let temp = cli_input::TempImage::read_stdin(std::io::stdin().lock())?;
+            inputs.push(Input {
+                path: temp.path().to_path_buf(),
+                label: "-".into(),
+            });
+            // Held until the run ends; dropping it deletes the spooled image.
+            stdin_image = Some(temp);
+        } else if arg.is_dir() {
+            for path in cli_input::expand_directory(arg, args.recursive)? {
+                inputs.push(Input {
+                    label: path.display().to_string(),
+                    path,
+                });
+            }
+        } else {
+            inputs.push(Input {
+                label: arg.display().to_string(),
+                path: arg.clone(),
+            });
+        }
+    }
+
     let engine = config.engine()?;
     // A single budget for *engine calls* in flight, shared by images and by tiles.
     let limiter = pipeline::limiter(args.jobs);
@@ -193,17 +242,32 @@ fn ocr(args: OcrArgs) -> Result<()> {
 
     // One image failing must not take the rest down: collect the error, keep going,
     // report at the end and exit non-zero.
-    let results: Vec<Result<String, (PathBuf, String)>> =
-        ocr4code::pool::map(&args.images, args.jobs, |_, path| {
+    let results: Vec<Result<String, (String, String)>> =
+        ocr4code::pool::map(&inputs, args.jobs, |_, input| {
+            // A region is materialised as a temp file because `recognize` takes a
+            // path; the guard deletes it on the success *and* the error path.
+            let cropped = match region {
+                Some(r) => match cli_input::TempImage::crop(&input.path, r) {
+                    Ok(temp) => Some(temp),
+                    Err(e) => return Err((input.label.clone(), format!("{e:#}"))),
+                },
+                None => None,
+            };
+            let path = cropped
+                .as_ref()
+                .map(|t| t.path())
+                .unwrap_or(input.path.as_path());
             match pipeline::recognize(engine.as_ref(), path, &config, &limiter) {
-                Ok(outcome) => {
+                Ok(mut outcome) => {
+                    // never leak a temp path into `--stats` or the JSON `source`
+                    outcome.document.source = input.label.clone();
                     if args.stats {
-                        print_stats(path, &outcome);
+                        print_stats(Path::new(&input.label), &outcome);
                     }
                     let fence = config.language.clone();
                     Ok(render::render(&outcome.document, config.format, fence.as_deref()))
                 }
-                Err(e) => Err((path.clone(), format!("{e:#}"))),
+                Err(e) => Err((input.label.clone(), format!("{e:#}"))),
             }
         });
 
@@ -212,9 +276,9 @@ fn ocr(args: OcrArgs) -> Result<()> {
     for r in results {
         match r {
             Ok(text) => rendered.push(text),
-            Err((path, msg)) => {
+            Err((label, msg)) => {
                 failed += 1;
-                eprintln!("error: {}: {msg}", path.display());
+                eprintln!("error: {label}: {msg}");
             }
         }
     }

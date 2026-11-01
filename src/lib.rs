@@ -18,6 +18,7 @@
 
 pub mod assemble;
 pub mod boxdraw;
+pub mod cli_input;
 pub mod engine;
 pub mod geom;
 pub mod lang;
