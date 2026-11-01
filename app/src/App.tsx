@@ -16,6 +16,7 @@ import {
   onEngineDownload,
   onEngineState,
   onError,
+  onPartial,
   onPhase,
   onRemoteProgress,
   onRemoteState,
@@ -56,6 +57,7 @@ import type {
   EngineStatus,
   HistoryEntry,
   OcrError,
+  OcrPartial,
   OcrResult,
   Phase,
   ScreenAccess,
@@ -113,6 +115,9 @@ export default function App() {
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [settingsNav, setSettingsNav] = useState(0);
   const [phase, setPhase] = useState<Phase>("idle");
+  // Accumulated preview while the model is generating; always replaced by the
+  // final result, never added to history or copied.
+  const [partial, setPartial] = useState<OcrPartial | null>(null);
   const [result, setResult] = useState<OcrResult | null>(
     demo === "result" ? DEMO_RESULT : null,
   );
@@ -365,6 +370,14 @@ export default function App() {
     if (!setupDismissed && !permissionOpen) setSetupOpen(true);
   }, [status, settings.engine, settings.remoteEnabled, setupDismissed, permissionOpen]);
 
+  // ?demo=streaming starts a capture on its own so the preview can be reviewed
+  // without pressing anything. The mock bus supplies the partial events.
+  useEffect(() => {
+    if (demo !== "streaming") return;
+    const timer = window.setTimeout(() => void captureNow(), 400);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   // Re-check after the user comes back from System Settings.
   useEffect(() => {
     if (!isMac) return;
@@ -389,10 +402,20 @@ export default function App() {
         .catch(() => undefined);
     };
 
-    track(onPhase((payload) => setPhase(payload.phase)));
+    track(
+      onPhase((payload) => {
+        setPhase(payload.phase);
+        // A preview only lives between `recognizing` and its final result.
+        if (payload.phase === "selecting" || payload.phase === "idle") {
+          setPartial(null);
+        }
+      }),
+    );
+    track(onPartial((next) => setPartial(next)));
     track(
       onResult((next) => {
         setPhase("idle");
+        setPartial(null);
         setResult(next);
         setError(null);
         setView("capture");
@@ -412,6 +435,7 @@ export default function App() {
     track(
       onError((payload) => {
         setPhase("idle");
+        setPartial(null);
         setError(payload);
         setView("capture");
         setSetupOpen(false);
@@ -899,6 +923,7 @@ export default function App() {
     // Clear the old result/error so the first-run steps have room to appear.
     setResult(null);
     setError(null);
+    setPartial(null);
     setPhase("idle");
     setView("capture");
     if (remoteNeedsDeploy) {
@@ -1003,6 +1028,7 @@ export default function App() {
             {view === "capture" && (
               <CaptureView
                 phase={phase}
+                partial={partial}
                 shortcut={settings.shortcut}
                 result={result}
                 error={error}

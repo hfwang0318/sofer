@@ -75,6 +75,11 @@ struct OcrArgs {
     #[arg(long, short = 'j', default_value_t = 1)]
     jobs: usize,
 
+    /// write text to the output while the model is still generating
+    /// (text format only; other formats and tiled images fall back to one shot)
+    #[arg(long)]
+    stream: bool,
+
     // ---- engine specific ----
     /// tesseract language(s), e.g. eng or eng+chi_sim
     #[arg(long, default_value = "eng")]
@@ -164,6 +169,14 @@ fn ocr(args: OcrArgs) -> Result<()> {
     // A single budget for *engine calls* in flight, shared by images and by tiles.
     let limiter = pipeline::limiter(args.jobs);
 
+    if args.stream && args.format == Format::Text {
+        let failed = stream_ocr(&args, &config, engine.as_ref(), &limiter)?;
+        if failed > 0 {
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
     // One image failing must not take the rest down: collect the error, keep going,
     // report at the end and exit non-zero.
     let results: Vec<Result<String, (PathBuf, String)>> =
@@ -218,6 +231,88 @@ fn ocr(args: OcrArgs) -> Result<()> {
         std::process::exit(1);
     }
     Ok(())
+}
+
+/// `--stream`: write deltas as they arrive and finish the line at the end.
+/// Images are processed one at a time, because partial output from parallel
+/// requests would interleave into unreadable text.
+fn stream_ocr(
+    args: &OcrArgs,
+    config: &Config,
+    engine: &dyn ocr4code::Engine,
+    limiter: &ocr4code::pool::Semaphore,
+) -> Result<usize> {
+    let mut sink: Box<dyn Write> = match &args.out {
+        Some(path) => Box::new(std::io::BufWriter::new(
+            std::fs::File::create(path).with_context(|| format!("writing {}", path.display()))?,
+        )),
+        None => Box::new(std::io::stdout()),
+    };
+
+    let mut failed = 0usize;
+    for path in &args.images {
+        let mut wrote = false;
+        let mut started = false;
+        let mut ends_with_newline = false;
+        let mut io_error: Option<std::io::Error> = None;
+        let outcome = pipeline::recognize_streaming(engine, path, config, limiter, &mut |delta| {
+            if io_error.is_some() || delta.is_empty() {
+                return;
+            }
+            // The model often opens with a blank line; the assembled result
+            // drops it, so the streamed output does too. Indentation is kept.
+            let delta = if started {
+                delta
+            } else {
+                let trimmed = delta.trim_start_matches('\n');
+                if trimmed.is_empty() {
+                    return;
+                }
+                started = true;
+                trimmed
+            };
+            if let Err(err) = sink.write_all(delta.as_bytes()).and_then(|()| sink.flush()) {
+                io_error = Some(err);
+                return;
+            }
+            wrote = true;
+            ends_with_newline = delta.ends_with('\n');
+        });
+        if let Some(err) = io_error {
+            return Err(err).context("writing streamed output");
+        }
+        match outcome {
+            Ok(outcome) => {
+                if args.stats {
+                    print_stats(path, &outcome);
+                }
+                if !wrote {
+                    // Tiled images and engines without streaming produce their
+                    // text only at the end; print it so the output is complete.
+                    let text = render::render(
+                        &outcome.document,
+                        config.format,
+                        config.language.as_deref(),
+                    );
+                    sink.write_all(text.as_bytes())?;
+                    ends_with_newline = text.ends_with('\n');
+                }
+                if !ends_with_newline {
+                    sink.write_all(b"\n")?;
+                }
+            }
+            Err(err) => {
+                failed += 1;
+                if wrote && !ends_with_newline {
+                    // Do not glue the error summary onto a half-finished line.
+                    let _ = sink.write_all(b"\n");
+                }
+                eprintln!("error: {}: {err:#}", path.display());
+            }
+        }
+    }
+    sink.flush()?;
+    Ok(failed)
 }
 
 /// Reproduce the `--stats` report from the pipeline trace.

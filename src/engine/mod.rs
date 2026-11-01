@@ -53,6 +53,29 @@ impl EngineOutput {
 pub trait Engine: Send + Sync {
     fn name(&self) -> &str;
     fn recognize(&self, image: &Path) -> Result<EngineOutput>;
+
+    /// Recognise, reporting incremental text through `on_delta` as it arrives.
+    ///
+    /// The default implementation is exactly one blocking [`Engine::recognize`]
+    /// call followed by a single delta, so a streaming caller can treat every
+    /// engine the same way without changing what it gets back.
+    fn recognize_stream(
+        &self,
+        image: &Path,
+        on_delta: &mut dyn FnMut(&str),
+    ) -> Result<EngineOutput> {
+        let out = self.recognize(image)?;
+        if !out.lines.is_empty() {
+            let text = out
+                .lines
+                .iter()
+                .map(|line| line.text.as_str())
+                .collect::<Vec<_>>()
+                .join("\n");
+            on_delta(&text);
+        }
+        Ok(out)
+    }
 }
 
 /// Which engine the user asked for.

@@ -16,6 +16,7 @@ import type {
   DownloadProgress,
   EngineStatus,
   OcrError,
+  OcrPartial,
   OcrResult,
   PhasePayload,
   RemotePhase,
@@ -273,7 +274,20 @@ async function previewCapture() {
     return;
   }
   emitPreview("ocr:phase", { phase: "recognizing" } satisfies PhasePayload);
-  await sleep(1300);
+  // Demo data for `ocr:partial`: reveal the result in slices so the preview can
+  // be checked in the browser without a model. Rust sends one of these per
+  // throttled token batch during a real capture.
+  const slices = 6;
+  for (let step = 1; step <= slices; step += 1) {
+    await sleep(1300 / slices);
+    emitPreview("ocr:partial", {
+      text: DEMO_RESULT.text.slice(
+        0,
+        Math.round((DEMO_RESULT.text.length * step) / slices),
+      ),
+      ms: Math.round((1300 * step) / slices),
+    } satisfies OcrPartial);
+  }
 
   let settings = DEFAULT_SETTINGS;
   try {
@@ -612,6 +626,8 @@ export const onPhase = (handler: (payload: PhasePayload) => void) =>
   subscribe<PhasePayload>("ocr:phase", handler);
 export const onResult = (handler: (payload: OcrResult) => void) =>
   subscribe<OcrResult>("ocr:result", handler);
+export const onPartial = (handler: (payload: OcrPartial) => void) =>
+  subscribe<OcrPartial>("ocr:partial", handler);
 export const onError = (handler: (payload: OcrError) => void) =>
   subscribe<OcrError>("ocr:error", handler);
 export const onEngineDownload = (handler: (payload: DownloadProgress) => void) =>

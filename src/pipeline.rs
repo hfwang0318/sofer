@@ -224,30 +224,92 @@ pub fn recognize(
     cfg: &Config,
     limiter: &Semaphore,
 ) -> Result<Outcome> {
+    let (img, geom, adv, plan) = prepare(path, cfg)?;
+    let out = run_engine(engine, path, &img, plan.as_ref(), cfg, limiter)?;
+    let (out, used, retry_trace) =
+        retry_if_truncated(engine, path, &img, &geom, adv, cfg, limiter, out, plan)?;
+    Ok(finish(out, used, retry_trace, &geom, path, cfg))
+}
+
+/// Like [`recognize`], but report the model's text through `on_delta` while it
+/// is still generating.
+///
+/// Only an image that fits one request streams: when the plan wants tiles, the
+/// reply arrives out of order and the existing one-shot path is used instead.
+/// A stream that fails before producing anything falls back to one request;
+/// one that breaks after text was delivered is reported as an error, because
+/// retrying would append a second copy to what the caller already printed.
+pub fn recognize_streaming(
+    engine: &dyn Engine,
+    path: &Path,
+    cfg: &Config,
+    limiter: &Semaphore,
+    on_delta: &mut dyn FnMut(&str),
+) -> Result<Outcome> {
+    let (img, geom, adv, plan) = prepare(path, cfg)?;
+
+    let out = if plan.is_none() {
+        let _permit = limiter.acquire();
+        let mut emitted = false;
+        match engine.recognize_stream(path, &mut |delta| {
+            emitted = true;
+            on_delta(delta);
+        }) {
+            Ok(out) => out,
+            Err(err) if !emitted => {
+                eprintln!("stream: {err:#}; retrying without streaming");
+                engine.recognize(path)?
+            }
+            Err(err) => return Err(err.context("streaming interrupted mid-reply")),
+        }
+    } else {
+        run_engine(engine, path, &img, plan.as_ref(), cfg, limiter)?
+    };
+
+    let (out, used, retry_trace) =
+        retry_if_truncated(engine, path, &img, &geom, adv, cfg, limiter, out, plan)?;
+    Ok(finish(out, used, retry_trace, &geom, path, cfg))
+}
+
+/// Decode once and decide whether the image needs tiles.
+fn prepare(
+    path: &Path,
+    cfg: &Config,
+) -> Result<(image::DynamicImage, geom::Geometry, f32, Option<tile::Plan>)> {
     let img = image::open(path).with_context(|| format!("opening image {}", path.display()))?;
     let geom = geom::analyze(&img.to_luma8());
     let adv = geom.advance_prior();
-
     let plan = if cfg.tile {
         tile::plan(&geom, adv, cfg.max_tokens)
     } else {
         None
     };
+    Ok((img, geom, adv, plan))
+}
 
-    let mut out = run_engine(engine, path, &img, plan.as_ref(), cfg, limiter)?;
-    let mut used = plan;
+/// The budget estimate can be wrong (tokenizers vary, models ramble). If the
+/// first pass came back with far fewer rows than the image has, that is the
+/// signature of a truncated reply — retry once, split, and keep whichever is
+/// closer to the real row count.
+#[allow(clippy::too_many_arguments)]
+fn retry_if_truncated(
+    engine: &dyn Engine,
+    path: &Path,
+    img: &image::DynamicImage,
+    geom: &geom::Geometry,
+    adv: f32,
+    cfg: &Config,
+    limiter: &Semaphore,
+    mut out: EngineOutput,
+    mut used: Option<tile::Plan>,
+) -> Result<(EngineOutput, Option<tile::Plan>, Option<RetryTrace>)> {
     let mut retry_trace = None;
-
-    // The budget estimate can be wrong (tokenizers vary, models ramble). If the
-    // first pass came back with far fewer rows than the image has, that is the
-    // signature of a truncated reply — retry once, split, and keep whichever is
-    // closer to the real row count.
     if cfg.tile && used.is_none() && tile::should_retry(out.lines.len(), geom.bands.len(), false)
     {
-        if let Some(forced) = tile::plan_forced(&geom, adv, cfg.max_tokens) {
+        if let Some(forced) = tile::plan_forced(geom, adv, cfg.max_tokens) {
             let first_rows = out.lines.len();
             let tiles = forced.tiles.len();
-            let retry = run_engine(engine, path, &img, Some(&forced), cfg, limiter)?;
+            let retry = run_engine(engine, path, img, Some(&forced), cfg, limiter)?;
             let retry_rows = retry.lines.len();
             let accepted = tile::is_better(retry_rows, first_rows, geom.bands.len());
             if accepted {
@@ -263,7 +325,20 @@ pub fn recognize(
             });
         }
     }
+    Ok((out, used, retry_trace))
+}
 
+/// Assemble, repair and render the engine text into a document. Shared by the
+/// one-shot and streaming paths so both produce identical output for the same
+/// text.
+fn finish(
+    out: EngineOutput,
+    used: Option<tile::Plan>,
+    retry_trace: Option<RetryTrace>,
+    geom: &geom::Geometry,
+    path: &Path,
+    cfg: &Config,
+) -> Outcome {
     let tiling = used.as_ref().map(|p| TilingTrace {
         tiles: p.tiles.len(),
         rows_per_tile: p.rows_per_tile,
@@ -272,7 +347,7 @@ pub fn recognize(
     });
 
     let consistent = tile::looks_consistent(out.lines.len(), &geom.bands);
-    let (mut lines, stats) = assemble(&out.lines, &geom, &cfg.opts());
+    let (mut lines, stats) = assemble(&out.lines, geom, &cfg.opts());
     repair::normalize(&mut lines);
     let text = lines
         .iter()
@@ -293,10 +368,10 @@ pub fn recognize(
         language,
     };
 
-    Ok(Outcome {
-        trace: trace(out.lines.len(), &geom, &stats, tiling, retry_trace, consistent),
+    Outcome {
+        trace: trace(out.lines.len(), geom, &stats, tiling, retry_trace, consistent),
         document,
-    })
+    }
 }
 
 fn trace(

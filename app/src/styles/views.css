@@ -340,6 +340,36 @@
   font-size: 11px;
 }
 
+/* ---- streaming preview -------------------------------------------------- */
+
+.partial-panel {
+  overflow: hidden;
+  border-color: var(--accent-line);
+}
+
+.partial-text {
+  min-height: 96px;
+  max-height: 194px;
+  margin: 0;
+  padding: 15px 17px;
+  overflow: auto;
+  color: var(--text-2);
+  font-size: 11.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  tab-size: 4;
+  user-select: none;
+}
+
+.partial-foot {
+  margin: 0;
+  padding: 9px 16px;
+  border-top: 1px solid var(--line-faint);
+  color: var(--text-3);
+  font-size: 10px;
+}
+
 /* ---- result ------------------------------------------------------------- */
 
 .result-panel {

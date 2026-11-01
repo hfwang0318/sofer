@@ -5,6 +5,7 @@ import { duration, relativeTime } from "../lib/history";
 import { isMac, shortcutText } from "../lib/platform";
 import type {
   OcrError,
+  OcrPartial,
   OcrResult,
   Phase,
   SettingsSection,
@@ -12,6 +13,7 @@ import type {
 
 interface CaptureViewProps {
   phase: Phase;
+  partial: OcrPartial | null;
   shortcut: string;
   result: OcrResult | null;
   error: OcrError | null;
@@ -126,6 +128,31 @@ function BusyStrip({ phase }: { phase: Phase }) {
             : "正在识别截图…"}
       </span>
     </div>
+  );
+}
+
+/**
+ * Read-only accumulating preview shown while the model is generating. It uses
+ * the same status word as the titlebar (`正在识别`); the final result replaces
+ * it and remains the only copyable text.
+ */
+function PartialPanel({ partial }: { partial: OcrPartial }) {
+  // The model often opens with a blank line; the finished result drops it.
+  const text = partial.text.replace(/^\n+/, "");
+  return (
+    <section className="panel partial-panel" aria-busy="true" aria-label="识别预览">
+      <header className="panel-head">
+        <div className="panel-heading">
+          <span className="busy-ring busy-ring-sm" aria-hidden="true" />
+          <span className="eyebrow">正在识别</span>
+          <span className="head-sep" />
+          <span className="muted">{duration(partial.ms)}</span>
+        </div>
+        <span className="badge">预览</span>
+      </header>
+      <pre className="partial-text">{text}</pre>
+      <footer className="partial-foot">识别完成后会替换为可复制的结果。</footer>
+    </section>
   );
 }
 
@@ -452,6 +479,7 @@ function StepsPanel({ shortcut, remote }: { shortcut: string; remote: boolean })
 
 export function CaptureView({
   phase,
+  partial,
   shortcut,
   result,
   error,
@@ -473,6 +501,7 @@ export function CaptureView({
   const showResult = !error && Boolean(result);
   const blocking = setupBlocking || permissionDenied;
   const showBlockingBanner = !error && blocking;
+  const streaming = partial !== null && phase === "recognizing";
   const headerLabel = busy ? "处理中…" : "截图";
 
   return (
@@ -507,7 +536,9 @@ export function CaptureView({
             ))}
         </header>
 
-        {busy && showResult && <BusyStrip phase={phase} />}
+        {busy && showResult && !streaming && <BusyStrip phase={phase} />}
+
+        {streaming && partial && <PartialPanel partial={partial} />}
 
         {error && (
           <ErrorPanel
@@ -545,11 +576,13 @@ export function CaptureView({
           <PermissionBanner onPermission={onPermission} />
         )}
 
-        {!error && !result && !showBlockingBanner && (
+        {!error && !result && !showBlockingBanner && !streaming && (
           <CaptureHero shortcut={shortcut} remote={remote} />
         )}
 
-        {!error && showSteps && <StepsPanel shortcut={shortcut} remote={remote} />}
+        {!error && showSteps && !streaming && (
+          <StepsPanel shortcut={shortcut} remote={remote} />
+        )}
       </div>
     </div>
   );
