@@ -30,10 +30,10 @@ guide in the same change and explain why. Do not silently diverge.
 
 ## Repository map
 
-- `src/` — `ocr4code` kernel: a pure Rust library plus the `ocr4code` CLI.
+- `src/` — `sofer` kernel: a pure Rust library plus the `sofer` CLI.
   Engine-agnostic OCR pipeline; no Tauri or platform UI code.
 - `app/` — Tauri 2 + React 19 desktop shell. Its crate (`app/src-tauri`,
-  package `ocr4code-app`) depends on the root crate by path. **This is not a
+  package `sofer-app`) depends on the root crate by path. **This is not a
   Cargo workspace**: root `cargo test` does not build the desktop crate, and
   the desktop crate must be tested with its own manifest.
 - `app/src/` — React UI. Three Vite entries: `index.html` → `src/main.tsx`
@@ -216,7 +216,7 @@ shortcut / tray / Capture button / dropped file / clipboard image
       └─ region selection (or the given file) → temp PNG → permission/blank guards
           └─ optional fast preview: Apple Vision → ocr:partial
               └─ engine::Manager::ensure_ready (external → bundled → tesseract)
-                  └─ ocr4code::pipeline::recognize_streaming (same code as CLI)
+                  └─ sofer::pipeline::recognize_streaming (same code as CLI)
                       └─ render → clipboard → ocr:result → React
                            └─ main window not in front → toast::show (bottom-centre window)
 ```
@@ -289,10 +289,10 @@ Version must stay in sync in `app/package.json`, `app/src-tauri/Cargo.toml` and
 
 | Data | Location |
 |---|---|
-| Settings | macOS `~/Library/Application Support/com.ocr4code.desktop/settings.json`; Windows `%APPDATA%\com.ocr4code.desktop\settings.json` |
+| Settings | macOS `~/Library/Application Support/com.sofer.desktop/settings.json`; Windows `%APPDATA%\com.sofer.desktop\settings.json` |
 | Models | app-data `models/glm-ocr/` (`*.part` is resumable) |
-| Server log | macOS `~/Library/Logs/com.ocr4code.desktop/llama-server.log`; Windows `%LOCALAPPDATA%\com.ocr4code.desktop\logs\llama-server.log` |
-| History | app-data `history.json` (atomic writes; the old `ocr4code.history.v1` localStorage is migrated once) |
+| Server log | macOS `~/Library/Logs/com.sofer.desktop/llama-server.log`; Windows `%LOCALAPPDATA%\com.sofer.desktop\logs\llama-server.log` |
+| History | app-data `history.json` (atomic writes; the old `sofer.history.v1` localStorage is migrated once) |
 | Temp screenshots | OS cache dir, deleted after success/cancel |
 
 ## Documentation index
@@ -305,7 +305,7 @@ Version must stay in sync in `app/package.json`, `app/src-tauri/Cargo.toml` and
 | [docs/maintenance.md](docs/maintenance.md) | Changing geometry/tiling/concurrency/prompt, metric definitions, extending scenes/engines, release checklist, troubleshooting, known debt. |
 | [docs/baseline.md](docs/baseline.md) | Per-scene quality numbers and how to reproduce the baseline. |
 | [docs/memory-footprint.md](docs/memory-footprint.md) | Choosing context size, KV quantization, idle release and runtime; RSS vs footprint caveats. |
-| [docs/ocr4code-选型报告.md](docs/ocr4code-选型报告.md) | Why this architecture/model/engine was chosen; prior art and measured comparisons. |
+| [docs/sofer-选型报告.md](docs/sofer-选型报告.md) | Why this architecture/model/engine was chosen; prior art and measured comparisons. |
 | [bench/SCENES.md](bench/SCENES.md) | What the synthetic scenes cover and how to add one. |
 | [bench/tools/real_capture/README.md](bench/tools/real_capture/README.md) | Collecting real-editor screenshots for geometry validation. |
 | [CHANGELOG.md](CHANGELOG.md) | Desktop release history and the unreleased section; update it for user-visible behavior. |

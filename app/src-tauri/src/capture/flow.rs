@@ -12,9 +12,9 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
-use ocr4code::engine::tesseract;
-use ocr4code::pipeline::{Config, EngineMode};
-use ocr4code::render::{self, Format};
+use sofer::engine::tesseract;
+use sofer::pipeline::{Config, EngineMode};
+use sofer::render::{self, Format};
 
 use crate::engine;
 use crate::remote;
@@ -162,9 +162,9 @@ pub(super) fn emit_fast_preview(
     app: &AppHandle,
     config: &Config,
     path: &Path,
-    limiter: &ocr4code::pool::Semaphore,
+    limiter: &sofer::pool::Semaphore,
 ) {
-    if !cfg!(target_os = "macos") || !ocr4code::engine::vision::available() {
+    if !cfg!(target_os = "macos") || !sofer::engine::vision::available() {
         return;
     }
     let fast = fast_preview_config(config);
@@ -172,7 +172,7 @@ pub(super) fn emit_fast_preview(
         return;
     };
     let started = Instant::now();
-    match ocr4code::pipeline::recognize(engine.as_ref(), path, &fast, limiter) {
+    match sofer::pipeline::recognize(engine.as_ref(), path, &fast, limiter) {
         Ok(outcome) => {
             let text = render::render(&outcome.document, config.format, config.language.as_deref());
             let _ = app.emit(
@@ -206,7 +206,7 @@ pub(super) fn recognize_to_result(
     inspection: CaptureInspection,
 ) -> Result<OcrResult> {
     let engine = config.engine().context("启动 OCR 引擎")?;
-    let limiter = ocr4code::pipeline::limiter(config.jobs);
+    let limiter = sofer::pipeline::limiter(config.jobs);
 
     let started = Instant::now();
     let mut accumulated = String::new();
@@ -232,7 +232,7 @@ pub(super) fn recognize_to_result(
                 );
             }
         };
-        let outcome = ocr4code::pipeline::recognize_streaming(
+        let outcome = sofer::pipeline::recognize_streaming(
             engine.as_ref(),
             path,
             config,
@@ -355,7 +355,7 @@ fn hint_for(message: &str) -> String {
         return "下载 OCR 模型后即可截图。".into();
     }
     if message.contains("E_PERMISSION") || message.contains("屏幕录制权限") {
-        return "在系统设置 → 隐私与安全性 → 屏幕录制中勾选 ocr4code，然后重启应用。".into();
+        return "在系统设置 → 隐私与安全性 → 屏幕录制中勾选 sofer，然后重启应用。".into();
     }
     if message.contains("远程") || message.contains("服务器") {
         return "到设置 → OCR → 部署到服务器里检查连接，或重新部署。".into();
@@ -372,7 +372,7 @@ fn hint_for(message: &str) -> String {
     } else if lower.contains("not reachable") || lower.contains("llama") {
         "确认服务正在运行，并检查设置里的地址。".into()
     } else if lower.contains("permission") || lower.contains("screen") {
-        "在系统设置 → 隐私与安全性 → 屏幕录制中勾选 ocr4code，然后重启应用。".into()
+        "在系统设置 → 隐私与安全性 → 屏幕录制中勾选 sofer，然后重启应用。".into()
     } else {
         "检查设置后重试。".into()
     }

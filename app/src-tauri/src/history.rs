@@ -272,7 +272,7 @@ mod tests {
 
     fn temp_dir(label: &str) -> PathBuf {
         let unique = format!(
-            "ocr4code-history-{label}-{}-{}",
+            "sofer-history-{label}-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)

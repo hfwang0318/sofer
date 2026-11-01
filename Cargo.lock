@@ -458,19 +458,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ocr4code"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "clap",
- "image",
- "serde",
- "serde_json",
- "ureq",
-]
-
-[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -649,6 +636,19 @@ name = "smallvec"
 version = "1.16.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0d5d4b1981b8bbbb7aed204cae5726d683d5d6ac7e74ec54122ea28f315e7c8"
+
+[[package]]
+name = "sofer"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "clap",
+ "image",
+ "serde",
+ "serde_json",
+ "ureq",
+]
 
 [[package]]
 name = "stable_deref_trait"

@@ -30,7 +30,7 @@ fn config() -> RemoteConfig {
         user: "dev".into(),
         ssh_port: 22,
         key_path: String::new(),
-        dir: "~/.ocr4code".into(),
+        dir: "~/.sofer".into(),
         server_port: 8099,
         local_port: 0,
         accel: Accel::Auto,
@@ -57,7 +57,7 @@ fn shell_quotes_single_quotes_safely() {
 fn upload_payload_creates_the_part_file_through_a_remote_shell() {
     use std::io::Write as _;
 
-    let root = std::env::temp_dir().join(format!("ocr4code-upload-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("sofer-upload-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
     let part = root.join("models").join("model name.gguf.part");
     // ssh joins its argv and lets the remote shell parse the result; this
@@ -97,7 +97,7 @@ fn validation_rejects_option_injection() {
     cfg.user = "dev".into();
     cfg.dir = "line\nbreak".into();
     assert!(validate(&cfg).is_err());
-    cfg.dir = "~/.ocr4code".into();
+    cfg.dir = "~/.sofer".into();
     cfg.server_port = 0;
     assert!(validate(&cfg).is_err());
     cfg.server_port = 8099;
@@ -159,25 +159,25 @@ fn server_args_bind_loopback_and_respect_the_context_plan() {
 #[test]
 fn probe_output_is_parsed() {
     let output = "\
-OCR4CODE OS=Linux
-OCR4CODE ARCH=x86_64
-OCR4CODE HOME=/home/dev
-OCR4CODE DIR=/home/dev/.ocr4code
-OCR4CODE DISK=5000000
-OCR4CODE CURL=1
-OCR4CODE TAR=1
-OCR4CODE SHA256=sha256sum
-OCR4CODE RUNTIME=/home/dev/.ocr4code/runtime/llama-server
-OCR4CODE FILE=GLM-OCR.Q4_K_M.gguf:548515136:548515136
-OCR4CODE FILE=mmproj-GLM-OCR-Q8_0.gguf:484403648:484403648
-OCR4CODE MARKER=xx
-OCR4CODE DONE=1
+SOFER OS=Linux
+SOFER ARCH=x86_64
+SOFER HOME=/home/dev
+SOFER DIR=/home/dev/.sofer
+SOFER DISK=5000000
+SOFER CURL=1
+SOFER TAR=1
+SOFER SHA256=sha256sum
+SOFER RUNTIME=/home/dev/.sofer/runtime/llama-server
+SOFER FILE=GLM-OCR.Q4_K_M.gguf:548515136:548515136
+SOFER FILE=mmproj-GLM-OCR-Q8_0.gguf:484403648:484403648
+SOFER MARKER=xx
+SOFER DONE=1
 ";
     let probe = parse_probe(output, "xx");
     assert!(probe.reachable);
     assert_eq!(probe.os, "Linux");
     assert_eq!(probe.arch, "x86_64");
-    assert_eq!(probe.dir, "/home/dev/.ocr4code");
+    assert_eq!(probe.dir, "/home/dev/.sofer");
     assert!(probe.curl);
     assert!(!probe.wget);
     assert_eq!(probe.sha256, "sha256sum");
@@ -189,8 +189,8 @@ OCR4CODE DONE=1
 #[test]
 fn partial_model_is_not_installed() {
     let output = "\
-OCR4CODE OS=Linux
-OCR4CODE FILE=GLM-OCR.Q4_K_M.gguf:100:548515136
+SOFER OS=Linux
+SOFER FILE=GLM-OCR.Q4_K_M.gguf:100:548515136
 ";
     let probe = parse_probe(output, "");
     assert!(!probe.model_installed);
@@ -201,8 +201,8 @@ OCR4CODE FILE=GLM-OCR.Q4_K_M.gguf:100:548515136
 fn probe_script_expands_tilde_and_lists_both_files() {
     let script = probe_script(&config());
     assert!(script.contains("${DIR_RAW#\\~/}"));
-    assert!(script.contains("OCR4CODE FILE=GLM-OCR.Q4_K_M.gguf:"));
-    assert!(script.contains("OCR4CODE FILE=mmproj-GLM-OCR-Q8_0.gguf:"));
+    assert!(script.contains("SOFER FILE=GLM-OCR.Q4_K_M.gguf:"));
+    assert!(script.contains("SOFER FILE=mmproj-GLM-OCR-Q8_0.gguf:"));
     assert!(!script.contains("FILE='"));
     assert!(script.contains("verified-low.json"));
 }
@@ -211,7 +211,7 @@ fn probe_script_expands_tilde_and_lists_both_files() {
 fn parallel_download_script_uses_ranges_and_falls_back() {
     let script = parallel_download_script(
         "https://example.com/model.gguf",
-        "/home/ocr/.ocr4code/models/model.gguf",
+        "/home/ocr/.sofer/models/model.gguf",
         1000,
         4,
     );
@@ -227,8 +227,8 @@ fn parallel_download_script_uses_ranges_and_falls_back() {
     assert!(script.contains("--speed-time 60"));
     assert!(script.contains("--connect-timeout 15"));
     assert!(script.contains("'https://example.com/model.gguf'"));
-    assert!(script.contains("'/home/ocr/.ocr4code/models/model.gguf.parts'"));
-    assert!(script.contains("'/home/ocr/.ocr4code/models/model.gguf.part'"));
+    assert!(script.contains("'/home/ocr/.sofer/models/model.gguf.parts'"));
+    assert!(script.contains("'/home/ocr/.sofer/models/model.gguf.part'"));
 }
 
 #[cfg(unix)]
@@ -273,14 +273,14 @@ fn progress_command_sums_finished_and_inflight_parts() {
 fn start_script_quotes_paths_and_binds_loopback() {
     let cfg = config();
     let probe = Probe {
-        dir: "/home/dev/.ocr4code".into(),
-        runtime: Some("/home/dev/.ocr4code/runtime/llama-server".into()),
+        dir: "/home/dev/.sofer".into(),
+        runtime: Some("/home/dev/.sofer/runtime/llama-server".into()),
         ..Probe::default()
     };
     let script = start_script(&cfg, &probe);
     assert!(script.contains("'--host' '127.0.0.1'"));
     assert!(script.contains("nohup \"$RUNTIME\""));
-    assert!(script.contains("/home/dev/.ocr4code/models/GLM-OCR.Q4_K_M.gguf"));
+    assert!(script.contains("/home/dev/.sofer/models/GLM-OCR.Q4_K_M.gguf"));
     assert!(script.contains("--sleep-idle-seconds"));
 }
 

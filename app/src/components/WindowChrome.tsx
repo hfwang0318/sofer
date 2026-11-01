@@ -18,7 +18,7 @@ function TrafficLights() {
       <button
         type="button"
         className="traffic traffic-close"
-        aria-label="隐藏 ocr4code"
+        aria-label="隐藏 sofer"
         title="隐藏"
         onClick={() => void windowAction("hide")}
       />
@@ -86,7 +86,7 @@ export function WindowChrome({
       {isMac && <TrafficLights />}
       <div className="brand">
         <Logo size={23} />
-        <span className="brand-name">ocr4code</span>
+        <span className="brand-name">sofer</span>
         <span className="brand-version">{version || "—"}</span>
       </div>
 

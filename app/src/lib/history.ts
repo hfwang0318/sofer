@@ -327,7 +327,7 @@ export function downloadText(filename: string, content: string, mime: string): v
 
 export function exportEntryMarkdown(entry: HistoryEntry): void {
   downloadText(
-    `ocr4code-${fileStamp(entry.capturedAt)}.md`,
+    `sofer-${fileStamp(entry.capturedAt)}.md`,
     entryMarkdown(entry),
     "text/markdown",
   );
@@ -335,7 +335,7 @@ export function exportEntryMarkdown(entry: HistoryEntry): void {
 
 export function exportEntryJson(entry: HistoryEntry): void {
   downloadText(
-    `ocr4code-${fileStamp(entry.capturedAt)}.json`,
+    `sofer-${fileStamp(entry.capturedAt)}.json`,
     JSON.stringify(
       { version: 1, exportedAt: new Date().toISOString(), entry },
       null,
@@ -347,7 +347,7 @@ export function exportEntryJson(entry: HistoryEntry): void {
 
 export function exportHistoryJson(entries: HistoryEntry[]): void {
   downloadText(
-    `ocr4code-history-${fileStamp(Date.now())}.json`,
+    `sofer-history-${fileStamp(Date.now())}.json`,
     JSON.stringify(
       { version: 1, exportedAt: new Date().toISOString(), entries },
       null,

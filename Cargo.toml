@@ -1,16 +1,16 @@
 [package]
-name = "ocr4code"
-version = "0.1.0"
+name = "sofer"
+version = "1.0.0"
 edition = "2021"
 description = "Offline OCR for code and terminal screenshots (macOS + Windows)"
 license = "MIT"
 
 [[bin]]
-name = "ocr4code"
+name = "sofer"
 path = "src/main.rs"
 
 [lib]
-name = "ocr4code"
+name = "sofer"
 path = "src/lib.rs"
 
 [dependencies]

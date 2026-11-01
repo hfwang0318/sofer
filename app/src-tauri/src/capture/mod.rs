@@ -17,7 +17,7 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-use ocr4code::pipeline::EngineMode;
+use sofer::pipeline::EngineMode;
 
 use crate::settings::{AppState, Settings};
 use crate::toast;
@@ -397,7 +397,7 @@ fn process_capture(
         },
     );
     if settings.fast_preview {
-        let limiter = ocr4code::pipeline::limiter(config.jobs);
+        let limiter = sofer::pipeline::limiter(config.jobs);
         emit_fast_preview(app, &config, path, &limiter);
     }
     recognize_to_result(app, settings, &config, path, inspection).map(Some)
@@ -635,10 +635,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "ocr4code-{tag}-{}-{unique}.png",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("sofer-{tag}-{}-{unique}.png", std::process::id()));
         std::fs::write(&path, contents).unwrap();
         path
     }

@@ -20,7 +20,7 @@ use anyhow::{bail, Context, Result};
 use image::{DynamicImage, ImageFormat, ImageReader};
 
 /// Highest image size accepted on stdin. Bigger than any real screenshot, small
-/// enough that a wrong pipe (`cat huge.log | ocr4code ocr -`) fails fast.
+/// enough that a wrong pipe (`cat huge.log | sofer ocr -`) fails fast.
 pub const MAX_STDIN_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Extensions the CLI accepts and that a directory is expanded to.
@@ -124,8 +124,8 @@ impl TempImage {
 
         if bytes.is_empty() {
             bail!(
-                "stdin is empty: pipe an image into `ocr4code ocr -`, \
-                 e.g. `cat shot.png | ocr4code ocr -`"
+                "stdin is empty: pipe an image into `sofer ocr -`, \
+                 e.g. `cat shot.png | sofer ocr -`"
             );
         }
         if bytes.len() as u64 > MAX_STDIN_BYTES {
@@ -144,7 +144,7 @@ impl TempImage {
         let format = sniffed.format().with_context(|| {
             format!(
                 "cannot detect the image format on stdin (expected {SUPPORTED_HINT}): \
-                 check that the pipe carries an image, e.g. `cat shot.png | ocr4code ocr -`"
+                 check that the pipe carries an image, e.g. `cat shot.png | sofer ocr -`"
             )
         })?;
         let ext = extension_for(format).with_context(|| {
@@ -294,7 +294,7 @@ fn extension_for(format: ImageFormat) -> Option<&'static str> {
 
 /// Create a fresh temp file with a process-unique name and `ext`.
 ///
-/// `create_new` makes the name safe even when several `ocr4code` processes
+/// `create_new` makes the name safe even when several `sofer` processes
 /// share the same temp directory; the loop retries on the (unlikely) collision.
 fn create_temp(ext: &str) -> Result<(PathBuf, File)> {
     for _ in 0..16 {
@@ -321,7 +321,7 @@ fn temp_path(ext: &str) -> PathBuf {
         .map(|d| d.subsec_nanos())
         .unwrap_or(0);
     std::env::temp_dir().join(format!(
-        "ocr4code-input-{}-{seq}-{nanos}.{ext}",
+        "sofer-input-{}-{seq}-{nanos}.{ext}",
         std::process::id()
     ))
 }

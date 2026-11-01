@@ -9,20 +9,20 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use ocr4code_app::engine::{Event, Manager, ModelQuality, Paths};
+use sofer_app::engine::{Event, Manager, ModelQuality, Paths};
 
 fn main() {
     let command = std::env::args().nth(1).unwrap_or_else(|| "status".into());
-    let quality = match std::env::var("OCR4CODE_MODEL_QUALITY").as_deref() {
+    let quality = match std::env::var("SOFER_MODEL_QUALITY").as_deref() {
         Ok("low") => ModelQuality::Low,
         _ => ModelQuality::High,
     };
-    let config = ocr4code_app::engine::ServerConfig {
+    let config = sofer_app::engine::ServerConfig {
         quality,
         ..Default::default()
     };
     let home = std::env::var("HOME").unwrap_or_default();
-    let data = PathBuf::from(home).join("Library/Application Support/com.ocr4code.desktop");
+    let data = PathBuf::from(home).join("Library/Application Support/com.sofer.desktop");
     let runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("runtime/macos-arm64");
     let paths = Paths {
         runtime,
@@ -67,7 +67,7 @@ fn main() {
             let status = manager.status("http://127.0.0.1:8099", quality);
             println!("{}", serde_json::to_string_pretty(&status).unwrap());
         }
-        "download" => match manager.ensure_model(&ocr4code_app::engine::DownloadOptions {
+        "download" => match manager.ensure_model(&sofer_app::engine::DownloadOptions {
             quality,
             ..Default::default()
         }) {
@@ -84,7 +84,7 @@ fn main() {
         },
         "bootstrap" => match manager.bootstrap(
             "",
-            &ocr4code_app::engine::DownloadOptions {
+            &sofer_app::engine::DownloadOptions {
                 quality,
                 ..Default::default()
             },

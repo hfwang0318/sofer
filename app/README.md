@@ -1,6 +1,6 @@
-# ocr4code desktop
+# sofer desktop
 
-`ocr4code` 的桌面外壳：**快捷键框选截图 → 本地内核识别 → 文本直接进剪贴板**。
+`sofer` 的桌面外壳：**快捷键框选截图 → 本地内核识别 → 文本直接进剪贴板**。
 Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，不复制管线逻辑。
 
 > 改界面、状态流或提示语之前，先读
@@ -10,10 +10,10 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 安装包自带推理运行时；首次启动只需点一次「下载并配置」，应用会自动下载模型、
 校验 SHA-256、启动引擎。之后完全离线。
 
-> Windows 预览版安装包：
-> <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.11>
-> 由 GitHub Actions 的 `windows-latest` 构建 NSIS 安装器；版本记录见
-> [../CHANGELOG.md](../CHANGELOG.md)。
+> 首个正式版安装包（Windows / macOS Apple Silicon）：
+> <https://github.com/hfwang0318/sofer/releases/tag/v1.0.0>
+> 由 GitHub Actions 的 `windows-latest` 构建 NSIS 安装器、`macos-14` 构建 arm64 DMG；
+> 版本记录见 [../CHANGELOG.md](../CHANGELOG.md)。
 
 | 首启向导 | 模型下载 |
 |---|---|
@@ -66,8 +66,8 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 
 | 平台 | 路径 |
 |---|---|
-| macOS | `~/Library/Application Support/com.ocr4code.desktop/models/glm-ocr/` |
-| Windows | `%APPDATA%\com.ocr4code.desktop\models\glm-ocr\` |
+| macOS | `~/Library/Application Support/com.sofer.desktop/models/glm-ocr/` |
+| Windows | `%APPDATA%\com.sofer.desktop\models\glm-ocr\` |
 
 `verified-high.json` / `verified-low.json` 分别记录两套权重的 manifest；`llama-server.pid` 用于清理异常退出留下的服务进程。两套权重可以共存，切换精度不会重复下载 mmproj。
 
@@ -80,7 +80,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 | 一键模型安装 | 首启向导下载所选精度（高 1.43 GB / 低 1.03 GB）、校验、启动服务；断点续传，可取消/重试/移除 |
 | 全局快捷键 | 默认 `⌘⇧2` / `Ctrl+Shift+2`；支持单键、2 键或 3 键组合（必须有 1 个主键），设置里可录制 |
 | 原生截图 | macOS `screencapture -i`；Windows 自绘选区浮层 + GDI 抓屏（不调用系统截屏工具） |
-| 自动识别 | 复用 `ocr4code::pipeline`：引擎 → 切块/重试 → 几何层 → 修复 → 渲染 |
+| 自动识别 | 复用 `sofer::pipeline`：引擎 → 切块/重试 → 几何层 → 修复 → 渲染 |
 | 自动复制 | 成功后直接写剪贴板；窗口隐藏时不抢焦点 |
 | 识别完成提示 | 主窗口不在前台且结果已复制时，在鼠标所在屏幕底部弹一条「已复制 · N 行」，约 2.5 秒淡出；不抢焦点、鼠标穿透；可在通用设置关闭 |
 | 引擎管理 | 内置运行时、模型状态、服务状态、启动/停止、移除/重新下载，全部在设置里 |
@@ -103,8 +103,8 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 - 发现新版本后默认自动下载；安装前仍需点击「重启并安装」
 - 安装前会自动停止内置 `llama-server` 并等待文件句柄释放；NSIS 安装器还会在 preinstall 阶段兜底结束残留的 `llama-server.exe`
 - 更新包使用 Tauri/minisign 公钥校验；私钥只存在于 GitHub Actions Secrets
-- 更新端点：`https://github.com/hfwang0318/ocr4code/releases/latest/download/latest.json`
-- 首次支持更新的版本是 v0.1.8，更早版本需要手动安装一次
+- 更新端点：`https://github.com/hfwang0318/sofer/releases/latest/download/latest.json`
+- 从 1.0.0 起支持应用内更新
 - `latest.json` 由 `tauri-action` 生成；同时上传 `.exe`、`.sig` 和 `latest.json`
 
 ### 部署到服务器（可选）
@@ -116,7 +116,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
   `tar`、`sha256sum`、`libgomp1`（llama.cpp 运行时依赖的 OpenMP 库，大多数发行版
   默认已装）；不支持密码登录，也不需要 Docker。
 - **入口**：设置 → OCR → 「部署到服务器」。填服务器地址、SSH 用户名/端口、
-  远程目录（默认 `~/.ocr4code`）、服务端口和隧道端口，然后点「一键部署」。
+  远程目录（默认 `~/.sofer`）、服务端口和隧道端口，然后点「一键部署」。
 - **部署内容**：服务器缺少运行时时，自动下载 llama.cpp `b12018`（CPU / Vulkan / CUDA）；
   缺少模型时按「模型来源」处理——`自动` 和 `服务器下载` 在服务器上下载，
   `上传本机模型` 流式上传本机同精度 GGUF + mmproj。所有文件走 SHA-256 校验。
@@ -152,7 +152,7 @@ CASES="probe stop-releases-server" app/scripts/test-remote.sh
 ```
 
 先停掉应用里的远程服务，避免和脚本抢占 8099 端口和模型目录。脚本日志在
-`/tmp/ocr4code-ssh-test/e2e-logs/`，任一用例失败会返回非零退出码。
+`/tmp/sofer-ssh-test/e2e-logs/`，任一用例失败会返回非零退出码。
 它依赖 Docker 且要下载约 1 GB，默认不进 CI；发布前或改 `remote/` 后手工跑。
 
 `test-remote.sh` 固化的用例：
@@ -180,23 +180,23 @@ cargo test --manifest-path app/src-tauri/Cargo.toml remote::
 单独手工跑某条路径：
 
 ```bash
-export OCR4CODE_REMOTE_KEY=/tmp/ocr4code-ssh-test/test_key
-export OCR4CODE_REMOTE_SSH_PORT=2222 OCR4CODE_REMOTE_ACCEL=cpu OCR4CODE_REMOTE_GPU_LAYERS=0
+export SOFER_REMOTE_KEY=/tmp/sofer-ssh-test/test_key
+export SOFER_REMOTE_SSH_PORT=2222 SOFER_REMOTE_ACCEL=cpu SOFER_REMOTE_GPU_LAYERS=0
 
 # 探测
 cargo run --manifest-path app/src-tauri/Cargo.toml --example remote_probe -- probe
 
 # 服务器下载（末尾通过隧道做一次真实 OCR）
-OCR4CODE_REMOTE_SOURCE=download OCR4CODE_TEST_IMAGE=bench/images/cargo-build@1x.png \
+SOFER_REMOTE_SOURCE=download SOFER_TEST_IMAGE=bench/images/cargo-build@1x.png \
   cargo run --manifest-path app/src-tauri/Cargo.toml --example remote_probe -- deploy
 
 # 本地上传（先把模型从容器复制到本地目录，并清空容器里的模型）
-mkdir -p /tmp/ocr4code-ssh-test/local-models
-docker cp ocr4code-ssh-test:/home/ocr/.ocr4code/models/. /tmp/ocr4code-ssh-test/local-models/
-docker exec -u ocr ocr4code-ssh-test rm -rf ~/.ocr4code/models
-OCR4CODE_REMOTE_SOURCE=upload \
-OCR4CODE_REMOTE_LOCAL_MODELS=/tmp/ocr4code-ssh-test/local-models \
-OCR4CODE_TEST_IMAGE=bench/images/cargo-build@1x.png \
+mkdir -p /tmp/sofer-ssh-test/local-models
+docker cp sofer-ssh-test:/home/ocr/.sofer/models/. /tmp/sofer-ssh-test/local-models/
+docker exec -u ocr sofer-ssh-test rm -rf ~/.sofer/models
+SOFER_REMOTE_SOURCE=upload \
+SOFER_REMOTE_LOCAL_MODELS=/tmp/sofer-ssh-test/local-models \
+SOFER_TEST_IMAGE=bench/images/cargo-build@1x.png \
   cargo run --manifest-path app/src-tauri/Cargo.toml --example remote_probe -- deploy
 
 # 停止 / 重新连接
@@ -355,10 +355,10 @@ tag push 后在 `windows-latest` 上拉取 runtime、staging VC++ CRT、跑后�
 - 公钥在 `src-tauri/tauri.conf.json` 的 `plugins.updater.pubkey`；
 - 私钥由维护者生成并只保存在 GitHub Actions Secrets：
   `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`；
-- 更新端点：`https://github.com/hfwang0318/ocr4code/releases/latest/download/latest.json`；
+- 更新端点：`https://github.com/hfwang0318/sofer/releases/latest/download/latest.json`；
 - 发布前确认 release 附件包含 `*-setup.exe`、`*-setup.exe.sig`、`latest.json`；
-- v0.1.8 是首个带更新器的版本，旧版需要手动安装一次；
-- v0.1.10 起安装前先停止 `llama-server`，NSIS `PREINSTALL` hook 再兜底结束残留进程。
+- 1.0.0 起发布包带更新器；
+- 安装前先停止 `llama-server`，NSIS `PREINSTALL` hook 再兜底结束残留进程。
 
 ### 运行时资源
 
@@ -392,7 +392,7 @@ cd app && pnpm dev
 cd app/src-tauri
 cargo run --example engine_probe -- download
 # 低精度（Q4_K_M，约 1.03 GB）
-OCR4CODE_MODEL_QUALITY=low cargo run --example engine_probe -- download
+SOFER_MODEL_QUALITY=low cargo run --example engine_probe -- download
 # 启动内置 server，健康检查后退出
 cargo run --example engine_probe -- start
 ```
@@ -428,7 +428,7 @@ cargo run --example engine_probe -- start
 TLS 证书使用系统信任库；如果代理/安全软件会劫持 HTTPS，需要把它的根证书安装到系统信任库，否则会出现 `unknown issuer`。
 
 留空时仍兼容环境变量：`HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY`。内网 staging 仍可用
-`OCR4CODE_MODEL_BASE` 覆盖成包含 resolve 路径的完整基址（会忽略“使用镜像”勾选）；
+`SOFER_MODEL_BASE` 覆盖成包含 resolve 路径的完整基址（会忽略“使用镜像”勾选）；
 Finder 启动的 App 可能不继承 shell 环境变量，此时用界面字段最方便。
 
 镜像上的文件名必须一致，SHA-256 仍按内置 manifest 校验。也可以直接把对应精度的
@@ -449,7 +449,7 @@ Finder 启动的 App 可能不继承 shell 环境变量，此时用界面字段�
 | 识别完成提示 | 自绘 Tauri 窗口，鼠标所在显示器底部居中 | 同一个自绘窗口；不需要通知权限 |
 | WebView2 | 系统自带 | 安装器 `embedBootstrapper` 自动处理 |
 
-Windows 自绘浮层和 GDI 抓屏已随 v0.1.5 发布，并在实际 Windows 机器上验证过安装、模型启动和更新；
+Windows 自绘浮层和 GDI 抓屏已发布，并在实际 Windows 机器上验证过安装、模型启动和更新；
 一次只抓鼠标所在显示器，跨屏拖选、多显示器混合 DPI、HDR/受保护内容仍需更多覆盖。Windows 运行时是 CPU 版；
 要 GPU 加速可以后续增加 Vulkan/CUDA 运行时包，或让高级用户接外部 llama-server。
 当前 macOS 产物是 arm64；Intel Mac 需要单独构建 x64 并补充 `runtime/macos-x64`。
@@ -460,9 +460,9 @@ Windows 自绘浮层和 GDI 抓屏已随 v0.1.5 发布，并在实际 Windows �
 
 | 内容 | 位置 |
 |---|---|
-| 设置 | macOS `~/Library/Application Support/com.ocr4code.desktop/settings.json`；Windows `%APPDATA%\com.ocr4code.desktop\settings.json` |
+| 设置 | macOS `~/Library/Application Support/com.sofer.desktop/settings.json`；Windows `%APPDATA%\com.sofer.desktop\settings.json` |
 | 模型 | 同级 `models/glm-ocr/`；`*.part` 为可续传临时文件 |
-| 服务日志 | macOS `~/Library/Logs/com.ocr4code.desktop/llama-server.log`；Windows `%LOCALAPPDATA%\com.ocr4code.desktop\logs\llama-server.log` |
+| 服务日志 | macOS `~/Library/Logs/com.sofer.desktop/llama-server.log`；Windows `%LOCALAPPDATA%\com.sofer.desktop\logs\llama-server.log` |
 | 历史 | 应用数据目录 `history.json`（原子写、损坏文件隔离为 `.corrupt-*`）；旧 `localStorage` 首次启动自动迁移 |
 | 临时截图 | cache 目录，识别完成/取消后删除；结果可能截断时保留为 `retry.png`，直到下一次截图 |
 | 快速预览 | macOS 设置项 `fastPreview`，默认关闭；需要 Vision shim 可用 |
@@ -505,9 +505,9 @@ Windows CI（`.github/workflows/release.yml`）在 `windows-latest` 上完成：
 
 Windows 实际验证：
 
-- v0.1.6 起安装包内置 VC++ runtime，解决旧 `msvcp140.dll` 14.16 导致的 `0xc0000005`；
-- v0.1.8 起自动更新可用；实际更新流程已跑通；
-- v0.1.10 修复更新时 `llama-server` 占用运行时目录的问题
+- 安装包内置 VC++ runtime，解决旧 `msvcp140.dll` 14.16 导致的 `0xc0000005`；
+- 自动更新可用；实际更新流程已跑通；
+- 更新时 `llama-server` 占用运行时目录的问题已修复
   （应用先 stop + NSIS preinstall hook 兜底 kill）；
 - 快捷键单键/2 键/3 键录制已通过浏览器交互测试；单键在系统全局快捷键上的实际注册仍需更多机器覆盖。
 

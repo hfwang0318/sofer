@@ -134,7 +134,7 @@ pub struct DownloadOptions {
 }
 
 pub fn model_url(file: &ModelFile, use_mirror: bool) -> String {
-    let env_base = std::env::var("OCR4CODE_MODEL_BASE").ok();
+    let env_base = std::env::var("SOFER_MODEL_BASE").ok();
     model_url_with_base(file, env_base.as_deref(), use_mirror)
 }
 

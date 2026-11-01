@@ -1,5 +1,6 @@
 set -x
-PY=/Users/hfwang/workspace/ocr4code/.venv/bin/python
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+PY="$ROOT/.venv/bin/python"
 M=$HOME/models
 $PY run_vlm.py --model $M/PaddleOCR-VL-1.6-4bit --tag paddle16 --prompt "OCR:" --glob "images/*@2x.png" 2>/dev/null
 $PY run_vlm.py --model $M/GLM-OCR-4bit --tag glmocr --prompt "OCR:" --glob "images/*@2x.png" 2>/dev/null

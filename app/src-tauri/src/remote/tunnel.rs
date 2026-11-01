@@ -514,17 +514,17 @@ pub(super) fn start_script(cfg: &RemoteConfig, probe: &Probe) -> String {
            fi\n\
            rm -f \"$PIDFILE\"\n\
          fi\n\
-         if [ ! -x \"$RUNTIME\" ] && ! command -v \"$RUNTIME\" >/dev/null 2>&1; then echo OCR4CODE START_ERROR=1; exit 4; fi\n\
+         if [ ! -x \"$RUNTIME\" ] && ! command -v \"$RUNTIME\" >/dev/null 2>&1; then echo SOFER START_ERROR=1; exit 4; fi\n\
          nohup \"$RUNTIME\" {args} </dev/null >>\"$LOG\" 2>&1 &\n\
          NEW=$!\n\
          echo \"$NEW\" > \"$PIDFILE\"\n\
          sleep 0.6\n\
          if ! kill -0 \"$NEW\" 2>/dev/null; then\n\
-           echo OCR4CODE START_ERROR=1\n\
+           echo SOFER START_ERROR=1\n\
            tail -n 20 \"$LOG\" 2>/dev/null\n\
            exit 4\n\
          fi\n\
-         echo \"OCR4CODE PID=$NEW\"\n",
+         echo \"SOFER PID=$NEW\"\n",
         args = quoted_args
     ));
     script
@@ -549,7 +549,7 @@ pub(super) fn stop_script(cfg: &RemoteConfig) -> String {
            fi\n\
            rm -f \"$PIDFILE\"\n\
          fi\n\
-         echo OCR4CODE STOPPED=1\n",
+         echo SOFER STOPPED=1\n",
     );
     script
 }

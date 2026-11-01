@@ -76,7 +76,7 @@ export const DEFAULT_SETTINGS: Settings = {
   remoteUser: "",
   remoteSshPort: 22,
   remoteKey: "",
-  remoteDir: "~/.ocr4code",
+  remoteDir: "~/.sofer",
   remoteServerPort: 8099,
   remoteLocalPort: 0,
   remoteAccel: "auto",
@@ -123,16 +123,16 @@ export function modelName(quality: ModelQuality): string {
 }
 /** Keep in sync with `engine::MODEL_LICENSE` in src-tauri/src/engine.rs. */
 export const MODEL_LICENSE = "MIT";
-export const SETUP_DISMISSED_KEY = "ocr4code.setup.dismissed";
-export const FIRST_CAPTURE_KEY = "ocr4code.onboarding.firstCapture";
-export const SETTINGS_KEY = "ocr4code.settings.v1";
-export const HISTORY_KEY = "ocr4code.history.v1";
+export const SETUP_DISMISSED_KEY = "sofer.setup.dismissed";
+export const FIRST_CAPTURE_KEY = "sofer.onboarding.firstCapture";
+export const SETTINGS_KEY = "sofer.settings.v1";
+export const HISTORY_KEY = "sofer.history.v1";
 /**
  * Set after the one-time import of `HISTORY_KEY` into the app-data store.
  * `"1"` also means "the legacy copy was checked"; after this the WebView never
  * reads `HISTORY_KEY` again.
  */
-export const HISTORY_MIGRATED_KEY = "ocr4code.history.migrated.v1";
+export const HISTORY_MIGRATED_KEY = "sofer.history.migrated.v1";
 
 /**
  * Hard storage cap. Thumbnails are base64 PNGs, so the saved list has to stay
@@ -221,7 +221,7 @@ export const DEMO_HISTORY: HistoryEntry[] = [
   historyEntry(
     8 * 60_000,
     `$ cargo test --workspace
-   Compiling ocr4code v0.1.10
+   Compiling sofer v1.0.0
     Finished test [unoptimized + debuginfo] target(s)
      Running unittests src/lib.rs
 

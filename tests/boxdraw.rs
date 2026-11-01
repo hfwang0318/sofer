@@ -6,10 +6,10 @@
 //! a font or on the committed bench scenes.
 
 use image::{GrayImage, Luma};
-use ocr4code::boxdraw;
-use ocr4code::geom::{self, Geometry};
-use ocr4code::pipeline::{self, Config, EngineMode};
-use ocr4code::Line;
+use sofer::boxdraw;
+use sofer::geom::{self, Geometry};
+use sofer::pipeline::{self, Config, EngineMode};
+use sofer::Line;
 
 const BG: u8 = 255;
 const INK: u8 = 0;
@@ -270,8 +270,7 @@ fn default_config_keeps_box_art_off() {
 #[test]
 fn pipeline_reconstructs_a_tree_only_with_box_art() {
     let img = tree_scene();
-    let path =
-        std::env::temp_dir().join(format!("ocr4code-boxdraw-tree-{}.png", std::process::id()));
+    let path = std::env::temp_dir().join(format!("sofer-boxdraw-tree-{}.png", std::process::id()));
     img.save(&path).expect("write synthetic tree");
 
     let mut cfg = Config {

@@ -186,7 +186,7 @@ fn model_url_honours_the_settings_override() {
 
 #[test]
 fn sha256_matches_a_known_value() {
-    let dir = std::env::temp_dir().join(format!("ocr4code-sha-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("sofer-sha-{}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
     let path = dir.join("x");
     fs::write(&path, b"abc").unwrap();
@@ -236,7 +236,7 @@ fn resumes_a_partial_download() {
         request
     });
 
-    let dir = std::env::temp_dir().join(format!("ocr4code-resume-{}-{}", std::process::id(), port));
+    let dir = std::env::temp_dir().join(format!("sofer-resume-{}-{}", std::process::id(), port));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     let part = dir.join("test.bin.part");
@@ -282,7 +282,7 @@ fn resumes_a_partial_download() {
 
 #[test]
 fn removing_one_quality_keeps_the_other_pack() {
-    let dir = std::env::temp_dir().join(format!("ocr4code-remove-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("sofer-remove-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     for file in model_files(ModelQuality::High) {
@@ -312,7 +312,7 @@ fn removing_one_quality_keeps_the_other_pack() {
 
 #[test]
 fn legacy_marker_counts_only_for_high_quality() {
-    let dir = std::env::temp_dir().join(format!("ocr4code-legacy-marker-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("sofer-legacy-marker-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     fs::write(
@@ -366,7 +366,7 @@ fn parallel_download_joins_eight_ranges() {
         }
     });
 
-    let dir = std::env::temp_dir().join(format!("ocr4code-parallel-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("sofer-parallel-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     let part = dir.join("model.gguf.part");
@@ -438,7 +438,7 @@ fn parallel_download_resumes_a_legacy_prefix() {
         }
     });
 
-    let dir = std::env::temp_dir().join(format!("ocr4code-parallel-prefix-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("sofer-parallel-prefix-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     let part = dir.join("model.gguf.part");
@@ -471,7 +471,7 @@ fn parallel_download_resumes_a_legacy_prefix() {
 
 #[test]
 fn marker_round_trip() {
-    let dir = std::env::temp_dir().join(format!("ocr4code-marker-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("sofer-marker-{}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
     assert!(!marker_ok(&dir, ModelQuality::High));
     write_marker(&dir, ModelQuality::High).unwrap();

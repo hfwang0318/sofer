@@ -358,7 +358,7 @@ Q4_K_M 权重 + -c 32768 -np 3 -ctk q4_0 -ctv q4_0 -cram 0 --sleep-idle-seconds 
    高精度走官方的 `GLM-OCR-Q8_0.gguf`，低精度走 HF 的 `GLM-OCR.Q4_K_M.gguf`；
    两套 manifest 独立，共用 mmproj；切换时停掉旧 server，未下载则弹引导。
 2. **镜像勾选**：`Settings.use_mirror` 切换 `huggingface.co` / `hf-mirror.com`；
-   不再让用户填自定义基址（内网仍可用 `OCR4CODE_MODEL_BASE`）。
+   不再让用户填自定义基址（内网仍可用 `SOFER_MODEL_BASE`）。
 3. **代理拆分**：`proxy_url` + `proxy_username` + `proxy_password`；
    保存时用 `compose_proxy_url()` 做 userinfo 百分号编码（`@` → `%40`），
    `normalize_proxy_url()` 在交给 ureq 前解码。密码输入框 `type=password`。
@@ -392,7 +392,7 @@ ps -o rss= -p $PID
 vmmap -summary $PID | grep "Physical footprint"
 
 # 2) 看 active 峰值（另开终端）
-ocr4code ocr bench/images/*@2x.png --engine llamacpp \
+sofer ocr bench/images/*@2x.png --engine llamacpp \
   --llama-url http://127.0.0.1:8099 -j 3 --format json >/dev/null
 
 # 3) 量化（从 F16，避免二次量化）

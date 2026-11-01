@@ -108,7 +108,7 @@ export function SettingsView({
               调整截图、识别和输出的方式。修改后点保存；模型的启动和下载会立即生效。
             </p>
           </div>
-          <span className="settings-version">ocr4code {appVersion || "—"}</span>
+          <span className="settings-version">sofer {appVersion || "—"}</span>
         </header>
 
         <GeneralSection

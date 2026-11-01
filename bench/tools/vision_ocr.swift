@@ -1,4 +1,4 @@
-// Apple Vision OCR harness for the ocr4code benchmark.
+// Apple Vision OCR harness for the sofer benchmark.
 // usage: ocr_vision <image> [--fast] [--correction] [--doc]
 //   --fast        : VNRequestTextRecognitionLevel.fast
 //   --correction  : enable usesLanguageCorrection (default off, better for code)

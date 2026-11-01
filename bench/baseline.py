@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Baseline harness: run the `ocr4code` CLI over the bench corpus and score it.
+"""Baseline harness: run the `sofer` CLI over the bench corpus and score it.
 
 This replaces the ad-hoc per-run scripts: every number in the report should come
 from here, so that engine and layout changes are comparable across commits.
@@ -19,8 +19,8 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-CLI = os.path.join(ROOT, "target", "release", "ocr4code")
-CLI_DEBUG = os.path.join(ROOT, "target", "debug", "ocr4code")
+CLI = os.path.join(ROOT, "target", "release", "sofer")
+CLI_DEBUG = os.path.join(ROOT, "target", "debug", "sofer")
 sys.path.insert(0, os.path.join(HERE, "tools"))
 import cer_eval  # noqa: E402
 

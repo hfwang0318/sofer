@@ -38,7 +38,7 @@ jobs:
 
       - name: doctor
         shell: bash
-        run: ./target/release/ocr4code doctor || true
+        run: ./target/release/sofer doctor || true
 
   app:
     name: app (${{ matrix.os }})

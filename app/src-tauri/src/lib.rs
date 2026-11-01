@@ -25,8 +25,8 @@ use tauri::{AppHandle, DragDropEvent, Emitter, Manager, State, WindowEvent};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-use ocr4code::engine::tesseract;
-use ocr4code::pipeline::EngineMode;
+use sofer::engine::tesseract;
+use sofer::pipeline::EngineMode;
 
 use engine::{DownloadProgress, Event as EngineEvent, EventSink, Manager as EngineManager, Paths};
 use settings::{AppState, Settings};
@@ -621,15 +621,15 @@ fn autostart_engine(app: &AppHandle) {
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let capture_item = MenuItem::with_id(app, "capture", "截图", true, None::<&str>)?;
-    let show_item = MenuItem::with_id(app, "show", "打开 ocr4code", true, None::<&str>)?;
+    let show_item = MenuItem::with_id(app, "show", "打开 sofer", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
-    let quit_item = MenuItem::with_id(app, "quit", "退出 ocr4code", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "退出 sofer", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&capture_item, &show_item, &separator, &quit_item])?;
 
     let mut builder = TrayIconBuilder::with_id("main-tray")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .tooltip("ocr4code — 截图转文字")
+        .tooltip("sofer — 截图转文字")
         .on_menu_event(|app, event| match event.id.as_ref() {
             "capture" => capture::start(app.clone()),
             "show" => capture::show_main(app),
@@ -838,7 +838,7 @@ pub fn run() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("error while building ocr4code");
+        .expect("error while building sofer");
 
     app.run(|app_handle, event| {
         if let tauri::RunEvent::Exit = event {

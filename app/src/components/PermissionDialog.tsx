@@ -118,7 +118,7 @@ export function PermissionDialog({
         ) : (
           <>
             <p className="eyebrow">需要权限</p>
-            <h2 id="permission-title">允许 ocr4code 录制屏幕</h2>
+            <h2 id="permission-title">允许 sofer 录制屏幕</h2>
             <p className="setup-lede">
               没有这项权限，截出来会是空白图，识别也不会成功。
             </p>
@@ -138,7 +138,7 @@ export function PermissionDialog({
                   <Icon name="info" size={15} />
                 </span>
                 <div className="setup-row-copy">
-                  <span className="setup-row-title">2. 勾选 ocr4code</span>
+                  <span className="setup-row-title">2. 勾选 sofer</span>
                   <span className="setup-row-detail">
                     位置：隐私与安全性 → 屏幕录制。
                   </span>

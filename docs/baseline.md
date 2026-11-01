@@ -1,4 +1,4 @@
-# ocr4code 基线报告
+# sofer 基线报告
 
 > 环境：macOS 27 / Apple M5 / 16GB，`cargo build --release`。
 > 全部数字由 `bench/baseline.py` **调用 CLI** 产生（不是直接调库），命令见文末。

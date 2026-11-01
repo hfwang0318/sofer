@@ -9,11 +9,13 @@ import json
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 import numpy as np
 from PIL import Image
 
-CLI = "/Users/hfwang/workspace/ocr4code/target/release/ocr4code"
+ROOT = Path(__file__).resolve().parents[2]
+CLI = str(ROOT / "target" / "release" / "sofer")
 
 
 def bands_of(img):
@@ -93,7 +95,7 @@ def main():
 
     got = "\n".join(out_lines)
     open("/tmp/tiled.txt", "w").write(got + "\n")
-    sys.path.insert(0, "/Users/hfwang/workspace/ocr4code/bench/tools")
+    sys.path.insert(0, str(ROOT / "bench" / "tools"))
     import cer_eval
 
     pred = {"lines": [{"text": l, "bbox": []} for l in out_lines], "ms": 0}

@@ -560,7 +560,7 @@ pub(super) fn build_agent(url: &str, proxy_override: Option<&str>) -> Result<ure
         .timeout_connect(Duration::from_secs(20))
         .timeout_read(Duration::from_secs(60))
         .tls_connector(std::sync::Arc::new(tls))
-        .user_agent(concat!("ocr4code/", env!("CARGO_PKG_VERSION")));
+        .user_agent(concat!("sofer/", env!("CARGO_PKG_VERSION")));
     if let Some(proxy) = proxy_for_url(url, proxy_override) {
         builder = builder.proxy(proxy);
     }

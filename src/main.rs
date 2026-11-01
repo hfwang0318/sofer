@@ -1,4 +1,4 @@
-//! CLI: `ocr4code ocr <image>` is the scriptable surface. The desktop shell in
+//! CLI: `sofer ocr <image>` is the scriptable surface. The desktop shell in
 //! `app/` calls the same `pipeline` module rather than re-implementing it.
 
 use std::io::Write;
@@ -7,14 +7,14 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 
-use ocr4code::cli_input::{self, Region};
-use ocr4code::engine::{llamacpp, tesseract, vision, ImageFormat};
-use ocr4code::pipeline::{self, Config, EngineMode};
-use ocr4code::render::{self, Format};
+use sofer::cli_input::{self, Region};
+use sofer::engine::{llamacpp, tesseract, vision, ImageFormat};
+use sofer::pipeline::{self, Config, EngineMode};
+use sofer::render::{self, Format};
 
 #[derive(Parser)]
 #[command(
-    name = "ocr4code",
+    name = "sofer",
     version,
     about = "Offline OCR for code and terminal screenshots",
     long_about = "Turns a screenshot of code or a terminal into text that survives a paste: \
@@ -242,7 +242,7 @@ fn ocr(args: OcrArgs) -> Result<()> {
     // One image failing must not take the rest down: collect the error, keep going,
     // report at the end and exit non-zero.
     let results: Vec<Result<String, (String, String)>> =
-        ocr4code::pool::map(&inputs, args.jobs, |_, input| {
+        sofer::pool::map(&inputs, args.jobs, |_, input| {
             // A region is materialised as a temp file because `recognize` takes a
             // path; the guard deletes it on the success *and* the error path.
             let cropped = match region {
@@ -320,8 +320,8 @@ fn ocr(args: OcrArgs) -> Result<()> {
 fn stream_ocr(
     args: &OcrArgs,
     config: &Config,
-    engine: &dyn ocr4code::Engine,
-    limiter: &ocr4code::pool::Semaphore,
+    engine: &dyn sofer::Engine,
+    limiter: &sofer::pool::Semaphore,
 ) -> Result<usize> {
     let mut sink: Box<dyn Write> = match &args.out {
         Some(path) => Box::new(std::io::BufWriter::new(
@@ -434,7 +434,7 @@ fn print_stats(path: &Path, outcome: &pipeline::Outcome) {
 }
 
 fn doctor() -> Result<()> {
-    println!("ocr4code {}", env!("CARGO_PKG_VERSION"));
+    println!("sofer {}", env!("CARGO_PKG_VERSION"));
     println!();
 
     let llama_url = llamacpp::default_url();
@@ -446,7 +446,7 @@ fn doctor() -> Result<()> {
         println!("        llama-server -m ~/models/GLM-OCR-GGUF/GLM-OCR-Q8_0.gguf \\");
         println!("          --mmproj ~/models/GLM-OCR-GGUF/mmproj-GLM-OCR-Q8_0.gguf \\");
         println!("          --host 127.0.0.1 --port 8099 -ngl 99 -c 32768 -np 3");
-        println!("      or set OCR4CODE_LLAMA_URL");
+        println!("      or set SOFER_LLAMA_URL");
     }
 
     let vision_ok = vision::available();

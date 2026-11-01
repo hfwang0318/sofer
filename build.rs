@@ -3,7 +3,7 @@
 //! The shim is a single-file Swift program that links against the system Vision
 //! framework, so no crates.io dependency is involved. When the Swift toolchain is
 //! absent the build still succeeds; the engine then reports itself as unavailable
-//! and `ocr4code doctor` explains why.
+//! and `sofer doctor` explains why.
 
 use std::env;
 use std::path::{Path, PathBuf};

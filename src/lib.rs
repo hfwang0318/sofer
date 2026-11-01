@@ -1,4 +1,4 @@
-//! ocr4code core: turn code / terminal screenshots into text that survives a paste.
+//! sofer core: turn code / terminal screenshots into text that survives a paste.
 //!
 //! The pipeline is deliberately engine-agnostic:
 //!

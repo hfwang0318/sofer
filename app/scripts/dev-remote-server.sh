@@ -13,10 +13,10 @@
 # follows the Docker host, so use 加速=CPU and GPU 层数=0 in the app.
 set -euo pipefail
 
-CONTAINER="${CONTAINER:-ocr4code-ssh-test}"
-IMAGE="${IMAGE:-ocr4code-ssh-test:latest}"
+CONTAINER="${CONTAINER:-sofer-ssh-test}"
+IMAGE="${IMAGE:-sofer-ssh-test:latest}"
 SSH_PORT="${SSH_PORT:-2222}"
-WORK_DIR="${WORK_DIR:-/tmp/ocr4code-ssh-test}"
+WORK_DIR="${WORK_DIR:-/tmp/sofer-ssh-test}"
 SSH_USER="${SSH_USER:-ocr}"
 KEY="${WORK_DIR}/test_key"
 
@@ -87,7 +87,7 @@ DOCKERFILE
   用户名          ${SSH_USER}
   SSH 端口        ${SSH_PORT}
   私钥            ${KEY}
-  远程目录        ~/.ocr4code
+  远程目录        ~/.sofer
   识别服务端口    8099
   本地隧道端口    0（自动）
   加速            CPU

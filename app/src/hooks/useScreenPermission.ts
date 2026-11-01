@@ -78,7 +78,7 @@ export function useScreenPermission({
         pushToast(
           "info",
           "还需要在系统设置里勾选",
-          "勾选 ocr4code 后回来点“重新检查”，或重启应用。",
+          "勾选 sofer 后回来点“重新检查”，或重启应用。",
         );
       }
     } catch (cause) {
@@ -115,7 +115,7 @@ export function useScreenPermission({
         pushToast(
           "info",
           "还没有授权",
-          "在系统设置里勾选 ocr4code；如果已经勾选，请重启应用。",
+          "在系统设置里勾选 sofer；如果已经勾选，请重启应用。",
         );
       }
     } catch (cause) {

@@ -1,4 +1,4 @@
-// Apple Vision OCR shim for the ocr4code kernel.
+// Apple Vision OCR shim for the sofer kernel.
 //
 // usage: vision_ocr_shim <image>
 // prints JSON: {"lines":[{"text":..,"conf":..,"bbox":[x0,y0,x1,y1]}],"ms":..}

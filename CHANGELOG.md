@@ -3,7 +3,21 @@
 All notable changes to the desktop app. The root OCR kernel keeps its own
 `cargo test`/baseline history; this file records the shipped desktop releases.
 
-## v0.1.11 — 2026-11-01
+## v1.0.0 — 2026-11-01
+
+首个正式版本。0.1.x 全部是内部测试构建，GitHub 上的对应 release 已删除。
+
+- 应用更名为 **sofer**：桌面标识符改为 `com.sofer.desktop`，设置/历史/模型目录、
+  远程部署目录 `~/.sofer`、`SOFER_*` 环境变量与导出文件名前缀一并更新。旧测试版的
+  本地数据不做迁移。
+- 自动更新端点指向 `hfwang0318/sofer`。
+- Windows NSIS 与 macOS arm64 DMG 由同一个 tag 串行构建并发布。
+
+## 早期测试版（v0.1.0 – v0.1.11）
+
+以下为 0.1.x 测试构建的记录，保留供追溯；产品名已统一为 sofer。
+
+### v0.1.11 — 2026-11-01
 
 - Window chrome: the macOS shadow now follows the main window's 16 px rounded
   surface instead of the window rectangle, removing the four right-angle black
@@ -113,7 +127,7 @@ All notable changes to the desktop app. The root OCR kernel keeps its own
   Playwright browser-preview suite on macOS. The frontend gains a vitest harness
   (81 unit tests) and an eight-case E2E suite.
 
-## v0.1.10 — 2026-10-31
+### v0.1.10 — 2026-10-31
 
 - Stop the managed `llama-server` and wait for Windows to release file handles
   before starting the updater (`prepare_update`).
@@ -122,7 +136,7 @@ All notable changes to the desktop app. The root OCR kernel keeps its own
   did not stop the engine itself.
 - Fixes the "update fails because runtime files are in use" error.
 
-## v0.1.9 — 2026-10-31
+### v0.1.9 — 2026-10-31
 
 - Global shortcuts now accept one, two or three keys: a bare main key,
   modifier + main key, or two modifiers + main key.
@@ -132,7 +146,7 @@ All notable changes to the desktop app. The root OCR kernel keeps its own
   `Win`. More than three keys and pure modifier chords are rejected with clear
   messages.
 
-## v0.1.8 — 2026-10-31
+### v0.1.8 — 2026-10-31
 
 - Added Tauri Updater support: startup check (4 s), manual check, automatic
   download, signed update packages and restart-to-install.
@@ -141,7 +155,7 @@ All notable changes to the desktop app. The root OCR kernel keeps its own
   only in GitHub Actions Secrets.
 - Added install confirmation instead of silently restarting the app.
 
-## v0.1.7 — 2026-10-31
+### v0.1.7 — 2026-10-31
 
 - Default window grew from 920×620 to 1120×740.
 - Added **Settings → 界面 → 界面缩放** (100% / 115% / 130%, default 115%) using
@@ -149,7 +163,7 @@ All notable changes to the desktop app. The root OCR kernel keeps its own
 - Windows selection preview now uses a full-resolution PNG (capped at 5120 px
   wide) instead of a 2400 px JPEG; overlay hint/size fonts were increased.
 
-## v0.1.6 — 2026-10-31
+### v0.1.6 — 2026-10-31
 
 - Bundled the Visual C++ 2015–2022 x64 runtime (`msvcp140.dll`,
   `vcruntime140.dll`, `vcruntime140_1.dll`, …) next to `llama-server.exe`.
@@ -157,7 +171,7 @@ All notable changes to the desktop app. The root OCR kernel keeps its own
 - CI stages the CRT, runs `llama-server.exe --version` as a smoke test, and
   bundles it into the NSIS installer.
 
-## v0.1.5 — 2026-10-31
+### v0.1.5 — 2026-10-31
 
 - Replaced the Windows Snipping Tool path with an in-app implementation:
   GDI monitor capture plus a custom always-on-top Tauri selection overlay.
@@ -165,14 +179,14 @@ All notable changes to the desktop app. The root OCR kernel keeps its own
 - Selection is cropped from the original pixels; Esc, right-click or a second
   shortcut press cancels. One monitor (under the cursor) at a time.
 
-## v0.1.4 — 2026-10-31
+### v0.1.4 — 2026-10-31
 
 - Model downloads now use native TLS (Windows SChannel / macOS Secure
   Transport), so system-trusted proxy or mirror CAs work like `curl`.
 - Fixes `invalid peer certificate: unknown issuer` behind TLS-intercepting
   proxies.
 
-## v0.1.3 — 2026-10-31
+### v0.1.3 — 2026-10-31
 
 - Decode percent-encoded proxy credentials before handing them to `ureq`
   (`%40` in a password now becomes `@` for Basic proxy auth).
@@ -180,21 +194,21 @@ All notable changes to the desktop app. The root OCR kernel keeps its own
   to Hugging Face instead of serving an independent mirror.
 - Added guidance that a mirror base must be tested with a full `.gguf` URL.
 
-## v0.1.2 — 2026-10-31
+### v0.1.2 — 2026-10-31
 
 - Added model-download proxy and mirror fields to Settings.
 - Added a proxy-source fallback (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`) and
-  `OCR4CODE_MODEL_BASE` environment fallback.
+  `SOFER_MODEL_BASE` environment fallback.
 - Note: this release's `%40` proxy handling and mirror preset were fixed in
   v0.1.3.
 
-## v0.1.1 — 2026-10-31
+### v0.1.1 — 2026-10-31
 
 - Localized the entire desktop UI, setup wizard, settings, history, errors,
   tray menu and release notes to Simplified Chinese.
 - Added Chinese typography/font fallbacks and refreshed screenshots.
 
-## v0.1.0 — 2026-10-31
+### v0.1.0 — 2026-10-31
 
 - First public Windows preview release built on GitHub Actions.
 - Bundled llama.cpp b12018 runtime; one-click 1.43 GB GLM-OCR model download
@@ -204,4 +218,4 @@ All notable changes to the desktop app. The root OCR kernel keeps its own
 
 ---
 
-Current release: <https://github.com/hfwang0318/ocr4code/releases/latest>
+Current release: <https://github.com/hfwang0318/sofer/releases/latest>

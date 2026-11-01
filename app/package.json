@@ -1,9 +1,9 @@
 {
-  "name": "ocr4code-app",
+  "name": "sofer-app",
   "private": true,
-  "version": "0.1.11",
+  "version": "1.0.0",
   "type": "module",
-  "description": "Desktop UI for the ocr4code kernel: screenshot, recognise, paste.",
+  "description": "Desktop UI for the sofer kernel: screenshot, recognise, paste.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

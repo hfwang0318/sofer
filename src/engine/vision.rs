@@ -26,7 +26,7 @@ use crate::geom::Rect;
 const ROW_OVERLAP_RATIO: f32 = 0.5;
 
 /// Override the shim path (packaging, debugging a rebuilt shim by hand).
-pub const SHIM_ENV: &str = "OCR4CODE_VISION_SHIM";
+pub const SHIM_ENV: &str = "SOFER_VISION_SHIM";
 
 pub struct Vision;
 
@@ -44,7 +44,7 @@ impl Default for Vision {
 
 /// Path of the compiled shim, if this build has one.
 ///
-/// `OCR4CODE_VISION_SHIM` wins when set; otherwise the copy `build.rs` compiled
+/// `SOFER_VISION_SHIM` wins when set; otherwise the copy `build.rs` compiled
 /// into this crate's `OUT_DIR` is used.
 pub fn shim_path() -> Option<PathBuf> {
     if !cfg!(target_os = "macos") {

@@ -49,7 +49,7 @@ pub enum EngineMode {
 pub struct Config {
     /// engine selection; `auto` falls back from llama.cpp to tesseract
     pub engine: EngineMode,
-    /// llama-server base URL (`None` = `OCR4CODE_LLAMA_URL` or the default)
+    /// llama-server base URL (`None` = `SOFER_LLAMA_URL` or the default)
     pub llama_url: Option<String>,
     /// prompt sent to the vision model (`None` = the measured default)
     pub prompt: Option<String>,
@@ -149,7 +149,7 @@ impl Config {
                     )));
                 }
                 anyhow::bail!(
-                    "no engine available: start `llama-server` (see `ocr4code doctor`) \
+                    "no engine available: start `llama-server` (see `sofer doctor`) \
                      or install tesseract"
                 )
             }

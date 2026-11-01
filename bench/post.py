@@ -9,7 +9,7 @@ Turns flat observations (text + rect) into a monospace-faithful text block:
 
 Vision rects are [x0, y0, x1, y1] with y increasing downwards.
 
-This is an evaluation prototype for the ocr4code selection, not product code.
+This is an evaluation prototype for the sofer selection, not product code.
 """
 from __future__ import annotations
 

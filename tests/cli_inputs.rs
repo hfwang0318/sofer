@@ -7,9 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
-use ocr4code::cli_input::{
-    expand_directory, is_supported_image, Region, TempImage, MAX_STDIN_BYTES,
-};
+use sofer::cli_input::{expand_directory, is_supported_image, Region, TempImage, MAX_STDIN_BYTES};
 
 // ---------------------------------------------------------------- helpers
 
@@ -20,7 +18,7 @@ impl Scratch {
     fn new(tag: &str) -> Self {
         static SEQ: AtomicU64 = AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "ocr4code-cli-input-{}-{}-{tag}",
+            "sofer-cli-input-{}-{}-{tag}",
             std::process::id(),
             SEQ.fetch_add(1, Ordering::Relaxed)
         ));
@@ -255,7 +253,7 @@ fn stdin_rejects_empty_unknown_and_oversized_input() {
     let msg = format!("{err:#}");
     assert!(msg.contains("stdin is empty"), "{msg}");
     assert!(
-        msg.contains("ocr4code ocr -"),
+        msg.contains("sofer ocr -"),
         "needs an actionable hint: {msg}"
     );
 
@@ -334,7 +332,7 @@ fn crop_keeps_the_source_format_and_reports_bounds() {
 #[test]
 fn stdin_pipe_runs_the_real_cli() {
     let image = std::fs::read("bench/images/editor-rust@1x.png").expect("bench fixture");
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_ocr4code"))
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_sofer"))
         .args([
             "ocr",
             "-",
@@ -347,7 +345,7 @@ fn stdin_pipe_runs_the_real_cli() {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .expect("spawn ocr4code");
+        .expect("spawn sofer");
 
     child
         .stdin
@@ -356,7 +354,7 @@ fn stdin_pipe_runs_the_real_cli() {
         .write_all(&image)
         .expect("feed the image");
 
-    let out = child.wait_with_output().expect("wait for ocr4code");
+    let out = child.wait_with_output().expect("wait for sofer");
     assert!(
         out.status.success(),
         "stderr: {}",

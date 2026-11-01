@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "ocr4code",
-  "version": "0.1.11",
-  "identifier": "com.ocr4code.desktop",
+  "productName": "sofer",
+  "version": "1.0.0",
+  "identifier": "com.sofer.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "ocr4code",
+        "title": "sofer",
         "width": 1120,
         "height": 740,
         "minWidth": 960,
@@ -53,7 +53,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/hfwang0318/ocr4code/releases/latest/download/latest.json"
+        "https://github.com/hfwang0318/sofer/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDUwRDMyMjIxRDhDRDhBNDMKUldSRGlzM1lJU0xUVUdTVWZaa3FESjE4Rk5jMitZQWt5TUF3Si9LVUVZUzF6d1pwdXcwdG13YkoK",
       "windows": {

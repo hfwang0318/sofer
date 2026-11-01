@@ -5,7 +5,7 @@
 //! cargo run --manifest-path app/src-tauri/Cargo.toml --example remote_probe -- deploy
 //! ```
 //!
-//! Configuration comes from `OCR4CODE_REMOTE_*` environment variables; see
+//! Configuration comes from `SOFER_REMOTE_*` environment variables; see
 //! `docs/remote-testing.md` (or run `--help`). The example calls the same
 //! `remote::Manager` the app uses, so probe, SSH, runtime install, model
 //! download/upload, server start and the tunnel are all real.
@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use ocr4code_app::engine::{health_ok, ModelQuality};
-use ocr4code_app::remote::{Accel, Event, Manager, RemoteConfig, Source};
+use sofer_app::engine::{health_ok, ModelQuality};
+use sofer_app::remote::{Accel, Event, Manager, RemoteConfig, Source};
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -30,7 +30,7 @@ fn main() {
     }
 
     let cfg = config();
-    let local_models = PathBuf::from(env_or("OCR4CODE_REMOTE_LOCAL_MODELS", "/nonexistent"));
+    let local_models = PathBuf::from(env_or("SOFER_REMOTE_LOCAL_MODELS", "/nonexistent"));
     let last_phase = Arc::new(Mutex::new(String::new()));
     let sink = {
         let last_phase = last_phase.clone();
@@ -91,7 +91,7 @@ fn main() {
 
     // Test-only escape hatch: leave the remote server running so a separate
     // `stop` invocation can be exercised. The tunnel is still closed by Drop.
-    if std::env::var("OCR4CODE_TEST_KEEP").ok().as_deref() != Some("1") {
+    if std::env::var("SOFER_TEST_KEEP").ok().as_deref() != Some("1") {
         manager.shutdown();
     }
     if let Err(err) = result {
@@ -107,12 +107,12 @@ fn run_probe(manager: &Manager, cfg: &RemoteConfig) -> Result<(), String> {
 }
 
 fn run_deploy(manager: &Manager, cfg: &RemoteConfig) -> Result<(), String> {
-    let source = match env_or("OCR4CODE_REMOTE_SOURCE", "download").as_str() {
+    let source = match env_or("SOFER_REMOTE_SOURCE", "download").as_str() {
         "download" | "auto" => Source::Download,
         "upload" => Source::Upload,
         other => {
             return Err(format!(
-                "OCR4CODE_REMOTE_SOURCE 只能是 download/upload，收到 {other}"
+                "SOFER_REMOTE_SOURCE 只能是 download/upload，收到 {other}"
             ))
         }
     };
@@ -137,20 +137,20 @@ fn verify(manager: &Manager) -> Result<(), String> {
     }
     println!("[health] {url}/health -> 200");
 
-    let image = std::env::var("OCR4CODE_TEST_IMAGE").ok();
+    let image = std::env::var("SOFER_TEST_IMAGE").ok();
     if let Some(image) = image {
         run_ocr(&url, Path::new(&image)).map_err(|e| e.to_string())?;
     } else {
-        println!("[ocr] 跳过（未设置 OCR4CODE_TEST_IMAGE）");
+        println!("[ocr] 跳过（未设置 SOFER_TEST_IMAGE）");
     }
     Ok(())
 }
 
 fn run_ocr(url: &str, image: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    use ocr4code::engine::llamacpp::{LlamaCpp, DEFAULT_PROMPT};
-    use ocr4code::pipeline::{recognize, Config, EngineMode};
-    use ocr4code::pool::Semaphore;
-    use ocr4code::render::{render, Format};
+    use sofer::engine::llamacpp::{LlamaCpp, DEFAULT_PROMPT};
+    use sofer::pipeline::{recognize, Config, EngineMode};
+    use sofer::pool::Semaphore;
+    use sofer::render::{render, Format};
 
     let engine = LlamaCpp::new(url.to_string(), DEFAULT_PROMPT.into(), 3072);
     let cfg = Config {
@@ -175,37 +175,37 @@ fn run_ocr(url: &str, image: &Path) -> Result<(), Box<dyn std::error::Error>> {
 
 fn config() -> RemoteConfig {
     RemoteConfig {
-        host: env_or("OCR4CODE_REMOTE_HOST", "127.0.0.1"),
-        user: env_or("OCR4CODE_REMOTE_USER", "ocr"),
-        ssh_port: parse_env("OCR4CODE_REMOTE_SSH_PORT", 2222),
-        key_path: env_or("OCR4CODE_REMOTE_KEY", ""),
-        dir: env_or("OCR4CODE_REMOTE_DIR", "~/.ocr4code"),
-        server_port: parse_env("OCR4CODE_REMOTE_SERVER_PORT", 8099),
-        local_port: parse_env("OCR4CODE_REMOTE_LOCAL_PORT", 0),
-        accel: match env_or("OCR4CODE_REMOTE_ACCEL", "cpu").as_str() {
+        host: env_or("SOFER_REMOTE_HOST", "127.0.0.1"),
+        user: env_or("SOFER_REMOTE_USER", "ocr"),
+        ssh_port: parse_env("SOFER_REMOTE_SSH_PORT", 2222),
+        key_path: env_or("SOFER_REMOTE_KEY", ""),
+        dir: env_or("SOFER_REMOTE_DIR", "~/.sofer"),
+        server_port: parse_env("SOFER_REMOTE_SERVER_PORT", 8099),
+        local_port: parse_env("SOFER_REMOTE_LOCAL_PORT", 0),
+        accel: match env_or("SOFER_REMOTE_ACCEL", "cpu").as_str() {
             "cpu" => Accel::Cpu,
             "vulkan" => Accel::Vulkan,
             "cuda" => Accel::Cuda,
             other => {
-                eprintln!("未知 OCR4CODE_REMOTE_ACCEL={other}，按 auto 处理");
+                eprintln!("未知 SOFER_REMOTE_ACCEL={other}，按 auto 处理");
                 Accel::Auto
             }
         },
-        gpu_layers: parse_env("OCR4CODE_REMOTE_GPU_LAYERS", 0),
-        quality: match env_or("OCR4CODE_REMOTE_QUALITY", "low").as_str() {
+        gpu_layers: parse_env("SOFER_REMOTE_GPU_LAYERS", 0),
+        quality: match env_or("SOFER_REMOTE_QUALITY", "low").as_str() {
             "low" => ModelQuality::Low,
             "high" => ModelQuality::High,
             other => {
-                eprintln!("未知 OCR4CODE_REMOTE_QUALITY={other}，按 low 处理");
+                eprintln!("未知 SOFER_REMOTE_QUALITY={other}，按 low 处理");
                 ModelQuality::Low
             }
         },
         source: Source::Auto,
-        jobs: parse_env("OCR4CODE_REMOTE_JOBS", 3),
-        max_tokens: parse_env("OCR4CODE_REMOTE_MAX_TOKENS", 3072),
-        kv_cache_quant: parse_bool("OCR4CODE_REMOTE_KV_Q8", false),
-        idle_sleep_secs: parse_env("OCR4CODE_REMOTE_IDLE_SLEEP", 300),
-        use_mirror: parse_bool("OCR4CODE_REMOTE_MIRROR", false),
+        jobs: parse_env("SOFER_REMOTE_JOBS", 3),
+        max_tokens: parse_env("SOFER_REMOTE_MAX_TOKENS", 3072),
+        kv_cache_quant: parse_bool("SOFER_REMOTE_KV_Q8", false),
+        idle_sleep_secs: parse_env("SOFER_REMOTE_IDLE_SLEEP", 300),
+        use_mirror: parse_bool("SOFER_REMOTE_MIRROR", false),
     }
 }
 
@@ -243,20 +243,20 @@ fn print_help() {
     println!(
         "用法: remote_probe <probe|deploy|start|stop>\n\n\
          环境变量:\n\
-         OCR4CODE_REMOTE_HOST          默认 127.0.0.1\n\
-         OCR4CODE_REMOTE_USER          默认 ocr\n\
-         OCR4CODE_REMOTE_SSH_PORT      默认 2222\n\
-         OCR4CODE_REMOTE_KEY           私钥路径\n\
-         OCR4CODE_REMOTE_DIR           默认 ~/.ocr4code\n\
-         OCR4CODE_REMOTE_SERVER_PORT   默认 8099\n\
-         OCR4CODE_REMOTE_LOCAL_PORT    默认 0（自动）\n\
-         OCR4CODE_REMOTE_ACCEL         cpu/vulkan/cuda/auto，默认 cpu\n\
-         OCR4CODE_REMOTE_GPU_LAYERS    默认 0\n\
-         OCR4CODE_REMOTE_QUALITY       low/high，默认 low\n\
-         OCR4CODE_REMOTE_SOURCE        deploy 时 download/upload，默认 download\n\
-         OCR4CODE_REMOTE_LOCAL_MODELS  上传时的本地模型目录\n\
-         OCR4CODE_TEST_IMAGE           通过隧道做一次真实 OCR\n\
-         OCR4CODE_TEST_KEEP            1 = 退出时保留远端服务（测 stop 用）\n\
-         OCR4CODE_REMOTE_MIRROR        1 使用 hf-mirror.com"
+         SOFER_REMOTE_HOST          默认 127.0.0.1\n\
+         SOFER_REMOTE_USER          默认 ocr\n\
+         SOFER_REMOTE_SSH_PORT      默认 2222\n\
+         SOFER_REMOTE_KEY           私钥路径\n\
+         SOFER_REMOTE_DIR           默认 ~/.sofer\n\
+         SOFER_REMOTE_SERVER_PORT   默认 8099\n\
+         SOFER_REMOTE_LOCAL_PORT    默认 0（自动）\n\
+         SOFER_REMOTE_ACCEL         cpu/vulkan/cuda/auto，默认 cpu\n\
+         SOFER_REMOTE_GPU_LAYERS    默认 0\n\
+         SOFER_REMOTE_QUALITY       low/high，默认 low\n\
+         SOFER_REMOTE_SOURCE        deploy 时 download/upload，默认 download\n\
+         SOFER_REMOTE_LOCAL_MODELS  上传时的本地模型目录\n\
+         SOFER_TEST_IMAGE           通过隧道做一次真实 OCR\n\
+         SOFER_TEST_KEEP            1 = 退出时保留远端服务（测 stop 用）\n\
+         SOFER_REMOTE_MIRROR        1 使用 hf-mirror.com"
     );
 }

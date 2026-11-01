@@ -6,9 +6,9 @@
 
 use std::path::Path;
 
-use ocr4code::assemble::{assemble, Opts};
-use ocr4code::geom::analyze;
-use ocr4code::RawLine;
+use sofer::assemble::{assemble, Opts};
+use sofer::geom::analyze;
+use sofer::RawLine;
 
 fn truth_lines(scene: &str) -> Vec<String> {
     let p = format!("bench/truth/{scene}.txt");
@@ -20,7 +20,7 @@ fn truth_lines(scene: &str) -> Vec<String> {
     v
 }
 
-fn run(scene: &str) -> (Vec<ocr4code::Line>, ocr4code::assemble::AssembleStats) {
+fn run(scene: &str) -> (Vec<sofer::Line>, sofer::assemble::AssembleStats) {
     let img = image::open(Path::new(&format!("bench/images/{scene}@2x.png")))
         .unwrap_or_else(|e| panic!("{scene}: {e}"))
         .to_luma8();
@@ -41,7 +41,7 @@ fn indent_accuracy(scene: &str) -> f32 {
     let (out, _) = run(scene);
     let truth = truth_lines(scene);
     let t: Vec<&String> = truth.iter().filter(|l| !l.trim().is_empty()).collect();
-    let o: Vec<&ocr4code::Line> = out.iter().filter(|l| !l.text.trim().is_empty()).collect();
+    let o: Vec<&sofer::Line> = out.iter().filter(|l| !l.text.trim().is_empty()).collect();
     let n = t.len().min(o.len());
     assert!(n > 5, "{scene}: only {n} comparable lines");
     let mut hit = 0;
@@ -97,7 +97,7 @@ fn gutter_is_detected_and_model_spacing_kept() {
     let (out, st) = run("editor-rust");
     assert!(st.gutter, "editor-rust has a line-number gutter");
     // indentation now comes from the text itself, not from geometry
-    let code: Vec<&ocr4code::Line> = out.iter().filter(|l| l.text.contains("map:")).collect();
+    let code: Vec<&sofer::Line> = out.iter().filter(|l| l.text.contains("map:")).collect();
     // the gutter is kept as indentation (2 spaces) and the code's own indent lives
     // inside the row text, which is exactly how a human would paste it back
     assert_eq!(code[0].rendered(), "  5     map: HashMap<K, V>,".trim_end());

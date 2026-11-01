@@ -179,7 +179,7 @@ fn cursor_monitor(app: &AppHandle) -> Result<Monitor, String> {
 
 fn create(app: &AppHandle) -> Result<WebviewWindow, String> {
     WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("toast.html".into()))
-        .title("ocr4code — 识别完成")
+        .title("sofer — 识别完成")
         .decorations(false)
         // Clears the window *and* webview background layers. `transparent(true)`
         // alone leaves WKWebView's under-page background painted on macOS, which

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Independent scorer for the ocr4code benchmark (do not reuse bench/score.py).
+"""Independent scorer for the sofer benchmark (do not reuse bench/score.py).
 
 metrics
   content_acc : 1 - CER with whitespace removed  (text fidelity, layout-agnostic)

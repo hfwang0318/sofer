@@ -25,7 +25,7 @@ pub const DEFAULT_PROMPT: &str =
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(180);
 
 pub fn default_url() -> String {
-    std::env::var("OCR4CODE_LLAMA_URL").unwrap_or_else(|_| DEFAULT_URL.to_string())
+    std::env::var("SOFER_LLAMA_URL").unwrap_or_else(|_| DEFAULT_URL.to_string())
 }
 
 pub struct LlamaCpp {
@@ -90,7 +90,7 @@ impl LlamaCpp {
 
     fn unreachable(&self, error: impl std::fmt::Display) -> anyhow::Error {
         anyhow::anyhow!(
-            "llama-server at {} not reachable ({error}); start it with `ocr4code doctor --hint`",
+            "llama-server at {} not reachable ({error}); start it with `sofer doctor --hint`",
             self.url
         )
     }

@@ -111,12 +111,12 @@ impl Manager {
             let archive = format!("$DIR/runtime-{index}.tar.gz");
             script.push_str(&download_function());
             script.push_str(&format!(
-                "fetch {} {} || {{ echo OCR4CODE FETCH_FAILED=1; exit 3; }}\n",
+                "fetch {} {} || {{ echo SOFER FETCH_FAILED=1; exit 3; }}\n",
                 shell_quote(url),
                 archive
             ));
             script.push_str(&format!(
-                "tar -xzf {} -C \"$DIR/runtime.tmp\" || {{ echo OCR4CODE UNTAR_FAILED=1; exit 3; }}\n",
+                "tar -xzf {} -C \"$DIR/runtime.tmp\" || {{ echo SOFER UNTAR_FAILED=1; exit 3; }}\n",
                 archive
             ));
         }
@@ -124,8 +124,8 @@ impl Manager {
             "find \"$DIR/runtime.tmp\" \\( -type f -o -type l \\) -exec cp -a {} \"$DIR/runtime/\" \\; 2>/dev/null\n\
              chmod +x \"$DIR/runtime/llama-server\" 2>/dev/null\n\
              rm -rf \"$DIR/runtime.tmp\" \"$DIR/runtime-\"*.tar.gz\n\
-             if [ ! -x \"$DIR/runtime/llama-server\" ]; then echo OCR4CODE RUNTIME_MISSING=1; exit 4; fi\n\
-             echo OCR4CODE RUNTIME_OK=1\n",
+             if [ ! -x \"$DIR/runtime/llama-server\" ]; then echo SOFER RUNTIME_MISSING=1; exit 4; fi\n\
+             echo SOFER RUNTIME_OK=1\n",
         );
         let output = self.run_script(cfg, &script, DOWNLOAD_TIMEOUT, None)?;
         if output.contains("FETCH_FAILED") || output.contains("UNTAR_FAILED") {
@@ -169,9 +169,9 @@ impl Manager {
             } else {
                 format!(
                     "set -u\nDIR={dir}\nmkdir -p \"$DIR/models\"\n{download}\n\
-                     fetch {url} {part} || {{ echo OCR4CODE FETCH_FAILED=1; exit 3; }}\n\
+                     fetch {url} {part} || {{ echo SOFER FETCH_FAILED=1; exit 3; }}\n\
                      mv -f {part} {target}\n\
-                     echo OCR4CODE FILE_OK=1\n",
+                     echo SOFER FILE_OK=1\n",
                     dir = shell_quote(&probe.dir),
                     download = download_function(),
                     url = shell_quote(&url),
@@ -305,7 +305,7 @@ impl Manager {
         }
         self.progress_bytes("uploading", name, total, total, started);
         let script = format!(
-            "set -e\nmv -f {} {}\necho OCR4CODE FILE_OK=1\n",
+            "set -e\nmv -f {} {}\necho SOFER FILE_OK=1\n",
             shell_quote(part),
             shell_quote(target)
         );
@@ -330,7 +330,7 @@ impl Manager {
             let name = file.name;
             let quoted = shell_quote(name);
             script.push_str(&format!(
-                "if [ -f {quoted} ]; then echo \"OCR4CODE HASH={name}:$({tool} {quoted} | awk '{{print $1}}')\"; else echo \"OCR4CODE MISSING={name}\"; fi\n",
+                "if [ -f {quoted} ]; then echo \"SOFER HASH={name}:$({tool} {quoted} | awk '{{print $1}}')\"; else echo \"SOFER MISSING={name}\"; fi\n",
             ));
         }
         let output = self.run_script(cfg, &script, DOWNLOAD_TIMEOUT, None)?;
@@ -358,7 +358,7 @@ impl Manager {
             cfg.quality.as_str()
         );
         let script = format!(
-            "printf '%s' {} > {}\necho OCR4CODE VERIFIED=1\n",
+            "printf '%s' {} > {}\necho SOFER VERIFIED=1\n",
             shell_quote(&pack_manifest(cfg.quality)),
             shell_quote(&marker)
         );
@@ -376,17 +376,14 @@ impl Manager {
             "{models}/verified-{}.json",
             cfg.quality.as_str()
         )));
-        let script = format!(
-            "set -e\nrm -f {}\necho OCR4CODE REMOVED=1\n",
-            paths.join(" ")
-        );
+        let script = format!("set -e\nrm -f {}\necho SOFER REMOVED=1\n", paths.join(" "));
         self.run_script(cfg, &script, SSH_TIMEOUT, None)?;
         Ok(())
     }
 
     pub(super) fn remote_healthy(&self, cfg: &RemoteConfig) -> Result<bool, Error> {
         let script = format!(
-            "if command -v curl >/dev/null 2>&1; then curl -fsS --max-time 2 http://127.0.0.1:{}/health >/dev/null 2>&1 && echo OCR4CODE HEALTHY=1; else exit 7; fi\n",
+            "if command -v curl >/dev/null 2>&1; then curl -fsS --max-time 2 http://127.0.0.1:{}/health >/dev/null 2>&1 && echo SOFER HEALTHY=1; else exit 7; fi\n",
             cfg.server_port
         );
         let output = self.run_script(cfg, &script, Duration::from_secs(12), None)?;
@@ -503,19 +500,19 @@ pub(super) fn probe_script(cfg: &RemoteConfig) -> String {
            *) DIR=\"$DIR_RAW\" ;;\n\
          esac\n\
          mkdir -p \"$DIR/models\" \"$DIR/logs\" 2>/dev/null || true\n\
-         echo \"OCR4CODE OS=$(uname -s 2>/dev/null)\"\n\
-         echo \"OCR4CODE ARCH=$(uname -m 2>/dev/null)\"\n\
-         echo \"OCR4CODE HOME=$HOME\"\n\
-         echo \"OCR4CODE DIR=$DIR\"\n\
+         echo \"SOFER OS=$(uname -s 2>/dev/null)\"\n\
+         echo \"SOFER ARCH=$(uname -m 2>/dev/null)\"\n\
+         echo \"SOFER HOME=$HOME\"\n\
+         echo \"SOFER DIR=$DIR\"\n\
          FREE=$(df -Pk \"$DIR\" 2>/dev/null | awk 'NR==2 {print $4}')\n\
-         [ -n \"${FREE:-}\" ] && echo \"OCR4CODE DISK=$((FREE * 1024))\"\n\
-         command -v curl >/dev/null 2>&1 && echo \"OCR4CODE CURL=1\"\n\
-         command -v wget >/dev/null 2>&1 && echo \"OCR4CODE WGET=1\"\n\
-         command -v tar >/dev/null 2>&1 && echo \"OCR4CODE TAR=1\"\n\
-         if command -v sha256sum >/dev/null 2>&1; then echo \"OCR4CODE SHA256=sha256sum\";\n\
-         elif command -v shasum >/dev/null 2>&1; then echo \"OCR4CODE SHA256=shasum\"; fi\n\
-         if [ -x \"$DIR/runtime/llama-server\" ]; then echo \"OCR4CODE RUNTIME=$DIR/runtime/llama-server\";\n\
-         elif command -v llama-server >/dev/null 2>&1; then echo \"OCR4CODE RUNTIME=$(command -v llama-server)\"; fi\n",
+         [ -n \"${FREE:-}\" ] && echo \"SOFER DISK=$((FREE * 1024))\"\n\
+         command -v curl >/dev/null 2>&1 && echo \"SOFER CURL=1\"\n\
+         command -v wget >/dev/null 2>&1 && echo \"SOFER WGET=1\"\n\
+         command -v tar >/dev/null 2>&1 && echo \"SOFER TAR=1\"\n\
+         if command -v sha256sum >/dev/null 2>&1; then echo \"SOFER SHA256=sha256sum\";\n\
+         elif command -v shasum >/dev/null 2>&1; then echo \"SOFER SHA256=shasum\"; fi\n\
+         if [ -x \"$DIR/runtime/llama-server\" ]; then echo \"SOFER RUNTIME=$DIR/runtime/llama-server\";\n\
+         elif command -v llama-server >/dev/null 2>&1; then echo \"SOFER RUNTIME=$(command -v llama-server)\"; fi\n",
     );
     for file in model_files(cfg.quality) {
         // The pinned names contain only [A-Za-z0-9._-]; emit the bare name so
@@ -524,15 +521,15 @@ pub(super) fn probe_script(cfg: &RemoteConfig) -> String {
         // look like the model was missing.
         script.push_str(&format!(
             "if [ -f \"$DIR/models/{name}\" ]; then GOT=$(stat -c %s \"$DIR/models/{name}\" 2>/dev/null || echo 0); else GOT=0; fi\n\
-             echo \"OCR4CODE FILE={name}:$GOT:{bytes}\"\n",
+             echo \"SOFER FILE={name}:$GOT:{bytes}\"\n",
             name = file.name,
             bytes = file.bytes
         ));
     }
     script.push_str(&format!(
         "MARKER=\"$DIR/models/verified-{}.json\"\n\
-         if [ -f \"$MARKER\" ]; then echo \"OCR4CODE MARKER=$(cat \"$MARKER\" 2>/dev/null | tr -d '\\n')\"; fi\n\
-         echo OCR4CODE DONE=1\n",
+         if [ -f \"$MARKER\" ]; then echo \"SOFER MARKER=$(cat \"$MARKER\" 2>/dev/null | tr -d '\\n')\"; fi\n\
+         echo SOFER DONE=1\n",
         cfg.quality.as_str()
     ));
     script
@@ -570,11 +567,11 @@ trap 'for p in $PIDS; do kill "$p" 2>/dev/null; done' EXIT HUP INT TERM
 __DOWNLOAD__
 RANGE_CODE=$(curl -fsL --connect-timeout 15 --max-time 30 --range 0-0 -o /dev/null -w '%{http_code}' "$URL" 2>/dev/null || echo 000)
 if [ "$RANGE_CODE" != "206" ]; then
-  echo OCR4CODE RANGE_UNSUPPORTED=1
-  fetch "$URL" "$PARTS/part-fallback" || { echo OCR4CODE FETCH_FAILED=1; exit 3; }
+  echo SOFER RANGE_UNSUPPORTED=1
+  fetch "$URL" "$PARTS/part-fallback" || { echo SOFER FETCH_FAILED=1; exit 3; }
   mv -f "$PARTS/part-fallback" "$TARGET"
   rm -rf "$PARTS"
-  echo OCR4CODE FILE_OK=1
+  echo SOFER FILE_OK=1
   exit 0
 fi
 segment() {
@@ -625,15 +622,15 @@ PIDS=""
 if [ "$RANGE_UNSUPPORTED" -eq 1 ]; then
   rm -rf "$PARTS"
   mkdir -p "$PARTS"
-  echo OCR4CODE RANGE_UNSUPPORTED=1
-  fetch "$URL" "$PARTS/part-fallback" || { echo OCR4CODE FETCH_FAILED=1; exit 3; }
+  echo SOFER RANGE_UNSUPPORTED=1
+  fetch "$URL" "$PARTS/part-fallback" || { echo SOFER FETCH_FAILED=1; exit 3; }
   mv -f "$PARTS/part-fallback" "$TARGET"
   rm -rf "$PARTS"
-  echo OCR4CODE FILE_OK=1
+  echo SOFER FILE_OK=1
   exit 0
 fi
 if [ "$FAIL" -ne 0 ]; then
-  echo OCR4CODE FETCH_FAILED=1
+  echo SOFER FETCH_FAILED=1
   exit 3
 fi
 I=0
@@ -642,7 +639,7 @@ while [ "$I" -lt "$N" ]; do
   if [ "$END" -ge "$TOTAL" ]; then END=$((TOTAL - 1)); fi
   WANT=$((END - START + 1))
   HAVE=$(stat -c %s "$PARTS/part-$I" 2>/dev/null || echo 0)
-  if [ "$HAVE" -ne "$WANT" ]; then echo OCR4CODE FETCH_FAILED=1; exit 3; fi
+  if [ "$HAVE" -ne "$WANT" ]; then echo SOFER FETCH_FAILED=1; exit 3; fi
   I=$((I + 1))
 done
 : > "$PART"
@@ -650,7 +647,7 @@ I=0
 while [ "$I" -lt "$N" ]; do cat "$PARTS/part-$I" >> "$PART"; I=$((I + 1)); done
 mv -f "$PART" "$TARGET"
 rm -rf "$PARTS"
-echo OCR4CODE FILE_OK=1
+echo SOFER FILE_OK=1
 "#;
     template
         .replace("__URL__", &shell_quote(url))
@@ -726,7 +723,7 @@ pub(super) fn runtime_assets(arch: &str, accel: Accel) -> Result<Vec<String>, Er
 pub(super) fn parse_probe(output: &str, expected_marker: &str) -> Probe {
     let mut probe = Probe::default();
     for line in output.lines() {
-        let Some(rest) = line.strip_prefix("OCR4CODE ") else {
+        let Some(rest) = line.strip_prefix("SOFER ") else {
             continue;
         };
         let Some((key, value)) = rest.split_once('=') else {
@@ -769,7 +766,7 @@ pub(super) fn parse_probe(output: &str, expected_marker: &str) -> Probe {
 fn parse_hashes(output: &str) -> std::collections::HashMap<String, String> {
     let mut hashes = std::collections::HashMap::new();
     for line in output.lines() {
-        let Some(rest) = line.strip_prefix("OCR4CODE HASH=") else {
+        let Some(rest) = line.strip_prefix("SOFER HASH=") else {
             continue;
         };
         if let Some((name, hash)) = rest.split_once(':') {
@@ -782,7 +779,7 @@ fn parse_hashes(output: &str) -> std::collections::HashMap<String, String> {
 pub(super) fn tail_text(output: &str) -> String {
     let lines: Vec<&str> = output
         .lines()
-        .filter(|line| !line.starts_with("OCR4CODE"))
+        .filter(|line| !line.starts_with("SOFER"))
         .collect();
     let start = lines.len().saturating_sub(12);
     lines[start..].join("\n")

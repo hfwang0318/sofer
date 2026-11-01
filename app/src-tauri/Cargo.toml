@@ -1,12 +1,12 @@
 [package]
-name = "ocr4code-app"
-version = "0.1.11"
-description = "Desktop UI for the ocr4code kernel"
+name = "sofer-app"
+version = "1.0.0"
+description = "Desktop UI for the sofer kernel"
 edition = "2021"
 rust-version = "1.77"
 
 [lib]
-name = "ocr4code_app"
+name = "sofer_app"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -29,7 +29,7 @@ window-vibrancy = "0.6"
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png"] }
 arboard = "3"
-ocr4code = { path = "../.." }
+sofer = { path = "../.." }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

@@ -1,16 +1,16 @@
-# ocr4code
+# sofer
 
 把**代码截图 / 终端输出 / 报错堆栈**转成能直接粘回去的文本。默认离线运行，macOS + Windows；
 也可以把模型一键部署到自己的 Linux 服务器，用 SSH 隧道识别（可选，适合本机内存紧张）。
 
-> **Windows 预览版安装包**：[GitHub Releases](https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.11)
+> **首个正式版安装包（Windows / macOS Apple Silicon）**：[GitHub Releases](https://github.com/hfwang0318/sofer/releases/tag/v1.0.0)
 > —— 首次启动在应用内下载模型（默认低精度 1.03 GB，可在设置切换高精度 1.43 GB）；安装器自带 llama.cpp 运行时，无需另装。
 
 > 一句话架构：**文本由本地 VLM 给，版面由纯 CV 给**。缩进和列对齐从像素算，不依赖任何单平台的 OCR API，
 > 所以换平台不用换引擎，换引擎不用改版面代码。
 
 **文档索引**
-- 设计取舍与选型：[docs/ocr4code-选型报告.md](docs/ocr4code-选型报告.md)
+- 设计取舍与选型：[docs/sofer-选型报告.md](docs/sofer-选型报告.md)
 - 可复现基线（26 场景 × 4 变体）：[docs/baseline.md](docs/baseline.md)
 - **常驻内存实测与优化**（KV/量化/运行时横评）：[docs/memory-footprint.md](docs/memory-footprint.md)
 - **维护手册**：[docs/maintenance.md](docs/maintenance.md)
@@ -53,7 +53,7 @@
 ### 2.1 构建
 
 ```bash
-cargo build --release        # 产物 target/release/ocr4code（约 4 MB）
+cargo build --release        # 产物 target/release/sofer（约 4 MB）
 cargo test                   # 53 单元 + 24 集成（golden / boxdraw / CLI 输入）
 ```
 
@@ -72,7 +72,7 @@ llama-server -m ~/models/GLM-OCR-GGUF/GLM-OCR-Q8_0.gguf \
   --host 127.0.0.1 --port 8099 -ngl 99 -c 32768 -np 3
 ```
 
-`ocr4code doctor` 会检查它是否可用，并打印上面这段命令。
+`sofer doctor` 会检查它是否可用，并打印上面这段命令。
 
 > **低精度（Windows CPU 省内存）**：官方仓库没有 Q4；社区 `mradermacher/GLM-OCR-GGUF`
 > 的 `GLM-OCR.Q4_K_M.gguf`（548,515,136 B，MIT）已实测与自量化精度一致（25 个 `@2x`
@@ -106,15 +106,15 @@ llama-server -m ~/models/GLM-OCR-GGUF/GLM-OCR-Q8_0.gguf \
 ### 2.3 最常用的三条
 
 ```bash
-ocr4code ocr shot.png                     # 纯文本，保留缩进
-ocr4code ocr shot.png --format markdown   # ```lang 围栏，直接贴 issue / LLM
-ocr4code ocr a.png b.png --format json --out out.json
+sofer ocr shot.png                     # 纯文本，保留缩进
+sofer ocr shot.png --format markdown   # ```lang 围栏，直接贴 issue / LLM
+sofer ocr a.png b.png --format json --out out.json
 ```
 
 ### 2.4 完整参数
 
 ```
-ocr4code ocr <IMAGES>... [OPTIONS]
+sofer ocr <IMAGES>... [OPTIONS]
 ```
 
 **输入**
@@ -131,7 +131,7 @@ ocr4code ocr <IMAGES>... [OPTIONS]
 | 参数 | 默认 | 说明 |
 |---|---|---|
 | `--engine` | `auto` | `auto`（先 llamacpp 再 tesseract）/ `llamacpp` / `tesseract` / `vision`（仅 macOS，见 §9）/ `mock` |
-| `--llama-url` | `http://127.0.0.1:8099` | 也可用环境变量 `OCR4CODE_LLAMA_URL` |
+| `--llama-url` | `http://127.0.0.1:8099` | 也可用环境变量 `SOFER_LLAMA_URL` |
 | `--image-format` | `png` | `png` / `jpeg` / `jpeg:<1-100>`；只影响需要重新编码的切块，整图原样转发 |
 | `--prompt` | `OCR: preserve the original layout, spacing and line breaks exactly.` | 换 prompt 影响大于调参（见基线 §4⑤） |
 | `--max-tokens` | `3072` | 同时决定切块的行数上限 |
@@ -163,7 +163,7 @@ ocr4code ocr <IMAGES>... [OPTIONS]
 | 参数 | 说明 |
 |---|---|
 | `--mock-text` / `--mock-text-file` | 给布局层喂"已知文本"，单测缩进逻辑 |
-| `OCR4CODE_DEBUG=1`（环境变量） | 打印 `typo / advance / ratios` 等几何中间量 |
+| `SOFER_DEBUG=1`（环境变量） | 打印 `typo / advance / ratios` 等几何中间量 |
 
 ### 2.5 输出格式
 
@@ -358,7 +358,7 @@ standby list，和 macOS 的 mapped file 等价。结论一致：**不要指望�
 6. **Windows 自绘选区**：一次只抓鼠标所在显示器，不支持跨屏拖选；GDI 对受保护内容/HDR/部分硬件加速窗口可能拿到黑帧。
    macOS 产物是 arm64，Intel Mac 需单独构建并补 `runtime/macos-x64`。
 7. **首次安装需要一次 1.0–1.4 GB 模型下载**（高精度 1.43 GB / 低精度 1.03 GB）：已在应用内做一键下载、断点续传和 SHA-256；完全离线分发可另做模型包。
-8. **自动更新**：v0.1.8 起支持；更早版本需手动安装一次。更新依赖 GitHub `latest.json` 可达，且安装器未做代码签名，SmartScreen 仍可能提示。
+8. **自动更新**：从 1.0.0 起在应用内检查和安装新版本。更新依赖 GitHub `latest.json` 可达，且安装器未做代码签名，SmartScreen 仍可能提示。
 9. **快捷键形状**：系统全局快捷键要求组合中恰好有一个主键，因此纯修饰键（`Ctrl+Shift`）或两个普通键（`A+B`）不支持；支持 1 个主键、修饰键+主键、两个修饰键+主键。
 
 维护这些限制的流程、以及改代码前必须知道的坑，见 [docs/maintenance.md](docs/maintenance.md)。
@@ -400,7 +400,7 @@ standby list，和 macOS 的 mapped file 等价。结论一致：**不要指望�
 
 用户首次启动只需点一次 **下载并配置**：应用自动下载两个模型文件、校验、启动
 `llama-server`，完成后再按快捷键即可。无需安装 llama.cpp、无需手动放模型、无需开服务。
-从 v0.1.8 起，应用可在 **设置 → 更新** 检查和安装后续版本；更新包经过 Tauri/minisign
+应用可在 **设置 → 更新** 检查和安装后续版本；更新包经过 Tauri/minisign
 签名校验，签名在 CI 中完成。详细来源/许可见 [app/THIRD_PARTY.md](app/THIRD_PARTY.md)。
 
 ```bash

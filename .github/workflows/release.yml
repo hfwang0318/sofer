@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v0.1.11)"
+        description: "Release tag (e.g. v1.0.0)"
         required: true
-        default: "v0.1.11"
+        default: "v1.0.0"
 
 permissions:
   contents: write
@@ -76,7 +76,7 @@ jobs:
         with:
           projectPath: app
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
-          releaseName: "ocr4code ${{ github.event.inputs.tag || github.ref_name }}"
+          releaseName: "sofer ${{ github.event.inputs.tag || github.ref_name }}"
           body_path: release-body.md
           releaseDraft: true
           prerelease: false
@@ -142,7 +142,7 @@ jobs:
         with:
           projectPath: app
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
-          releaseName: "ocr4code ${{ github.event.inputs.tag || github.ref_name }}"
+          releaseName: "sofer ${{ github.event.inputs.tag || github.ref_name }}"
           releaseDraft: true
           prerelease: false
           uploadUpdaterJson: true

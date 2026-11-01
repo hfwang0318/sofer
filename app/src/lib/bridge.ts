@@ -415,7 +415,7 @@ export async function saveSettings(settings: Settings): Promise<Settings> {
 
 export async function appInfo(): Promise<AppInfo> {
   if (isTauri) return invoke<AppInfo>("app_info");
-  return { shortcutActive: true, shortcut: DEFAULT_SETTINGS.shortcut, version: "0.1.11" };
+  return { shortcutActive: true, shortcut: DEFAULT_SETTINGS.shortcut, version: "1.0.0" };
 }
 
 export async function engineStatus(): Promise<EngineStatus> {
@@ -595,8 +595,8 @@ export async function remoteProbe(): Promise<RemoteProbe> {
     os: "Linux",
     arch: "x86_64",
     home: "/home/dev",
-    dir: "/home/dev/.ocr4code",
-    runtime: mockRemoteDeployed ? "/home/dev/.ocr4code/runtime/llama-server" : null,
+    dir: "/home/dev/.sofer",
+    runtime: mockRemoteDeployed ? "/home/dev/.sofer/runtime/llama-server" : null,
     modelInstalled: mockRemoteDeployed,
     modelVerified: mockRemoteDeployed,
     files: [],

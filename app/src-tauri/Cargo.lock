@@ -2753,46 +2753,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ocr4code"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "clap",
- "image",
- "serde",
- "serde_json",
- "ureq",
-]
-
-[[package]]
-name = "ocr4code-app"
-version = "0.1.11"
-dependencies = [
- "anyhow",
- "arboard",
- "base64 0.22.1",
- "fs2",
- "image",
- "objc2",
- "ocr4code",
- "serde",
- "serde_json",
- "sha2",
- "signal-hook",
- "tauri",
- "tauri-build",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-process",
- "tauri-plugin-single-instance",
- "tauri-plugin-updater",
- "ureq",
- "window-vibrancy 0.6.0",
- "windows",
-]
-
-[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3829,6 +3789,46 @@ checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "sofer"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "clap",
+ "image",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
+name = "sofer-app"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "arboard",
+ "base64 0.22.1",
+ "fs2",
+ "image",
+ "objc2",
+ "serde",
+ "serde_json",
+ "sha2",
+ "signal-hook",
+ "sofer",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-process",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-updater",
+ "ureq",
+ "window-vibrancy 0.6.0",
+ "windows",
 ]
 
 [[package]]

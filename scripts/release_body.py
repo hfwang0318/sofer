@@ -5,7 +5,7 @@ The release page must never ship without the changes it contains, so the body
 is generated instead of being typed into the workflow: the CHANGELOG section
 for the tag followed by the shared install instructions.
 
-Usage: python3 scripts/release_body.py v0.1.11 [--out release-body.md]
+Usage: python3 scripts/release_body.py v1.0.0 [--out release-body.md]
 """
 
 from __future__ import annotations

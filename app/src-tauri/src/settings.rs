@@ -12,9 +12,9 @@ use crate::engine::{
     ServerConfig,
 };
 use crate::remote::{self, Accel, RemoteConfig, Source};
-use ocr4code::engine::llamacpp;
-use ocr4code::pipeline::{Config, EngineMode};
-use ocr4code::render::Format;
+use sofer::engine::llamacpp;
+use sofer::pipeline::{Config, EngineMode};
+use sofer::render::Format;
 
 /// Longest custom prompt we persist. The built-in presets are far shorter; this
 /// only stops a pasted document from bloating every request.
@@ -178,7 +178,7 @@ impl Default for Settings {
             remote_user: String::new(),
             remote_ssh_port: 22,
             remote_key: String::new(),
-            remote_dir: "~/.ocr4code".into(),
+            remote_dir: "~/.sofer".into(),
             remote_server_port: 8099,
             remote_local_port: 0,
             remote_accel: Accel::Auto,

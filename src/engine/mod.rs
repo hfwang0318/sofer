@@ -260,7 +260,7 @@ impl TempImage {
         static SEQ: AtomicU64 = AtomicU64::new(0);
         let seq = SEQ.fetch_add(1, Ordering::Relaxed);
         let path =
-            std::env::temp_dir().join(format!("ocr4code-input-{}-{seq}.{ext}", std::process::id()));
+            std::env::temp_dir().join(format!("sofer-input-{}-{seq}.{ext}", std::process::id()));
         std::fs::write(&path, bytes)
             .with_context(|| format!("writing temporary image {}", path.display()))?;
         Ok(Self { path })
@@ -334,7 +334,7 @@ impl Spec {
                     return Ok(Box::new(tesseract::Tesseract::new("eng".into(), 6)));
                 }
                 anyhow::bail!(
-                    "no engine available: start `llama-server` (see `ocr4code doctor`) \
+                    "no engine available: start `llama-server` (see `sofer doctor`) \
                      or install tesseract"
                 )
             }
@@ -381,8 +381,7 @@ mod tests {
         let img = sample();
         let encoded = ImageFormat::Png.encode(&img).expect("encode");
 
-        let tmp =
-            std::env::temp_dir().join(format!("ocr4code-test-png-{}.png", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("sofer-test-png-{}.png", std::process::id()));
         img.save(&tmp).expect("save");
         let on_disk = std::fs::read(&tmp).expect("read");
         let _ = std::fs::remove_file(&tmp);
@@ -456,7 +455,7 @@ mod tests {
             .file_name()
             .unwrap()
             .to_string_lossy()
-            .starts_with("ocr4code-input-"));
+            .starts_with("sofer-input-"));
         assert!(seen[0]
             .to_string_lossy()
             .contains(&std::process::id().to_string()));

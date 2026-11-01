@@ -1,6 +1,6 @@
 # 维护手册
 
-面向**改这个仓库的人**。使用方法见 [README](../README.md)，设计取舍见 [选型报告](ocr4code-选型报告.md)，
+面向**改这个仓库的人**。使用方法见 [README](../README.md)，设计取舍见 [选型报告](sofer-选型报告.md)，
 指标定义见 [基线报告](baseline.md)，桌面端界面与提示语的规则见
 [UI 交互与文案规范](ui-guidelines.md)。
 
@@ -79,7 +79,7 @@ CHANGELOG.md         桌面端 v0.1.0–v0.1.11 变更记录
 调试开关：
 
 ```bash
-OCR4CODE_DEBUG=1 ocr4code ocr shot.png --engine mock --mock-text-file truth.txt --stats
+SOFER_DEBUG=1 sofer ocr shot.png --engine mock --mock-text-file truth.txt --stats
 # -> [debug] typo=15.60 adv=15.90 n_ratios=18 ratios=[...]
 ```
 
@@ -97,7 +97,7 @@ OCR4CODE_DEBUG=1 ocr4code ocr shot.png --engine mock --mock-text-file truth.txt 
 - `pool::map` 保证**输出顺序 = 输入顺序**（结果写回各自下标的槽位，不靠排序）。
 - `jobs = 1` 走内联路径，完全不建线程——默认行为和加并发之前一模一样。
 - **临时图像文件名必须唯一**：需要落盘的引擎（tesseract）使用
-  `ocr4code-input-{pid}-{序号}.{ext}`。只带 pid 会在 `--jobs > 1` 时同进程内互相覆盖
+  `sofer-input-{pid}-{序号}.{ext}`。只带 pid 会在 `--jobs > 1` 时同进程内互相覆盖
   （曾经就是这么写的）。切块不再落盘：`Engine::recognize_image` 直接接收内存像素。
 - `Engine` trait 带 `Send + Sync` 约束。加新引擎时不要往里面塞 `Rc` / `Cell`。
 - 并发数不是越大越好：llama-server 默认 4 个 slot，实测 6 张图 jobs=3（3.04 s）比 jobs=6（3.44 s）快。
@@ -149,7 +149,7 @@ fn recognize(&self, image: &Path) -> anyhow::Result<EngineOutput>;
 只换 llama.cpp 那一侧，`src/` 不用改：
 
 1. 确认有官方 GGUF（`ggml-org/*` 优先），且 `llama-server` 能加载 mmproj；
-2. 起 server，`ocr4code doctor` 应显示 ok；
+2. 起 server，`sofer doctor` 应显示 ok；
 3. 重跑基线；重点看 `sym_recall`、`rows_ratio`、`huge-4k`；
 4. 若换的模型输出更长/更短，重新标定 `CHARS_PER_TOKEN`（`tile.rs`）。
 
@@ -226,7 +226,7 @@ done
 
 | 症状 | 先查什么 |
 |---|---|
-| `doctor` 显示 `[--] llama.cpp server` | server 没起 / 端口不是 8099；`OCR4CODE_LLAMA_URL` 可改地址 |
+| `doctor` 显示 `[--] llama.cpp server` | server 没起 / 端口不是 8099；`SOFER_LLAMA_URL` 可改地址 |
 | 输出只有几行 | `--stats` 看 `rows_ratio`；`tiling: off` 但行数远小于行带数 → 预算估算错了，调 `--max-tokens` |
 | 输出行数比真值多 | 模型超发（常见于把 `--max-tokens` 调很大）；看 `warning: output has N rows for M bands` |
 | 缩进全是 0 | 是不是行号槽场景（`gutter=true` 属正常）；或用了 `--no-geometry` |
@@ -237,9 +237,9 @@ done
 | `--jobs` 开着但没变快 | 看是不是超过 llama-server 的 slot 数；jobs=3 通常比 6 快 |
 | 并发时输出顺序乱了 | 不应该发生：`pool::map` 按下标回写。若出现，先查是否有新的"结果拼装"绕过了它 |
 | 结果里出现 `<|LOC_11|>` 之类 | prompt 用错了（别对 GLM-OCR 用 "Convert to markdown"），换回默认 prompt |
-| Windows 更新报文件被占用 | v0.1.10 前需手动结束 `llama-server.exe`；v0.1.10 会先 stop + NSIS preinstall hook 兜底 |
-| Windows `0xc0000005` | 先看是否旧 `msvcp140.dll`（14.16）；v0.1.6+ 安装包已内置 VS 2022 CRT |
-| 代理下载 `unknown issuer` | 代理根证书需在系统信任库；v0.1.4+ 使用 native TLS |
+| Windows 更新报文件被占用 | 应用会先 stop `llama-server`，NSIS preinstall hook 再兜底结束残留进程；仍失败时手动结束 `llama-server.exe` |
+| Windows `0xc0000005` | 先看是否旧 `msvcp140.dll`（14.16）；安装包已内置 VS 2022 CRT |
+| 代理下载 `unknown issuer` | 代理根证书需在系统信任库；下载使用 native TLS |
 | 镜像基址浏览器 404 | 基址本身不是文件；用 `<基址>/GLM-OCR-Q8_0.gguf` 验证，镜像必须提供两个文件 |
 
 ---

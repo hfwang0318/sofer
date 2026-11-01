@@ -1,12 +1,12 @@
-## ocr4code — Windows 与 macOS 预览版
+## sofer — Windows 与 macOS 正式版
 
-简体中文界面的桌面预览构建，OCR 和布局还原在本地完成。
+简体中文界面，OCR 和布局还原在本地完成。
 
 ### 安装
 
 **Windows**：在 **Assets** 下载 `*-setup.exe`，运行安装包（未签名，SmartScreen 可能提示；点 **更多信息 → 仍要运行**）。
 
-**macOS（Apple Silicon）**：下载 `*.dmg`，打开后把 ocr4code 拖进「应用程序」。构建暂未做 Apple 公证，首次打开请右键 → **打开**；如果仍被拦截，可在终端执行 `xattr -dr com.apple.quarantine /Applications/ocr4code.app`。
+**macOS（Apple Silicon）**：下载 `*.dmg`，打开后把 sofer 拖进「应用程序」。构建暂未做 Apple 公证，首次打开请右键 → **打开**；如果仍被拦截，可在终端执行 `xattr -dr com.apple.quarantine /Applications/sofer.app`。
 
 首次启动点击 **下载并配置**。应用会下载 1.43 GB 的 GLM-OCR 模型，校验 SHA-256，并自动启动内置 `llama-server`。macOS 首次截图需要授予 **屏幕录制** 权限。
 
@@ -33,6 +33,6 @@ Windows 端使用应用自绘的全屏选区浮层和 GDI 抓屏，不调用 Sni
 - 首次下载模型需要联网（Hugging Face）
 - Windows 的 WebView2 由安装器自动处理
 
-运行时已内置（CPU 构建，`-ngl 0`）；Windows 安装包还内置 Visual C++ 运行库，无需安装 llama.cpp 或 VC++ Redistributable。如果 Hugging Face 无法访问，可在 **设置 → 引擎 → 模型下载** 中填写下载代理或模型镜像；环境变量 `HTTPS_PROXY` / `OCR4CODE_MODEL_BASE` 仍然兼容。代理支持 `user:pass@host:port`，密码中的 `@` 可写成 `%40`。TLS 使用系统证书信任库；企业代理/安全软件的根证书需要安装到系统信任库。
+运行时已内置（CPU 构建，`-ngl 0`）；Windows 安装包还内置 Visual C++ 运行库，无需安装 llama.cpp 或 VC++ Redistributable。如果 Hugging Face 无法访问，可在 **设置 → 引擎 → 模型下载** 中填写下载代理或模型镜像；环境变量 `HTTPS_PROXY` / `SOFER_MODEL_BASE` 仍然兼容。代理支持 `user:pass@host:port`，密码中的 `@` 可写成 `%40`。TLS 使用系统证书信任库；企业代理/安全软件的根证书需要安装到系统信任库。
 
 设置 → 引擎 → 本地引擎可查看运行时、模型和服务状态，并支持停止、移除和重新下载。日志在应用日志目录；反馈问题时请附上错误文本。

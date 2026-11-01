@@ -93,7 +93,7 @@ describe("DEFAULT_SETTINGS", () => {
     expect(DEFAULT_SETTINGS.remoteEnabled).toBe(false);
     expect(DEFAULT_SETTINGS.remoteHost).toBe("");
     expect(DEFAULT_SETTINGS.remoteSshPort).toBe(22);
-    expect(DEFAULT_SETTINGS.remoteDir).toBe("~/.ocr4code");
+    expect(DEFAULT_SETTINGS.remoteDir).toBe("~/.sofer");
     expect(DEFAULT_SETTINGS.remoteLocalPort).toBe(0);
     expect(DEFAULT_SETTINGS.llamaUrl).toBe("http://127.0.0.1:8099");
   });
@@ -127,9 +127,9 @@ describe("model pack helpers", () => {
 
 describe("storage keys", () => {
   it("uses a versioned key for settings and history", () => {
-    expect(SETTINGS_KEY).toBe("ocr4code.settings.v1");
-    expect(HISTORY_KEY).toBe("ocr4code.history.v1");
-    expect(SETUP_DISMISSED_KEY).toBe("ocr4code.setup.dismissed");
-    expect(FIRST_CAPTURE_KEY).toBe("ocr4code.onboarding.firstCapture");
+    expect(SETTINGS_KEY).toBe("sofer.settings.v1");
+    expect(HISTORY_KEY).toBe("sofer.history.v1");
+    expect(SETUP_DISMISSED_KEY).toBe("sofer.setup.dismissed");
+    expect(FIRST_CAPTURE_KEY).toBe("sofer.onboarding.firstCapture");
   });
 });

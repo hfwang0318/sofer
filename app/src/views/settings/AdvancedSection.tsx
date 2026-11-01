@@ -68,7 +68,7 @@ export function AdvancedSection({
               <Field
                 label="服务地址"
                 error={urlError}
-                hint={urlError ? undefined : `环境变量可覆盖：OCR4CODE_LLAMA_URL`}
+                hint={urlError ? undefined : `环境变量可覆盖：SOFER_LLAMA_URL`}
                 full
                 action={
                   <button

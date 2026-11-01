@@ -9,7 +9,7 @@ test.describe("?demo=permission", () => {
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
     await expect(
-      dialog.getByRole("heading", { name: "允许 ocr4code 录制屏幕" }),
+      dialog.getByRole("heading", { name: "允许 sofer 录制屏幕" }),
     ).toBeVisible();
     await expect(
       dialog.getByText("隐私与安全性 → 屏幕录制。"),
@@ -27,7 +27,7 @@ test.describe("?demo=permission", () => {
     await grantButtons.first().click();
     await expect(
       page.getByRole("dialog").getByRole("heading", {
-        name: "允许 ocr4code 录制屏幕",
+        name: "允许 sofer 录制屏幕",
       }),
     ).toBeVisible();
 

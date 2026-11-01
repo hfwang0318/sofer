@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-const SETTINGS_KEY = "ocr4code.settings.v1";
+const SETTINGS_KEY = "sofer.settings.v1";
 
 test.describe("?demo=settings", () => {
   test("shows the save bar after an edit and clears it after saving", async ({

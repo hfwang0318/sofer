@@ -2,42 +2,42 @@
 # End-to-end check for remote model deployment against a real SSH server.
 #
 # By default it uses the local Docker container from dev-remote-server.sh and
-# downloads the low-precision pack once (~1 GB). Set OCR4CODE_REMOTE_QUALITY=high
+# downloads the low-precision pack once (~1 GB). Set SOFER_REMOTE_QUALITY=high
 # for the Q8 pack. Stop the app's remote service first; the script kills the
 # server on port 8099 and replaces the model directory.
 #
 # Usage:
 #   app/scripts/test-remote.sh
 #   CASES="probe stop-releases-server" app/scripts/test-remote.sh
-#   CONTAINER=my-ssh-box SSH_PORT=2222 OCR4CODE_REMOTE_KEY=~/.ssh/id_ed25519 \
+#   CONTAINER=my-ssh-box SSH_PORT=2222 SOFER_REMOTE_KEY=~/.ssh/id_ed25519 \
 #     app/scripts/test-remote.sh
 #
 # Exit code is non-zero if any case fails. Logs land in
-# /tmp/ocr4code-ssh-test/e2e-logs/.
+# /tmp/sofer-ssh-test/e2e-logs/.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-WORK_DIR="${WORK_DIR:-/tmp/ocr4code-ssh-test}"
-CONTAINER="${CONTAINER:-ocr4code-ssh-test}"
+WORK_DIR="${WORK_DIR:-/tmp/sofer-ssh-test}"
+CONTAINER="${CONTAINER:-sofer-ssh-test}"
 SSH_PORT="${SSH_PORT:-2222}"
-DOCKER_IMAGE="${DOCKER_IMAGE:-ocr4code-ssh-test:latest}"
-KEY="${OCR4CODE_REMOTE_KEY:-$WORK_DIR/test_key}"
-TEST_IMAGE="${OCR4CODE_TEST_IMAGE:-$ROOT/bench/images/cargo-build@1x.png}"
-QUALITY="${OCR4CODE_REMOTE_QUALITY:-low}"
+DOCKER_IMAGE="${DOCKER_IMAGE:-sofer-ssh-test:latest}"
+KEY="${SOFER_REMOTE_KEY:-$WORK_DIR/test_key}"
+TEST_IMAGE="${SOFER_TEST_IMAGE:-$ROOT/bench/images/cargo-build@1x.png}"
+QUALITY="${SOFER_REMOTE_QUALITY:-low}"
 BIN="$ROOT/app/src-tauri/target/debug/examples/remote_probe"
 LOG_DIR="$WORK_DIR/e2e-logs"
 LOCAL_MODELS="$WORK_DIR/local-models"
 CARGO="${CARGO:-$(command -v cargo || true)}"
 [ -n "$CARGO" ] || CARGO="$HOME/.cargo/bin/cargo"
 
-export OCR4CODE_REMOTE_HOST="${OCR4CODE_REMOTE_HOST:-127.0.0.1}"
-export OCR4CODE_REMOTE_USER="${OCR4CODE_REMOTE_USER:-ocr}"
-export OCR4CODE_REMOTE_SSH_PORT="$SSH_PORT"
-export OCR4CODE_REMOTE_KEY="$KEY"
-export OCR4CODE_REMOTE_DIR="${OCR4CODE_REMOTE_DIR:-~/.ocr4code}"
-export OCR4CODE_REMOTE_ACCEL=cpu
-export OCR4CODE_REMOTE_GPU_LAYERS=0
-export OCR4CODE_REMOTE_QUALITY="$QUALITY"
+export SOFER_REMOTE_HOST="${SOFER_REMOTE_HOST:-127.0.0.1}"
+export SOFER_REMOTE_USER="${SOFER_REMOTE_USER:-ocr}"
+export SOFER_REMOTE_SSH_PORT="$SSH_PORT"
+export SOFER_REMOTE_KEY="$KEY"
+export SOFER_REMOTE_DIR="${SOFER_REMOTE_DIR:-~/.sofer}"
+export SOFER_REMOTE_ACCEL=cpu
+export SOFER_REMOTE_GPU_LAYERS=0
+export SOFER_REMOTE_QUALITY="$QUALITY"
 
 PASS=0
 FAIL=0
@@ -62,8 +62,8 @@ run_case() {
 }
 
 remote_sh() { docker exec -u ocr "$CONTAINER" sh -c "$1"; }
-clear_remote_models() { remote_sh 'rm -rf ~/.ocr4code/models'; }
-remote_model_ready() { remote_sh "test -f ~/.ocr4code/models/verified-${QUALITY}.json"; }
+clear_remote_models() { remote_sh 'rm -rf ~/.sofer/models'; }
+remote_model_ready() { remote_sh "test -f ~/.sofer/models/verified-${QUALITY}.json"; }
 # The bracket keeps pgrep from matching the `sh -c` wrapper that contains the
 # same pattern in its own command line.
 remote_server_running() { remote_sh "pgrep -f '[r]untime/llama-server' >/dev/null 2>&1"; }
@@ -105,7 +105,7 @@ case_probe() {
 case_download() {
   clear_remote_models
   local out
-  out=$(OCR4CODE_REMOTE_SOURCE=download OCR4CODE_TEST_IMAGE="$TEST_IMAGE" "$BIN" deploy 2>&1) || {
+  out=$(SOFER_REMOTE_SOURCE=download SOFER_TEST_IMAGE="$TEST_IMAGE" "$BIN" deploy 2>&1) || {
     printf '%s\n' "$out"
     return 1
   }
@@ -118,7 +118,7 @@ case_download() {
 
 case_reuse() {
   local out
-  out=$(OCR4CODE_REMOTE_SOURCE=download "$BIN" deploy 2>&1) || {
+  out=$(SOFER_REMOTE_SOURCE=download "$BIN" deploy 2>&1) || {
     printf '%s\n' "$out"
     return 1
   }
@@ -129,7 +129,7 @@ case_reuse() {
 
 case_tunnel_and_ocr() {
   local out
-  out=$(OCR4CODE_TEST_IMAGE="$TEST_IMAGE" "$BIN" start 2>&1) || {
+  out=$(SOFER_TEST_IMAGE="$TEST_IMAGE" "$BIN" start 2>&1) || {
     printf '%s\n' "$out"
     return 1
   }
@@ -141,7 +141,7 @@ case_tunnel_and_ocr() {
 
 case_stop() {
   local out
-  out=$(OCR4CODE_TEST_KEEP=1 OCR4CODE_TEST_IMAGE="$TEST_IMAGE" "$BIN" start 2>&1) || {
+  out=$(SOFER_TEST_KEEP=1 SOFER_TEST_IMAGE="$TEST_IMAGE" "$BIN" start 2>&1) || {
     printf '%s\n' "$out"
     return 1
   }
@@ -163,11 +163,11 @@ case_stop() {
 case_upload() {
   rm -rf "$LOCAL_MODELS"
   mkdir -p "$LOCAL_MODELS"
-  docker cp "$CONTAINER:/home/ocr/.ocr4code/models/." "$LOCAL_MODELS" || return 1
+  docker cp "$CONTAINER:/home/ocr/.sofer/models/." "$LOCAL_MODELS" || return 1
   clear_remote_models
   local out
-  out=$(OCR4CODE_REMOTE_SOURCE=upload OCR4CODE_REMOTE_LOCAL_MODELS="$LOCAL_MODELS" \
-    OCR4CODE_TEST_IMAGE="$TEST_IMAGE" "$BIN" deploy 2>&1) || {
+  out=$(SOFER_REMOTE_SOURCE=upload SOFER_REMOTE_LOCAL_MODELS="$LOCAL_MODELS" \
+    SOFER_TEST_IMAGE="$TEST_IMAGE" "$BIN" deploy 2>&1) || {
     printf '%s\n' "$out"
     return 1
   }
@@ -180,7 +180,7 @@ case_upload() {
 
 case_bad_key() {
   local out
-  if out=$(OCR4CODE_REMOTE_KEY=/nonexistent/ocr4code-test-key "$BIN" probe 2>&1); then
+  if out=$(SOFER_REMOTE_KEY=/nonexistent/sofer-test-key "$BIN" probe 2>&1); then
     printf '%s\n' "$out"
     return 1
   fi
@@ -190,7 +190,7 @@ case_bad_key() {
 
 case_unreachable() {
   local out
-  if out=$(OCR4CODE_REMOTE_SSH_PORT=2299 "$BIN" probe 2>&1); then
+  if out=$(SOFER_REMOTE_SSH_PORT=2299 "$BIN" probe 2>&1); then
     printf '%s\n' "$out"
     return 1
   fi

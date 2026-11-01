@@ -171,7 +171,7 @@ export function AboutSection({
           </button>
           <button type="button" className="btn btn-ghost btn-danger btn-sm" onClick={onQuit}>
             <Icon name="power" size={14} />
-            退出 ocr4code
+            退出 sofer
           </button>
         </div>
         <p>

@@ -204,7 +204,7 @@ fn create_overlay(app: &AppHandle, monitor: MonitorRect) -> Result<(), String> {
     }
     let window =
         WebviewWindowBuilder::new(app, OVERLAY_LABEL, WebviewUrl::App("overlay.html".into()))
-            .title("ocr4code — 选择截图区域")
+            .title("sofer — 选择截图区域")
             .decorations(false)
             .resizable(false)
             .always_on_top(true)
