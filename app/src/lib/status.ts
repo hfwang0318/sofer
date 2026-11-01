@@ -57,6 +57,11 @@ export function captureReadiness({
     if (remote.phase === "starting") {
       return { state: "starting", label: "正在启动", tone: "ok" };
     }
+    // The watchdog is repairing a broken tunnel: still "not an error" for the
+    // user, but warn so the titlebar, sidebar and Settings agree.
+    if (remote.phase === "reconnecting") {
+      return { state: "starting", label: "重连中", tone: "warn" };
+    }
     if (remote.phase === "failed") {
       return { state: "error", label: "远程 OCR 引擎出错", tone: "danger" };
     }
@@ -113,6 +118,9 @@ function remoteSummary(remote: NonNullable<EngineStatus["remote"]>): EngineSumma
   }
   if (remote.phase === "starting") {
     return { label: "正在启动", detail: "远程服务器", tone: "ok" };
+  }
+  if (remote.phase === "reconnecting") {
+    return { label: "重连中", detail: "连接断开，正在自动重连", tone: "warn" };
   }
   if (remote.phase === "failed") {
     return { label: "远程 OCR 引擎出错", detail: "检查设置后重试", tone: "danger" };

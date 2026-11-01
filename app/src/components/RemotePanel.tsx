@@ -58,6 +58,37 @@ function busy(phase: string): boolean {
   return ["probing", "deploying", "starting"].includes(phase);
 }
 
+/** The one place the remote phase turns into first-layer words. */
+function phaseBadge(remote: RemoteState): { label: string; className: string } {
+  switch (remote.phase) {
+    case "online":
+      return { label: "已连接", className: "badge-ok" };
+    case "reconnecting":
+      return { label: "重连中", className: "badge-warn" };
+    case "failed":
+      return { label: "失败", className: "badge-warn" };
+    case "starting":
+      return { label: "连接中", className: "" };
+    case "probing":
+      return { label: "检测中", className: "" };
+    case "deploying":
+      return { label: "部署中", className: "" };
+    default:
+      return {
+        label: remote.deployed ? "已部署" : "未部署",
+        className: "",
+      };
+  }
+}
+
+/** "（第 2 次，共 5 次）" while the watchdog is retrying. */
+function attemptNote(remote: RemoteState): string {
+  const attempt = remote.reconnectAttempt;
+  const limit = remote.reconnectLimit;
+  if (typeof attempt !== "number" || typeof limit !== "number") return "";
+  return `（第 ${attempt} 次，共 ${limit} 次）`;
+}
+
 export function RemotePanel({
   draft,
   remote,
@@ -212,20 +243,19 @@ export function RemotePanel({
     remote.phase === "deploying" ||
     !remote.deployed ||
     (probe !== null && !modelReady);
-  const canConnect = remote.deployed && !needsDeploy && remote.phase !== "online";
+  const canConnect =
+    remote.deployed &&
+    !needsDeploy &&
+    remote.phase !== "online" &&
+    remote.phase !== "reconnecting";
+  const badge = phaseBadge(remote);
 
   return (
     <details className="settings-disclosure" open={draft.remoteEnabled}>
       <summary>
         部署到服务器（可选）
         {draft.remoteEnabled && (
-          <span className={`badge ${remote.phase === "online" ? "badge-ok" : ""}`}>
-            {remote.phase === "online"
-              ? "已连接"
-              : remote.deployed
-                ? "已部署"
-                : "未部署"}
-          </span>
+          <span className={`badge ${badge.className}`}>{badge.label}</span>
         )}
       </summary>
       <div className="disclosure-body">
@@ -425,12 +455,21 @@ export function RemotePanel({
               </div>
             </div>
 
+            {remote.phase === "reconnecting" && (
+              <p className="field-hint" role="status" aria-live="polite">
+                <Icon name="refresh" size={13} className="is-spinning" />
+                连接断开了，正在自动重连{attemptNote(remote)}。
+              </p>
+            )}
+
             <div className="runtime-actions remote-actions">
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
                 onClick={() => void handleProbe()}
-                disabled={working}
+                // A probe cancels the watchdog; do not let it interrupt a
+                // reconnect that is already healing the tunnel.
+                disabled={working || remote.phase === "reconnecting"}
               >
                 {probing || remote.phase === "probing" ? "检测中…" : "检测服务器"}
               </button>
@@ -457,19 +496,26 @@ export function RemotePanel({
                   disabled={working}
                 >
                   <Icon name="power" size={14} />
-                  {remote.phase === "starting" ? "正在启动…" : "连接"}
+                  {remote.phase === "starting"
+                    ? "连接中…"
+                    : remote.phase === "failed"
+                      ? "重连"
+                      : "连接"}
                 </button>
               )}
-              {remote.deployed && remote.phase === "online" && (
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => void handleStop()}
-                  disabled={working}
-                >
-                  停止远程服务
-                </button>
-              )}
+              {((remote.deployed && remote.phase === "online") ||
+                remote.phase === "reconnecting") && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => void handleStop()}
+                    disabled={working}
+                  >
+                    {remote.phase === "reconnecting"
+                      ? "停止重连"
+                      : "停止远程服务"}
+                  </button>
+                )}
               {remote.phase === "deploying" && (
                 <button
                   type="button"
