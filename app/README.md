@@ -81,8 +81,8 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 | 全局快捷键 | 默认 `⌘⇧2` / `Ctrl+Shift+2`；支持单键、2 键或 3 键组合（必须有 1 个主键），设置里可录制 |
 | 原生截图 | macOS `screencapture -i`；Windows 自绘选区浮层 + GDI 抓屏（不调用系统截屏工具） |
 | 自动识别 | 复用 `ocr4code::pipeline`：引擎 → 切块/重试 → 几何层 → 修复 → 渲染 |
-| 自动复制 | 成功后直接写剪贴板；窗口隐藏时不抢焦点，托盘提示「copied N lines」 |
-| 识别完成通知 | 主窗口不在前台时发系统通知，带结果首行、行数和是否已复制；可在通用设置关闭 |
+| 自动复制 | 成功后直接写剪贴板；窗口隐藏时不抢焦点 |
+| 识别完成提示 | 主窗口不在前台且结果已复制时，在鼠标所在屏幕底部弹一条「已复制 · N 行」，约 2.5 秒淡出；不抢焦点、鼠标穿透；可在通用设置关闭 |
 | 引擎管理 | 内置运行时、模型状态、服务状态、启动/停止、移除/重新下载，全部在设置里 |
 | 远程模型（可选） | 一键把模型和 llama.cpp 运行时部署到 Linux 服务器，本机通过 SSH 隧道识别；适合本机内存紧张 |
 | 设置面板 | 模型精度（高/低）、代理地址/用户名/密码、使用镜像、空闲释放、KV 量化、外部 server URL、prompt、token 预算、并发、tesseract 参数、版面开关、输出格式、历史条数 |
@@ -246,7 +246,8 @@ render(text/markdown/json) ──► 剪贴板
 | 桥接 | `src/lib/bridge.ts` | Tauri `invoke`/`listen` 的类型化封装；浏览器预览自动切 mock |
 | 引擎管理 | `src-tauri/src/engine/` | 模型 manifest、断点续传、SHA-256、llama-server 生命周期、端口/健康检查、下载事件 |
 | 远程部署 | `src-tauri/src/remote/` | SSH 探测/部署、运行时与模型下载或上传、远程 llama-server、隧道、健康检查、进度事件 |
-| 截图 | `src-tauri/src/capture/`、`src/overlay/` | macOS 原生选区；Windows GDI 抓屏 + Tauri 浮层选区；OCR 流程、剪贴板、托盘提示 |
+| 截图 | `src-tauri/src/capture/`、`src/overlay/` | macOS 原生选区；Windows GDI 抓屏 + Tauri 浮层选区；OCR 流程、剪贴板 |
+| 识别完成弹窗 | `src-tauri/src/toast.rs`、`src/toast/` | 后台成功时的底部轻提示：定位/尺寸/生命周期，独立 Vite 入口 |
 | 更新 | `src/lib/updater.ts`、`tauri-plugin-updater` | 检查/下载/安装、进度、签名校验、重启；安装前 stop 引擎 |
 | 设置 | `src-tauri/src/settings.rs` | `settings.json` 读写、校验、`Settings → pipeline::Config` |
 | Tauri | `src-tauri/src/lib.rs` | 命令、事件、托盘、窗口材质、autostart、SIGTERM/SIGINT 清理 |
@@ -266,6 +267,7 @@ render(text/markdown/json) ──► 剪贴板
 | `engine:state` | `ServerInfo` | 服务 stopped/starting/online/failed |
 | `remote:progress` | `RemoteProgress` | 远程探测/下载/上传/校验/启动进度 |
 | `remote:state` | `RemoteState` | 远程 enabled/phase/url/tunnel/deployed/error |
+| `toast:show` | `ToastPayload`（`id`、`lines`） | 识别完成弹窗刷新内容和计时；`toast_info` 供页面首次挂载时补取 |
 
 ### 引擎行为
 
@@ -305,7 +307,7 @@ render(text/markdown/json) ──► 剪贴板
 | Format | `format` | `text` | text / markdown / json |
 | Fence language | `language` | 空=猜 | 仅 markdown |
 | Auto-copy | —（应用层） | 开 | 成功后写剪贴板 |
-| Notify on result | —（应用层） | 开 | 主窗口不在前台时发系统通知 |
+| Notify on result | —（应用层） | 开 | 主窗口不在前台且已复制时，显示识别完成弹窗（存储键不变） |
 | Fast preview | —（应用层） | 关 | macOS：先出 Vision 结果，再由模型精修 |
 | History limit | —（应用层） | 20 | 同时受 50 条存储上限约束 |
 
@@ -444,7 +446,7 @@ Finder 启动的 App 可能不继承 shell 环境变量，此时用界面字段�
 | 运行时 | bundled macos-arm64（Metal） | bundled win-cpu-x64（CPU，`-ngl 0`） |
 | 材质 | `NSVisualEffectMaterial::HudWindow` | `apply_acrylic` |
 | 无边框窗口 | 自绘红黄绿 + `data-tauri-drag-region` | 自绘最小化/最大化/关闭 |
-| 识别完成通知 | 系统通知中心；开发模式来源为 Terminal | Windows 10/11 Toast；安装版显示 `ocr4code`，开发版可能显示为 Windows PowerShell |
+| 识别完成提示 | 自绘 Tauri 窗口，鼠标所在显示器底部居中 | 同一个自绘窗口；不需要通知权限 |
 | WebView2 | 系统自带 | 安装器 `embedBootstrapper` 自动处理 |
 
 Windows 自绘浮层和 GDI 抓屏已随 v0.1.5 发布，并在实际 Windows 机器上验证过安装、模型启动和更新；
@@ -474,7 +476,7 @@ Windows 自绘浮层和 GDI 抓屏已随 v0.1.5 发布，并在实际 Windows �
 
 ```bash
 cargo test                       # 根 crate: 53 unit + 24 integration（golden / boxdraw / CLI 输入）
-cd app/src-tauri && cargo test   # 桌面层: 70 tests（manifest/校验/断点续传/设置/快捷键/截图判空/远程部署/通知/历史/快速预览）
+cd app/src-tauri && cargo test   # 桌面层: 73 tests（manifest/校验/断点续传/设置/快捷键/截图判空/远程部署/历史/快速预览/弹窗定位）
 cd app && pnpm test:run          # 前端: 81 tests
 cd app && pnpm e2e               # 浏览器预览: 8 cases
 cd app && pnpm build             # tsc + vite，通过
@@ -499,7 +501,7 @@ Windows CI（`.github/workflows/release.yml`）在 `windows-latest` 上完成：
 - 模型下载代理（地址 + 用户名 + 密码自动编码）、“使用镜像”勾选和系统 TLS 可工作；
 - 远程部署在本地 Docker Ubuntu SSH 环境跑通：探测、运行时安装、服务器并行下载、
   本地上传、SHA-256 校验、远程服务启动、`ssh -L` 隧道健康检查和真实 OCR；
-- 通知触发条件和正文截断有单元测试覆盖；系统通知横幅仍需在原生窗口里人工确认。
+- 识别完成弹窗的定位/尺寸纯函数有单元测试覆盖；弹窗在原生窗口里的位置、淡出和不抢焦点仍需人工确认。
 
 Windows 实际验证：
 
@@ -509,7 +511,7 @@ Windows 实际验证：
   （应用先 stop + NSIS preinstall hook 兜底 kill）；
 - 快捷键单键/2 键/3 键录制已通过浏览器交互测试；单键在系统全局快捷键上的实际注册仍需更多机器覆盖。
 
-未完全覆盖：Windows 自绘选区在多显示器混合 DPI/HDR/受保护内容上的表现、外部 llama-server 占用运行时目录的场景、Windows Toast 在安装版/开发版的实际展示与通知设置、代码签名/公证后的嵌套 dylib 签名；自动更新的签名链已通过 `latest.json`/`.sig` 校验，但安装器仍未做 Authenticode 签名。
+未完全覆盖：Windows 自绘选区在多显示器混合 DPI/HDR/受保护内容上的表现、外部 llama-server 占用运行时目录的场景、识别完成弹窗在 Windows 上的定位与不抢焦点表现、代码签名/公证后的嵌套 dylib 签名；自动更新的签名链已通过 `latest.json`/`.sig` 校验，但安装器仍未做 Authenticode 签名。
 
 ---
 
@@ -518,8 +520,10 @@ Windows 实际验证：
 ```text
 app/
 ├── overlay.html                 Windows 选区浮层入口
+├── toast.html                   识别完成弹窗入口
 ├── src/
 │   ├── overlay/                 Windows 自绘选区 UI
+│   ├── toast/                   识别完成弹窗 UI（单行、鼠标穿透）
 │   ├── components/              SetupDialog, Controls, WindowChrome, Sidebar, Toast
 │   ├── hooks/                   settings / history / events / engine / updates 等状态与副作用
 │   ├── views/                   CaptureView, HistoryView, SettingsView
@@ -534,6 +538,7 @@ app/
 │   ├── src/engine/              运行时、模型清单、下载/校验、llama-server 生命周期
 │   ├── src/remote/              SSH 探测/部署、上传下载、隧道看护与重连
 │   ├── src/capture/             region selection → pipeline → clipboard；拖拽/剪贴板入口
+│   ├── src/toast.rs             识别完成弹窗的窗口、定位与计时
 │   ├── src/capture/win.rs       Windows GDI 抓屏 + 浮层会话
 │   ├── src/settings.rs          Settings ↔ pipeline::Config
 │   ├── src/history.rs           history.json（原子写、迁移、配额）

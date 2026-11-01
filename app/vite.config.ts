@@ -22,6 +22,7 @@ export default defineConfig({
       input: {
         main: resolve(root, "index.html"),
         overlay: resolve(root, "overlay.html"),
+        toast: resolve(root, "toast.html"),
       },
     },
   },

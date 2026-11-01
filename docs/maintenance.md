@@ -195,7 +195,7 @@ done
 
 ### 桌面端 / Windows Release
 
-- [ ] `cd app/src-tauri && cargo test`（70 tests）
+- [ ] `cd app/src-tauri && cargo test`（73 tests）
 - [ ] `cd app/src-tauri && cargo fmt -- --check && cargo clippy --all-targets -- -D warnings`
 - [ ] `cd app && pnpm test:run`（81 tests）与 `pnpm e2e`（8 cases）通过
 - [ ] `cd app && pnpm build` 通过
