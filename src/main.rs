@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 
 
-use ocr4code::engine::{llamacpp, tesseract};
+use ocr4code::engine::{llamacpp, tesseract, vision};
 use ocr4code::pipeline::{self, Config, EngineMode};
 use ocr4code::render::{self, Format};
 
@@ -121,6 +121,8 @@ enum EngineArg {
     Tesseract,
     #[value(name = "llamacpp")]
     LlamaCpp,
+    /// macOS only: Apple Vision fast engine
+    Vision,
 }
 
 fn main() {
@@ -144,6 +146,7 @@ fn ocr(args: OcrArgs) -> Result<()> {
             EngineArg::Mock => EngineMode::Mock,
             EngineArg::Tesseract => EngineMode::Tesseract,
             EngineArg::LlamaCpp => EngineMode::LlamaCpp,
+            EngineArg::Vision => EngineMode::Vision,
         },
         llama_url: args.llama_url.clone(),
         prompt: args.prompt.clone(),
@@ -274,6 +277,15 @@ fn doctor() -> Result<()> {
         println!("          --mmproj ~/models/GLM-OCR-GGUF/mmproj-GLM-OCR-Q8_0.gguf \\");
         println!("          --host 127.0.0.1 --port 8099 -ngl 99 -c 32768 -np 3");
         println!("      or set OCR4CODE_LLAMA_URL");
+    }
+
+    let vision_ok = vision::available();
+    println!(
+        "[{}] Apple Vision       (macOS fast engine, ~0.1 s/image)",
+        mark(vision_ok)
+    );
+    if !vision_ok {
+        println!("      {}", vision::unavailable_reason());
     }
 
     let tess_ok = tesseract::available();

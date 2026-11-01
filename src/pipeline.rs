@@ -31,6 +31,8 @@ pub enum EngineMode {
     #[serde(rename = "llamacpp")]
     LlamaCpp,
     Tesseract,
+    /// macOS only: Apple Vision, the fast engine (~0.1 s/image, docs §4.2).
+    Vision,
     /// Deterministic engine for tests and for checking the layout layer.
     Mock,
 }
@@ -115,6 +117,7 @@ impl Config {
                 lang: self.tess_lang.clone(),
                 psm: self.psm,
             },
+            EngineMode::Vision => Spec::Vision,
             EngineMode::LlamaCpp => Spec::LlamaCpp {
                 url: self.llama_url.clone().unwrap_or_else(llamacpp::default_url),
                 prompt: self
