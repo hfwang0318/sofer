@@ -69,6 +69,11 @@ jobs:
         working-directory: app
         run: pnpm build
 
+      # Vitest + jsdom cover the pure lib logic (history, readiness, defaults).
+      - name: Unit-test frontend logic
+        working-directory: app
+        run: pnpm test:run
+
       # The Tauri build script validates the platform resource path even for
       # `cargo test`, so the (gitignored) bundled runtime must exist.
       - name: Cache llama.cpp runtime
