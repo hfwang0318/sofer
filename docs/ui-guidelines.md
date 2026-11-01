@@ -189,6 +189,10 @@
 - 快捷键显示：macOS 用 `⌘ ⇧ ⌥`，Windows 用 `Ctrl Shift Alt`；
   统一走 `shortcutText()`，不要在组件里拼字符串。
 - 平台专属文案用 `isMac` 分支，不要写“如果系统要求…”。
+- 窗口外观：主窗口是透明无边框窗口，圆角和阴影来自 CSS `.app`。macOS 的原生
+  阴影默认按窗口矩形绘制，会在四个角露出直角黑线；`window_style::round_native_corners()`
+  把原生表面裁成同一圆角并让系统重算阴影。改 `.app` 的 `border-radius` 时同步改
+  `SURFACE_RADIUS`。
 
 ### 1.10 预览与验收
 
@@ -351,6 +355,7 @@ URL、`ssh` 命令或 `ssh -L`：
 | 应用状态与弹窗互斥 | `app/src/App.tsx` | 打开一个弹窗前先关掉另一个；事件回调里先关再开 |
 | 首启/权限弹窗 | `components/SetupDialog.tsx`、`PermissionDialog.tsx` | 复用焦点锁、关闭还原、分支重聚焦模式 |
 | 识别完成弹窗 | `app/src-tauri/src/toast.rs`、`app/src/toast/` | 只在后台成功时出现；单行、无交互；定位与尺寸是纯函数；窗口和 webview 两层背景都必须透明，胶囊外不画投影（会被窗口边界切平） |
+| 窗口原生圆角与阴影 | `app/src-tauri/src/window_style.rs` | macOS 原生阴影跟随 CSS 圆角，不按窗口矩形绘制 |
 | 错误分类与用户文案 | `app/src-tauri/src/capture/flow.rs` | Rust 文案同样遵守本规范；原始错误放 `raw` |
 | 设置分区与保存 | `views/SettingsView.tsx` | 新选项先归入五段之一，再决定是否折叠 |
 | 设计 token | `styles/tokens.css` | 不写裸色值、裸字号；用 `tone-*` 语义色 |

@@ -11,6 +11,7 @@ mod history;
 pub mod remote;
 mod settings;
 mod toast;
+mod window_style;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -100,6 +101,9 @@ fn save_settings(
     }
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.set_zoom(settings.ui_scale);
+        // AppKit calls must stay on the main thread; commands run on the pool.
+        let scale = settings.ui_scale;
+        let _ = app.run_on_main_thread(move || window_style::round_native_corners(&window, scale));
     }
     Ok(settings)
 }
@@ -782,7 +786,9 @@ pub fn run() {
                         eprintln!("window material: {err}");
                     }
                 }
-                let _ = window.set_zoom(loaded.ui_scale.clamp(1.0, 1.3));
+                let zoom = loaded.ui_scale.clamp(1.0, 1.3);
+                let _ = window.set_zoom(zoom);
+                window_style::round_native_corners(&window, zoom);
                 window.show()?;
             }
 

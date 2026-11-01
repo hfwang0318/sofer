@@ -5,6 +5,9 @@ All notable changes to the desktop app. The root OCR kernel keeps its own
 
 ## Unreleased
 
+- Window chrome: the macOS shadow now follows the main window's 16 px rounded
+  surface instead of the window rectangle, removing the four right-angle black
+  lines at the corners while keeping the shadow.
 - The completion toast clears the window and webview background layers
   explicitly and no longer gives the pill a drop shadow, which the window
   clipped into a straight-edged translucent rectangle. Only the pill is painted.
