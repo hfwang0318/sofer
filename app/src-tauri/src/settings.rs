@@ -229,6 +229,9 @@ impl Settings {
             join_wrap: self.join_wrap,
             keep_gutter: self.keep_gutter,
             format: self.format,
+            // The desktop UI has no encoding control; the kernel default (PNG)
+            // keeps the bytes sent to the model unchanged.
+            image_format: Default::default(),
             language: {
                 let lang = self.language.trim();
                 if lang.is_empty() {

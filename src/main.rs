@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 
 
-use ocr4code::engine::{llamacpp, tesseract};
+use ocr4code::engine::{llamacpp, tesseract, ImageFormat};
 use ocr4code::pipeline::{self, Config, EngineMode};
 use ocr4code::render::{self, Format};
 
@@ -50,6 +50,11 @@ struct OcrArgs {
     /// fence language for markdown output (default: guessed)
     #[arg(long)]
     lang: Option<String>,
+
+    /// encoding for images the pipeline has to encode itself (tiles): `png`,
+    /// `jpeg` or `jpeg:<1-100>`; whole images keep their original bytes
+    #[arg(long, default_value = "png", value_name = "png|jpeg[:QUALITY]")]
+    image_format: ImageFormat,
 
     /// write to a file instead of stdout
     #[arg(long, short)]
@@ -155,6 +160,7 @@ fn ocr(args: OcrArgs) -> Result<()> {
         join_wrap: args.join_wrap,
         keep_gutter: args.keep_gutter,
         format: args.format,
+        image_format: args.image_format,
         language: args.lang.clone(),
         jobs: args.jobs,
         mock_text: args.mock_text.clone(),

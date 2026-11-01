@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use base64::Engine as _;
 use serde_json::{json, Value};
 
-use super::{Engine, EngineOutput, RawLine};
+use super::{mime_for_path, Engine, EngineOutput, ImageFormat, ImageInput, RawLine};
 
 pub const DEFAULT_URL: &str = "http://127.0.0.1:8099";
 /// The prompt matters more than any other knob. Measured on bench/wide-table:
@@ -47,26 +47,9 @@ impl LlamaCpp {
             .map(|r| r.status() == 200)
             .unwrap_or(false)
     }
-}
 
-impl Engine for LlamaCpp {
-    fn name(&self) -> &str {
-        "llamacpp"
-    }
-
-    fn recognize(&self, image: &Path) -> Result<EngineOutput> {
-        let t0 = Instant::now();
-        let bytes = std::fs::read(image).with_context(|| format!("reading {}", image.display()))?;
-        let mime = match image
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_ascii_lowercase())
-            .as_deref()
-        {
-            Some("jpg") | Some("jpeg") => "image/jpeg",
-            Some("webp") => "image/webp",
-            _ => "image/png",
-        };
+    /// One chat completion for already-encoded image bytes.
+    fn send(&self, t0: Instant, bytes: &[u8], mime: &str) -> Result<EngineOutput> {
         let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
         let payload = json!({
             "messages": [{
@@ -111,5 +94,30 @@ impl Engine for LlamaCpp {
             lines,
             ms: t0.elapsed().as_millis() as u64,
         })
+    }
+}
+
+impl Engine for LlamaCpp {
+    fn name(&self) -> &str {
+        "llamacpp"
+    }
+
+    fn recognize(&self, image: &Path) -> Result<EngineOutput> {
+        let t0 = Instant::now();
+        let bytes = std::fs::read(image).with_context(|| format!("reading {}", image.display()))?;
+        self.send(t0, &bytes, mime_for_path(image))
+    }
+
+    /// Encode in memory and post — no temp file, no second read of the source.
+    fn recognize_image(&self, input: &ImageInput<'_>, format: ImageFormat) -> Result<EngineOutput> {
+        let t0 = Instant::now();
+        // PNG (the default) forwards the caller's original bytes untouched, so the
+        // request stays byte-identical to the path-based flow. An explicit JPEG
+        // request re-encodes from the decoded pixels.
+        if let (ImageFormat::Png, Some((bytes, mime))) = (format, input.source) {
+            return self.send(t0, bytes, mime);
+        }
+        let bytes = format.encode(input.image)?;
+        self.send(t0, &bytes, format.mime())
     }
 }

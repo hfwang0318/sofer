@@ -26,7 +26,7 @@ pub mod pool;
 pub mod render;
 pub mod tile;
 
-pub use engine::{Engine, EngineOutput, RawLine};
+pub use engine::{Engine, EngineOutput, ImageFormat, ImageInput, RawLine};
 pub use geom::{Band, Geometry, Rect};
 
 /// A finished line of text: content, indentation, and where it came from.
