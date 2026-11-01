@@ -71,6 +71,12 @@ export const SETUP_DISMISSED_KEY = "ocr4code.setup.dismissed";
 export const FIRST_CAPTURE_KEY = "ocr4code.onboarding.firstCapture";
 export const SETTINGS_KEY = "ocr4code.settings.v1";
 export const HISTORY_KEY = "ocr4code.history.v1";
+/**
+ * Set after the one-time import of `HISTORY_KEY` into the app-data store.
+ * `"1"` also means "the legacy copy was checked"; after this the WebView never
+ * reads `HISTORY_KEY` again.
+ */
+export const HISTORY_MIGRATED_KEY = "ocr4code.history.migrated.v1";
 
 const DEMO_TEXT = `async fn load_user(pool: &PgPool, id: UserId) -> Result<User> {
     let user = sqlx::query_as::<_, User>(
@@ -143,7 +149,10 @@ export const DEMO_RESULT: OcrResult = {
 };
 
 export const DEMO_HISTORY: HistoryEntry[] = [
-  historyEntry(42_000, DEMO_TEXT, "llamacpp(http://127.0.0.1:8099)", "rust", 864),
+  {
+    ...historyEntry(42_000, DEMO_TEXT, "llamacpp(http://127.0.0.1:8099)", "rust", 864),
+    thumbnail: DEMO_THUMB,
+  },
   historyEntry(
     8 * 60_000,
     `$ cargo test --workspace

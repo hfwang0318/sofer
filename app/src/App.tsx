@@ -41,7 +41,7 @@ import {
   modelTotalBytes,
   SETUP_DISMISSED_KEY,
 } from "./lib/defaults";
-import { fromResult, loadHistory, saveHistory } from "./lib/history";
+import { fromResult, hydrateHistory, loadHistory, saveHistory } from "./lib/history";
 import {
   checkForUpdate,
   downloadUpdate,
@@ -313,6 +313,32 @@ export default function App() {
       saveHistory(merged);
       return merged;
     });
+  }, []);
+
+  // Tauri keeps history in app-data; the first frame starts empty and this
+  // hydrates it once the disk read (and the one-time localStorage import)
+  // finishes. The browser preview already has its data synchronously.
+  useEffect(() => {
+    if (!isTauri) return;
+    let alive = true;
+    void hydrateHistory()
+      .then((entries) => {
+        if (!alive || entries.length === 0) return;
+        setHistory((current) => {
+          const limit = settingsRef.current.historyLimit || 20;
+          const known = new Set(current.map((entry) => entry.id));
+          return [
+            ...current,
+            ...entries.filter((entry) => !known.has(entry.id)),
+          ].slice(0, limit);
+        });
+      })
+      .catch((error: unknown) => {
+        console.warn(`读取历史失败：${String(error)}`);
+      });
+    return () => {
+      alive = false;
+    };
   }, []);
 
   // Load persisted settings and check the engine once.

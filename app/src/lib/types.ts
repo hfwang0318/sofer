@@ -213,6 +213,7 @@ export interface OcrError {
   code?: string | null;
 }
 
+/** Mirrors `HistoryEntry` in src-tauri/src/history.rs. */
 export interface HistoryEntry {
   id: string;
   text: string;
@@ -224,7 +225,11 @@ export interface HistoryEntry {
   format: string;
   chars: number;
   lines: number;
+  /** Dropped by the store when it exceeds the per-entry budget. */
+  thumbnail?: string | null;
   capturedAt: number;
+  /** Pinned entries are evicted last when the store is at its limit. */
+  pinned?: boolean;
 }
 
 export interface PhasePayload {

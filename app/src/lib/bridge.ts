@@ -4,7 +4,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import {
   DEFAULT_SETTINGS,
+  DEMO_HISTORY,
   DEMO_RESULT,
+  HISTORY_KEY,
   MODEL_LICENSE,
   modelName,
   modelTotalBytes,
@@ -15,6 +17,7 @@ import type {
   AppInfo,
   DownloadProgress,
   EngineStatus,
+  HistoryEntry,
   OcrError,
   OcrResult,
   PhasePayload,
@@ -596,6 +599,54 @@ export async function copyText(text: string): Promise<void> {
 
 export async function quitApp(): Promise<void> {
   if (isTauri) await invoke("quit_app");
+}
+
+// ---------------------------------------------------------------------------
+// History (app-data/history.json inside Tauri, localStorage in the preview)
+// ---------------------------------------------------------------------------
+
+/** Sync read for the preview's first frame; Tauri hydrates after mount. */
+export function previewHistory(): HistoryEntry[] {
+  if (isTauri) return [];
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed as HistoryEntry[];
+    }
+  } catch {
+    /* corrupted preview history is not worth recovering */
+  }
+  // The browser preview should not look like a brand-new install.
+  return DEMO_HISTORY.map((entry) => ({ ...entry }));
+}
+
+export async function loadHistoryFromDisk(): Promise<HistoryEntry[]> {
+  if (isTauri) return invoke<HistoryEntry[]>("load_history");
+  return previewHistory();
+}
+
+export async function saveHistoryToDisk(entries: HistoryEntry[]): Promise<void> {
+  if (isTauri) {
+    await invoke("save_history", { entries });
+    return;
+  }
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(entries));
+  } catch {
+    /* quota is not fatal: history is a convenience, not the product */
+  }
+}
+
+export async function migrateHistoryEntries(
+  legacy: HistoryEntry[],
+): Promise<HistoryEntry[]> {
+  if (isTauri) return invoke<HistoryEntry[]>("migrate_history", { legacy });
+  // The preview has a single store; only seed it while it is still empty so a
+  // second launch cannot duplicate the legacy copy.
+  if (localStorage.getItem(HISTORY_KEY)) return previewHistory();
+  await saveHistoryToDisk(legacy);
+  return legacy;
 }
 
 export type WindowAction = "minimize" | "hide" | "toggle-maximize";

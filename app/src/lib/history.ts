@@ -1,8 +1,67 @@
-import { DEMO_HISTORY, HISTORY_KEY } from "./defaults";
+import {
+  loadHistoryFromDisk,
+  migrateHistoryEntries,
+  previewHistory,
+  saveHistoryToDisk,
+} from "./bridge";
+import { HISTORY_KEY, HISTORY_MIGRATED_KEY } from "./defaults";
 import { isTauri } from "./platform";
 import type { HistoryEntry, OcrResult } from "./types";
 
+/**
+ * The synchronous first frame. Tauri reads `<app-data>/history.json`
+ * asynchronously, so it starts empty and `hydrateHistory` fills it after mount;
+ * the browser preview still reads localStorage synchronously.
+ */
 export function loadHistory(): HistoryEntry[] {
+  return isTauri ? [] : previewHistory();
+}
+
+/**
+ * Read the persisted history once, importing the legacy `localStorage` copy the
+ * first time the disk store is empty. The import runs at most once: the marker
+ * is kept in localStorage and the store records `migrated` in the file, so
+ * neither a cache wipe nor clearing history can bring the old copy back.
+ */
+export async function hydrateHistory(): Promise<HistoryEntry[]> {
+  if (!isTauri) return previewHistory();
+  const disk = await loadHistoryFromDisk();
+  if (disk.length > 0) return disk;
+  if (migratedAlready()) return disk;
+
+  const legacy = readLegacyHistory();
+  if (legacy.length > 0) {
+    try {
+      const imported = await migrateHistoryEntries(legacy);
+      markMigrated();
+      return imported;
+    } catch (error: unknown) {
+      // Keep the legacy copy so the next launch can retry the import.
+      console.warn(`历史迁移失败：${errorMessage(error)}`);
+      return disk;
+    }
+  }
+  markMigrated();
+  return disk;
+}
+
+/**
+ * Persist history and resolve with a readable message when the write fails.
+ * Callers may ignore the promise; the in-memory list stays authoritative, so a
+ * failed write never clears what the user can still copy.
+ */
+export function saveHistory(entries: HistoryEntry[]): Promise<string | null> {
+  return saveHistoryToDisk(entries).then(
+    () => null,
+    (error: unknown) => {
+      const message = errorMessage(error);
+      console.warn(`保存历史失败：${message}`);
+      return message;
+    },
+  );
+}
+
+function readLegacyHistory(): HistoryEntry[] {
   try {
     const raw = localStorage.getItem(HISTORY_KEY);
     if (raw) {
@@ -12,16 +71,30 @@ export function loadHistory(): HistoryEntry[] {
   } catch {
     /* corrupted history is not worth recovering */
   }
-  // The browser preview should not look like a brand-new install.
-  return isTauri ? [] : DEMO_HISTORY;
+  return [];
 }
 
-export function saveHistory(entries: HistoryEntry[]): void {
+function migratedAlready(): boolean {
   try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(entries));
+    return localStorage.getItem(HISTORY_MIGRATED_KEY) !== null;
   } catch {
-    /* quota is not fatal: history is a convenience, not the product */
+    return false;
   }
+}
+
+function markMigrated(): void {
+  try {
+    localStorage.setItem(HISTORY_MIGRATED_KEY, "1");
+  } catch {
+    /* an unavailable localStorage only costs a repeat check on next launch */
+  }
+}
+
+/** Tauri rejects commands with the plain string returned from Rust. */
+function errorMessage(error: unknown): string {
+  if (typeof error === "string") return error;
+  if (error instanceof Error) return error.message;
+  return String(error);
 }
 
 export function fromResult(result: OcrResult): HistoryEntry {
@@ -36,6 +109,7 @@ export function fromResult(result: OcrResult): HistoryEntry {
     format: result.format,
     chars: result.chars,
     lines: result.lines,
+    thumbnail: result.thumbnail,
     capturedAt: result.capturedAt,
   };
 }
