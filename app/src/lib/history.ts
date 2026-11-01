@@ -240,9 +240,10 @@ export function filterHistory(entries: HistoryEntry[], query: string): HistoryEn
 export function relativeTime(timestamp: number): string {
   const delta = Date.now() - timestamp;
   if (delta < 45_000) return "刚刚";
-  // Floor, not round: 59.5 minutes must not render as "60 分钟前".
-  const minutes = Math.floor(delta / 60_000);
-  if (minutes < 60) return `${Math.max(1, minutes)} 分钟前`;
+  // Clamp instead of letting 59.5 minutes round up to "60 分钟前"; just past
+  // the hour the clock time takes over anyway.
+  const minutes = Math.min(59, Math.round(delta / 60_000));
+  if (delta < 3_600_000) return `${Math.max(1, minutes)} 分钟前`;
   const date = new Date(timestamp);
   const now = new Date();
   const sameDay =

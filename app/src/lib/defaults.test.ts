@@ -47,7 +47,8 @@ const SETTINGS_KEYS: Array<keyof Settings> = [
   "remoteAutoStart",
   "engine",
   "llamaUrl",
-  "prompt",
+  "promptPreset",
+  "customPrompt",
   "maxTokens",
   "tessLang",
   "psm",
@@ -96,8 +97,8 @@ describe("DEFAULT_SETTINGS", () => {
     expect(DEFAULT_SETTINGS.llamaUrl).toBe("http://127.0.0.1:8099");
   });
 
-  it("ships a non-empty default prompt", () => {
-    expect(DEFAULT_SETTINGS.prompt).toBe(DEFAULT_PROMPT);
+  it("ships a non-empty default prompt preset", () => {
+    expect(DEFAULT_SETTINGS.promptPreset).toBe("code");
     expect(DEFAULT_PROMPT.length).toBeGreaterThan(0);
   });
 });

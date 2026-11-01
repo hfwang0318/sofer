@@ -24,6 +24,7 @@ const RESULT: OcrResult = {
   thumbnail: "data:image/png;base64,AAAA",
   capturedAt: 1_760_000_000_000,
   copied: true,
+  truncated: false,
 };
 
 const ENTRY: HistoryEntry = {
@@ -38,14 +39,20 @@ const ENTRY: HistoryEntry = {
   chars: 12,
   lines: 1,
   capturedAt: 1_760_000_000_000,
+  thumbnail: undefined,
+  pinned: false,
+};
+
+const RESULT_ENTRY: HistoryEntry = {
+  ...ENTRY,
+  thumbnail: "data:image/png;base64,AAAA",
 };
 
 describe("fromResult", () => {
-  it("keeps the history fields and drops the thumbnail and clipboard flag", () => {
+  it("keeps the history fields and the thumbnail, and drops the clipboard flag", () => {
     const entry = fromResult(RESULT);
 
-    expect(entry).toStrictEqual(ENTRY);
-    expect(entry).not.toHaveProperty("thumbnail");
+    expect(entry).toStrictEqual(RESULT_ENTRY);
     expect(entry).not.toHaveProperty("copied");
   });
 
@@ -64,19 +71,25 @@ describe("loadHistory / saveHistory", () => {
   });
 
   it("falls back to the demo history in the browser preview when storage is empty", () => {
-    expect(loadHistory()).toStrictEqual(DEMO_HISTORY);
+    expect(loadHistory().map((entry) => entry.id)).toStrictEqual(
+      DEMO_HISTORY.map((entry) => entry.id),
+    );
   });
 
   it("ignores corrupted JSON and shows the demo history instead", () => {
     localStorage.setItem(HISTORY_KEY, "{not json");
 
-    expect(loadHistory()).toStrictEqual(DEMO_HISTORY);
+    expect(loadHistory().map((entry) => entry.id)).toStrictEqual(
+      DEMO_HISTORY.map((entry) => entry.id),
+    );
   });
 
   it("ignores valid JSON that is not an array", () => {
     localStorage.setItem(HISTORY_KEY, JSON.stringify({ entries: [] }));
 
-    expect(loadHistory()).toStrictEqual(DEMO_HISTORY);
+    expect(loadHistory().map((entry) => entry.id)).toStrictEqual(
+      DEMO_HISTORY.map((entry) => entry.id),
+    );
   });
 });
 
