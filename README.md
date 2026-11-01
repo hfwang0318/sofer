@@ -3,7 +3,7 @@
 把**代码截图 / 终端输出 / 报错堆栈**转成能直接粘回去的文本。默认离线运行，macOS + Windows；
 也可以把模型一键部署到自己的 Linux 服务器，用 SSH 隧道识别（可选，适合本机内存紧张）。
 
-> **首个正式版安装包（Windows / macOS Apple Silicon）**：[GitHub Releases](https://github.com/hfwang0318/sofer/releases/tag/v1.0.0)
+> **安装包（Windows / macOS Apple Silicon）**：[GitHub Releases](https://github.com/hfwang0318/sofer/releases/tag/v1.0.0)
 > —— 首次启动在应用内下载模型（默认低精度 1.03 GB，可在设置切换高精度 1.43 GB）；安装器自带 llama.cpp 运行时，无需另装。
 
 > 一句话架构：**文本由本地 VLM 给，版面由纯 CV 给**。缩进和列对齐从像素算，不依赖任何单平台的 OCR API，

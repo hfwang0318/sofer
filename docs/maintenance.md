@@ -28,7 +28,7 @@ bench/
   results/           基线产物（**生成物**）
 docs/                选型报告 / 基线 / 内存实测 / UI 规范 / 本手册
 app/                 Tauri + React 桌面壳（见 app/README.md）
-CHANGELOG.md         桌面端 v0.1.0–v0.1.11 变更记录
+CHANGELOG.md         桌面端变更记录
 ```
 
 真机截图的采集方法见 [bench/tools/real_capture/README.md](../bench/tools/real_capture/README.md)。

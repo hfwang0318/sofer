@@ -10,7 +10,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 安装包自带推理运行时；首次启动只需点一次「下载并配置」，应用会自动下载模型、
 校验 SHA-256、启动引擎。之后完全离线。
 
-> 首个正式版安装包（Windows / macOS Apple Silicon）：
+> 安装包（Windows / macOS Apple Silicon）：
 > <https://github.com/hfwang0318/sofer/releases/tag/v1.0.0>
 > 由 GitHub Actions 的 `windows-latest` 构建 NSIS 安装器、`macos-14` 构建 arm64 DMG；
 > 版本记录见 [../CHANGELOG.md](../CHANGELOG.md)。
