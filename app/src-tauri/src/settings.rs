@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use tauri::{AppHandle, Manager};
 
 use crate::engine::{
@@ -15,6 +15,77 @@ use crate::remote::{self, Accel, RemoteConfig, Source};
 use ocr4code::engine::llamacpp;
 use ocr4code::pipeline::{Config, EngineMode};
 use ocr4code::render::Format;
+
+/// Longest custom prompt we persist. The built-in presets are far shorter; this
+/// only stops a pasted document from bloating every request.
+pub const MAX_PROMPT_CHARS: usize = 2000;
+
+/// Prompt presets offered in Settings → OCR. `Code` is the default and is
+/// byte-for-byte identical to the engine's `DEFAULT_PROMPT`, so an untouched
+/// install recognizes exactly as before.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum PromptPreset {
+    #[default]
+    Code,
+    Terminal,
+    Table,
+    Formula,
+    Custom,
+}
+
+pub const TERMINAL_PROMPT: &str = "OCR: transcribe the terminal output exactly as shown, \
+one line for each output line, keeping every symbol and all indentation.";
+pub const TABLE_PROMPT: &str = "OCR: transcribe the table row by row, one row per line, \
+keeping every cell in its original column order.";
+pub const FORMULA_PROMPT: &str = "OCR: transcribe the text exactly as shown and write math \
+formulas in LaTeX, keeping their place in the surrounding text.";
+
+impl PromptPreset {
+    pub fn from_id(id: &str) -> Option<Self> {
+        match id {
+            "code" => Some(Self::Code),
+            "terminal" => Some(Self::Terminal),
+            "table" => Some(Self::Table),
+            "formula" => Some(Self::Formula),
+            "custom" => Some(Self::Custom),
+            _ => None,
+        }
+    }
+
+    /// The text sent to the engine for this preset. `Custom` falls back to the
+    /// default prompt while the custom text is empty, so an incomplete draft
+    /// never sends an empty prompt.
+    pub fn prompt(self, custom: &str) -> &str {
+        match self {
+            Self::Code => llamacpp::DEFAULT_PROMPT,
+            Self::Terminal => TERMINAL_PROMPT,
+            Self::Table => TABLE_PROMPT,
+            Self::Formula => FORMULA_PROMPT,
+            Self::Custom => {
+                let custom = custom.trim();
+                if custom.is_empty() {
+                    llamacpp::DEFAULT_PROMPT
+                } else {
+                    custom
+                }
+            }
+        }
+    }
+}
+
+/// Unknown ids (hand-edited files, future presets) silently fall back to the
+/// default instead of rejecting the whole settings file.
+fn deserialize_prompt_preset<'de, D>(deserializer: D) -> Result<PromptPreset, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = Option::<String>::deserialize(deserializer)?;
+    Ok(raw
+        .as_deref()
+        .and_then(PromptPreset::from_id)
+        .unwrap_or_default())
+}
 
 /// Everything the desktop layer owns. Kernel knobs are kept in the same object so
 /// there is exactly one settings file and one save path.
@@ -61,7 +132,10 @@ pub struct Settings {
     // kernel: engine
     pub engine: EngineMode,
     pub llama_url: String,
-    pub prompt: String,
+    /// Prompt preset id; `Custom` reads `custom_prompt`.
+    #[serde(deserialize_with = "deserialize_prompt_preset")]
+    pub prompt_preset: PromptPreset,
+    pub custom_prompt: String,
     pub max_tokens: u32,
     pub tess_lang: String,
     pub psm: u32,
@@ -109,7 +183,8 @@ impl Default for Settings {
             remote_auto_start: true,
             engine: EngineMode::Auto,
             llama_url: llamacpp::default_url(),
-            prompt: llamacpp::DEFAULT_PROMPT.into(),
+            prompt_preset: PromptPreset::Code,
+            custom_prompt: String::new(),
             max_tokens: 3072,
             tess_lang: "eng".into(),
             psm: 6,
@@ -214,13 +289,18 @@ impl Settings {
         )
     }
 
+    /// Effective prompt sent to the engine, derived from the preset.
+    pub fn prompt(&self) -> &str {
+        self.prompt_preset.prompt(&self.custom_prompt)
+    }
+
     /// Map app settings onto the kernel config. `language` is an empty string in
     /// the UI when the fence language should be guessed.
     pub fn config(&self) -> Config {
         Config {
             engine: self.engine,
             llama_url: Some(self.llama_url.clone()),
-            prompt: Some(self.prompt.clone()),
+            prompt: Some(self.prompt().to_string()),
             max_tokens: self.max_tokens,
             tile: self.tile,
             tess_lang: self.tess_lang.clone(),
@@ -328,6 +408,27 @@ fn migrate_legacy(value: &mut serde_json::Value) {
             object.insert("useMirror".into(), serde_json::Value::Bool(true));
         }
     }
+
+    // Older files stored one free-text `prompt`. Keep non-default text as the
+    // custom preset; the default text simply maps to the `code` preset.
+    if !object.contains_key("promptPreset") {
+        let legacy = object
+            .get("prompt")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && *value != llamacpp::DEFAULT_PROMPT)
+            .map(str::to_string);
+        if let Some(prompt) = legacy {
+            object.insert(
+                "promptPreset".into(),
+                serde_json::Value::String("custom".into()),
+            );
+            if !object.contains_key("customPrompt") {
+                object.insert("customPrompt".into(), serde_json::Value::String(prompt));
+            }
+        }
+    }
+    object.remove("prompt");
 }
 
 pub fn save(app: &AppHandle, settings: &Settings) -> Result<(), String> {
@@ -369,6 +470,17 @@ pub fn validate(settings: &Settings) -> Result<(), String> {
     }
     if settings.jobs == 0 || settings.jobs > 8 {
         return Err("并行识别数应在 1 到 8 之间。".into());
+    }
+    // Prompts only reach the model engines; tesseract-mode saves skip these,
+    // matching the UI, which hides the prompt fields in that mode.
+    if settings.engine != EngineMode::Tesseract {
+        let custom_prompt = settings.custom_prompt.trim();
+        if custom_prompt.chars().count() > MAX_PROMPT_CHARS {
+            return Err(format!("自定义提示词不能超过 {MAX_PROMPT_CHARS} 个字符。"));
+        }
+        if settings.prompt_preset == PromptPreset::Custom && custom_prompt.is_empty() {
+            return Err("自定义提示词不能为空。".into());
+        }
     }
     if settings.idle_sleep_secs != 0
         && !(60..=3600).contains(&settings.idle_sleep_secs)
@@ -542,6 +654,75 @@ mod tests {
     }
 
     #[test]
+    fn default_prompt_preset_equals_the_engine_prompt() {
+        let settings = Settings::default();
+        assert_eq!(settings.prompt_preset, PromptPreset::Code);
+        assert_eq!(settings.prompt(), llamacpp::DEFAULT_PROMPT);
+        assert_eq!(
+            settings.config().prompt.as_deref(),
+            Some(llamacpp::DEFAULT_PROMPT)
+        );
+    }
+
+    #[test]
+    fn unknown_prompt_preset_falls_back_to_the_default() {
+        for raw in [
+            r#"{"promptPreset":"from-the-future"}"#,
+            r#"{"promptPreset":null}"#,
+        ] {
+            let settings = parse(raw).unwrap();
+            assert_eq!(settings.prompt_preset, PromptPreset::Code, "{raw}");
+            assert_eq!(settings.prompt(), llamacpp::DEFAULT_PROMPT);
+        }
+    }
+
+    #[test]
+    fn legacy_free_text_prompt_becomes_the_custom_preset() {
+        let settings = parse(
+            r#"{
+                "shortcut":"CommandOrControl+Shift+2",
+                "prompt":"OCR: keep the diff markers and indentation."
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(settings.prompt_preset, PromptPreset::Custom);
+        assert_eq!(
+            settings.custom_prompt,
+            "OCR: keep the diff markers and indentation."
+        );
+        assert_eq!(
+            settings.prompt(),
+            "OCR: keep the diff markers and indentation."
+        );
+
+        // The old default prompt maps back to the `code` preset, not custom.
+        let defaulted = parse(&format!(
+            r#"{{"prompt":{}}}"#,
+            serde_json::to_string(llamacpp::DEFAULT_PROMPT).unwrap()
+        ))
+        .unwrap();
+        assert_eq!(defaulted.prompt_preset, PromptPreset::Code);
+        assert_eq!(defaulted.prompt(), llamacpp::DEFAULT_PROMPT);
+    }
+
+    #[test]
+    fn custom_prompt_length_is_limited() {
+        let mut settings = Settings::default();
+        settings.prompt_preset = PromptPreset::Custom;
+        settings.custom_prompt = "x".repeat(MAX_PROMPT_CHARS);
+        validate(&settings).unwrap();
+
+        settings.custom_prompt.push('x');
+        let error = validate(&settings).unwrap_err();
+        assert!(error.contains(&MAX_PROMPT_CHARS.to_string()));
+
+        settings.custom_prompt.clear();
+        assert!(validate(&settings).is_err(), "empty custom prompt is rejected");
+        settings.engine = EngineMode::Tesseract;
+        validate(&settings).unwrap();
+    }
+
+    #[test]
     fn settings_round_trip_as_camel_case() {
         let settings = Settings::default();
         let json = serde_json::to_string(&settings).unwrap();
@@ -557,6 +738,9 @@ mod tests {
         assert!(json.contains("\"modelQuality\""));
         assert!(json.contains("\"idleSleepSecs\""));
         assert!(json.contains("\"kvCacheQuant\""));
+        assert!(json.contains("\"promptPreset\":\"code\""));
+        assert!(json.contains("\"customPrompt\""));
+        assert_eq!(parsed.prompt_preset, settings.prompt_preset);
         assert_eq!(parsed.shortcut, settings.shortcut);
         assert_eq!(parsed.model_quality, settings.model_quality);
         assert_eq!(parsed.engine, settings.engine);

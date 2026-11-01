@@ -834,6 +834,19 @@
   color: var(--text);
 }
 
+/* Five prompt presets need to wrap on the 900 px window without clipping. */
+.preset-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.preset-group .segmented {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
 .field-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

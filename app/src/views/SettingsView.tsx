@@ -3,7 +3,13 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Icon } from "../components/Icon";
 import { Keycaps, Segmented, SettingRow, ShortcutRecorder, Switch } from "../components/Controls";
 import { RemotePanel } from "../components/RemotePanel";
-import { DEFAULT_PROMPT, DEFAULT_SETTINGS } from "../lib/defaults";
+import {
+  DEFAULT_PROMPT,
+  DEFAULT_SETTINGS,
+  MAX_PROMPT_CHARS,
+  PROMPT_PRESETS,
+  promptPresetOf,
+} from "../lib/defaults";
 import { llamaSlots, perSlotCtx, totalCtx } from "../lib/llamaPlan";
 import { engineForMode } from "../lib/status";
 import { setShortcutEnabled } from "../lib/bridge";
@@ -445,6 +451,7 @@ export function SettingsView({
 
   const dirty = !sameSettings(draft, baseline);
   const engine = engineForMode(status, draft.engine);
+  const activePreset = promptPresetOf(draft.promptPreset);
   const slots = llamaSlots(draft.jobs);
   const slotCtx = perSlotCtx(draft.maxTokens);
   const context = totalCtx(draft.jobs, draft.maxTokens);
@@ -478,7 +485,13 @@ export function SettingsView({
       : !draft.proxyUsername && draft.proxyPassword
         ? "先填用户名。"
         : null;
-  const promptError = draft.prompt.trim() ? null : "提示词不能为空。";
+  const customPromptText = draft.customPrompt.trim();
+  const promptError =
+    Array.from(customPromptText).length > MAX_PROMPT_CHARS
+      ? `自定义提示词不能超过 ${MAX_PROMPT_CHARS} 个字符。`
+      : draft.promptPreset === "custom" && !customPromptText
+        ? "自定义提示词不能为空。"
+        : null;
   const langError = draft.tessLang.trim() ? null : "例如 eng 或 eng+chi_sim。";
   const fenceError =
     draft.language.trim() && !/^[a-zA-Z0-9+#._-]*$/.test(draft.language.trim())
@@ -757,6 +770,26 @@ export function SettingsView({
               onSave={onSave}
               onNotify={onNotify}
             />
+          )}
+          {draft.engine !== "tesseract" && (
+            <SettingRow
+              title="识别预设"
+              description="按截图类型选择提示词，只影响 OCR 引擎怎么读图，不改变引擎。"
+              stack
+            >
+              <div className="preset-group">
+                <Segmented
+                  label="识别预设"
+                  value={draft.promptPreset}
+                  onChange={(promptPreset) => update("promptPreset", promptPreset)}
+                  options={PROMPT_PRESETS.map(({ value, label }) => ({
+                    value,
+                    label,
+                  }))}
+                />
+                <span className="field-hint">{activePreset.description}</span>
+              </div>
+            </SettingRow>
           )}
           <SettingRow
             title="模型精度"
@@ -1038,28 +1071,43 @@ export function SettingsView({
                   </Field>
 
                   <Field
-                    label="提示词"
+                    label="自定义提示词"
                     error={promptError}
-                    hint="影响版面保留程度。默认值已按常见代码截图调过。"
+                    hint={
+                      draft.promptPreset === "custom"
+                        ? "当前使用这一提示词。"
+                        : "在 OCR → 识别预设里选择「自定义」后才用于识别。"
+                    }
                     full
                     action={
-                      <button
-                        type="button"
-                        className="link-btn"
-                        onClick={() => update("prompt", DEFAULT_PROMPT)}
-                      >
-                        恢复默认
-                      </button>
+                      draft.promptPreset === "custom" ? (
+                        <button
+                          type="button"
+                          className="link-btn"
+                          onClick={() => update("customPrompt", DEFAULT_PROMPT)}
+                        >
+                          填入默认文案
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="link-btn"
+                          onClick={() => update("promptPreset", "custom")}
+                        >
+                          使用自定义
+                        </button>
+                      )
                     }
                   >
                     <textarea
                       className="input textarea mono"
                       rows={3}
-                      value={draft.prompt}
+                      value={draft.customPrompt}
+                      placeholder={DEFAULT_PROMPT}
                       spellCheck={false}
-                      aria-label="模型提示词"
+                      aria-label="自定义提示词"
                       aria-invalid={Boolean(promptError)}
-                      onChange={(event) => update("prompt", event.target.value)}
+                      onChange={(event) => update("customPrompt", event.target.value)}
                     />
                   </Field>
 
