@@ -53,7 +53,9 @@ guide in the same change and explain why. Do not silently diverge.
 ### Kernel / CLI (from repo root)
 
 ```bash
-cargo test                                   # unit + golden integration tests
+cargo test                                   # 53 unit + 9 boxdraw + 10 CLI + 5 golden
+cargo fmt --all -- --check                   # formatting gate
+cargo clippy --all-targets -- -D warnings    # warnings are errors
 cargo test --test golden                     # integration tests only
 cargo test --test golden gutter_is_detected_and_model_spacing_kept
 cargo test repair::                          # any test name/module filter
@@ -80,6 +82,8 @@ pnpm install
 pnpm dev                    # browser preview, mock backend, no model needed
 pnpm typecheck              # tsc --noEmit (strict + noUnused*)
 pnpm build                  # typecheck + Vite production build
+pnpm test:run               # vitest + jsdom (81 tests, pure lib logic)
+pnpm e2e                    # Playwright browser-preview flows (8 cases)
 
 pnpm tauri dev              # Vite + native window
 pnpm tauri build --no-bundle  # local executable; no updater signing key
@@ -99,6 +103,8 @@ Desktop backend tests and probes:
 
 ```bash
 cargo test --manifest-path app/src-tauri/Cargo.toml
+cargo fmt --manifest-path app/src-tauri/Cargo.toml -- --check
+cargo clippy --manifest-path app/src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path app/src-tauri/Cargo.toml capture::tests
 cargo test --manifest-path app/src-tauri/Cargo.toml engine::tests::sha256_matches_a_known_value
 cargo check --manifest-path app/src-tauri/Cargo.toml
@@ -123,14 +129,19 @@ conflict, app restart) are listed in `app/README.md`.
 Full check before shipping a change that touches both crates:
 
 ```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
 cargo test
+cargo fmt --manifest-path app/src-tauri/Cargo.toml -- --check
+cargo clippy --manifest-path app/src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path app/src-tauri/Cargo.toml
-cd app && pnpm build
+cd app && pnpm build && pnpm test:run && pnpm e2e
+python3 scripts/check-versions.py
 ```
 
-No ESLint/Prettier/rustfmt/clippy configuration is checked in; `pnpm build`
-(strict TypeScript) is the only frontend static gate. Do not claim a lint gate
-that does not exist.
+There is no ESLint/Prettier config; rustfmt, clippy (warnings as errors), strict
+TypeScript, vitest and the Playwright preview suite are the static/regression
+gates. `scripts/check-versions.py` keeps the three version files in sync.
 
 ### Browser preview
 
@@ -150,7 +161,7 @@ signing must still be verified in a native build.
 ### Kernel pipeline
 
 ```text
-image ─► engine (llamacpp / tesseract / mock) ─► text lines (bbox optional)
+image ─► engine (llamacpp / vision / tesseract / mock) ─► text lines (bbox optional)
       └► geom (ink mask, row bands, x0/x1, advance) ─► tile when over budget
                                                          │
               assemble (pairing, gutter, DP alignment, soft wrap) ◄─┘
@@ -174,7 +185,11 @@ indentation responsibility into an engine.
   gaps, soft-wrap joining.
 - `src/repair.rs` / `src/lang.rs` / `src/render.rs` — text repair, fence-language
   guessing, output formats.
-- `src/engine/` — `llamacpp` (primary), `tesseract` (fallback), `mock` (tests).
+- `src/engine/` — `llamacpp` (primary), `vision` (macOS fast tier, Swift shim
+  compiled by `build.rs`), `tesseract` (fallback), `mock` (tests).
+- `src/boxdraw.rs` — opt-in `--box-art`: reconstructs tree/table rules from the
+  ink mask. Default off; it only rewrites leading decoration.
+- `src/cli_input.rs` — stdin, `--region` crops and directory expansion.
 
 Kernel change guardrails (details in [docs/maintenance.md](docs/maintenance.md)):
 
@@ -183,7 +198,8 @@ Kernel change guardrails (details in [docs/maintenance.md](docs/maintenance.md))
 - Tiling may only cut at blank space between text lines and must stitch by band
   index, not by text matching. `huge-4k` is the tiling regression scene.
 - `--jobs` is a global semaphore budget shared by image-level and tile-level
-  work; tile temp filenames must stay unique per process.
+  work; temp image filenames (only engines that need a file) must stay unique
+  per process. Tiles are encoded in memory, not written to disk.
 - Changing the default prompt or model requires rerunning the full baseline;
   `docs/baseline.md` and README numbers are maintained by hand from
   `bench/results/baseline-*.md`.
@@ -191,16 +207,24 @@ Kernel change guardrails (details in [docs/maintenance.md](docs/maintenance.md))
 ### Desktop request flow
 
 ```text
-global shortcut / tray / Capture button
-  └─ capture::start (returns immediately; busy+cancel flags)
-      └─ OS region selection → temp PNG → permission/blank guards
-          └─ engine::Manager::ensure_ready (external server → bundled server → tesseract)
-              └─ ocr4code::pipeline::recognize (same code as CLI)
-                  └─ render → clipboard → Tauri events → React
+shortcut / tray / Capture button / dropped file / clipboard image
+  └─ capture::start_* (returns immediately; one busy+cancel flag)
+      └─ region selection (or the given file) → temp PNG → permission/blank guards
+          └─ optional fast preview: Apple Vision → ocr:partial
+              └─ engine::Manager::ensure_ready (external → bundled → tesseract)
+                  └─ ocr4code::pipeline::recognize_streaming (same code as CLI)
+                      └─ render → clipboard → ocr:result → React
 ```
 
 - `capture::start` is non-blocking and runs on a thread; a second trigger while
-  capture is busy sets the cancel flag instead of stacking overlays.
+  capture is busy sets the cancel flag instead of stacking overlays. Dropped
+  files and clipboard images go through the same `process_capture` path.
+- After `ensure_ready`, the config is pinned to the engine that answered. Do not
+  let `auto` health-check it again: a transient failure used to fall back to
+  tesseract silently. A truncated result keeps its screenshot as `retry.png`
+  for the chunked `retry_capture` path.
+- macOS fast preview (`fastPreview`) runs one Vision pass before the model and
+  emits `ocr:partial { preview: true }`; it is never copied or stored.
 - macOS uses `screencapture -i` and CoreGraphics permission preflight. Windows
   uses a self-drawn Tauri overlay plus GDI (`capture/win.rs`), so it needs no
   screen-recording permission.
@@ -223,9 +247,10 @@ global shortcut / tray / Capture button
 - `lib/bridge.ts` wraps every `invoke`/`listen` and provides a mock implementation
   for browser preview. Any new command or event needs a mock branch and demo
   data, otherwise `pnpm dev` breaks.
-- Tauri events: `ocr:phase`, `ocr:result`, `ocr:error`, `engine:download`,
-  `engine:state`. Payload structs use serde `camelCase`; `lib/types.ts` mirrors
-  Rust structs by hand. Keep both sides in sync.
+- Tauri events: `ocr:phase`, `ocr:partial`, `ocr:result`, `ocr:error`,
+  `ocr:drag`, `ocr:drop`, `engine:download`, `engine:state`, `remote:*`.
+  Payload structs use serde `camelCase`; `lib/types.ts` mirrors Rust structs by
+  hand. Keep both sides in sync.
 - The overlay is a separate Vite entry and Tauri window; it talks to
   `overlay_info` / `overlay_finish` / `overlay_cancel` in `capture.rs`.
 
@@ -258,7 +283,7 @@ Version must stay in sync in `app/package.json`, `app/src-tauri/Cargo.toml` and
 | Settings | macOS `~/Library/Application Support/com.ocr4code.desktop/settings.json`; Windows `%APPDATA%\com.ocr4code.desktop\settings.json` |
 | Models | app-data `models/glm-ocr/` (`*.part` is resumable) |
 | Server log | macOS `~/Library/Logs/com.ocr4code.desktop/llama-server.log`; Windows `%LOCALAPPDATA%\com.ocr4code.desktop\logs\llama-server.log` |
-| History | WebView `localStorage` key `ocr4code.history.v1` (text + metadata only) |
+| History | app-data `history.json` (atomic writes; the old `ocr4code.history.v1` localStorage is migrated once) |
 | Temp screenshots | OS cache dir, deleted after success/cancel |
 
 ## Documentation index

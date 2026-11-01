@@ -62,7 +62,7 @@ CHANGELOG.md         桌面端 v0.1.0–v0.1.10 变更记录
 
 **必须同时验证三样东西**，缺一不可：
 
-1. `cargo test`（34 单元 + 5 集成）
+1. `cargo test`（53 单元 + 24 集成）
 2. **合成场景的 mock 基线**：26 个场景 `indent_exact` 应 ≈ 1.00
 3. **两张真机截图**（`real-editor-code` / `real-editor-term`）：同样是 1.00
 
@@ -96,8 +96,9 @@ OCR4CODE_DEBUG=1 ocr4code ocr shot.png --engine mock --mock-text-file truth.txt 
 
 - `pool::map` 保证**输出顺序 = 输入顺序**（结果写回各自下标的槽位，不靠排序）。
 - `jobs = 1` 走内联路径，完全不建线程——默认行为和加并发之前一模一样。
-- **切块的临时文件名必须唯一**：`ocr4code-tile-{pid}-{序号}-{k}.png`。只带 pid 会在
-  `--jobs > 1` 时同进程内互相覆盖（曾经就是这么写的）。
+- **临时图像文件名必须唯一**：需要落盘的引擎（tesseract）使用
+  `ocr4code-input-{pid}-{序号}.{ext}`。只带 pid 会在 `--jobs > 1` 时同进程内互相覆盖
+  （曾经就是这么写的）。切块不再落盘：`Engine::recognize_image` 直接接收内存像素。
 - `Engine` trait 带 `Send + Sync` 约束。加新引擎时不要往里面塞 `Rc` / `Cell`。
 - 并发数不是越大越好：llama-server 默认 4 个 slot，实测 6 张图 jobs=3（3.04 s）比 jobs=6（3.44 s）快。
   调 slot 数用 `-np`，同时注意 `-c` 会被 slot 平分。
@@ -184,7 +185,8 @@ done
 
 ### 根 crate
 
-- [ ] `cargo test`（34 unit + 5 integration）
+- [ ] `cargo test`（53 unit + 24 integration）
+- [ ] `cargo fmt --all -- --check` 与 `cargo clippy --all-targets -- -D warnings` 通过
 - [ ] `cargo build --release` 无 warning
 - [ ] 四个变体基线跑完，达到 §5 的判据
 - [ ] `huge-4k` 手工 smoke（`--stats` 看 `tiling:` 与 `warning:`）
@@ -193,8 +195,11 @@ done
 
 ### 桌面端 / Windows Release
 
-- [ ] `cd app/src-tauri && cargo test`（39 tests）
+- [ ] `cd app/src-tauri && cargo test`（70 tests）
+- [ ] `cd app/src-tauri && cargo fmt -- --check && cargo clippy --all-targets -- -D warnings`
+- [ ] `cd app && pnpm test:run`（81 tests）与 `pnpm e2e`（8 cases）通过
 - [ ] `cd app && pnpm build` 通过
+- [ ] `python3 scripts/check-versions.py` 通过
 - [ ] `app/scripts/test-remote.sh`（Docker，约 2–3 分钟；会下载 1 GB 模型）
 - [ ] 远程手工用例：取消续传、损坏恢复、非 Linux 拒绝、隧道端口冲突
       （步骤见 [app/README.md](../app/README.md) 的「本地 Docker 联调」）
@@ -240,10 +245,11 @@ done
 
 | 项 | 说明 | 影响 |
 |---|---|---|
-| 框线重建 | GLM 不输出 box-drawing（`box_recall = 0`） | `tree`/表格塌成列表；可考虑从像素重建规则线 |
+| 框线重建 | `--box-art` 已从像素恢复 `tree`/表格线，但默认关闭，且合并单元格/丢失左偏移只能部分恢复 | 默认输出仍是拍平文本；开启后才恢复 |
 | Windows 覆盖有限 | 已有真机安装/更新验证，但多显示器混合 DPI/HDR/受保护内容仍未覆盖 | 自绘选区可能黑帧；CPU 推理耗时随机器变化 |
 | 快捷键非任意键 | Tauri 全局快捷键要求一个主键 | 纯修饰键/两个普通键不可用；需要底层 hook 才能扩展 |
 | 多栏阅读顺序 | 几何模型按行，双栏按栏输出 | `split-panes` 的 `indent_exact` 不代表质量 |
 | 真机样本少 | 26 个场景里只有 2 张真截图 | 再补 50–200 张（深色/中英混排/微信压缩） |
-| Powerline 图标 | 私有区字形渲染成 tofu | 需要图标映射表 |
-| 选区 / stdin | 未实现 | CLI 目前只能整图 + 文件路径 |
+| Powerline 图标 | 图标在像素上已经是 tofu，模型没有可映射的语义 | 需要像素模板匹配，而不是字符映射表 |
+| Windows 滚动长截图 | 自绘选区一次只抓鼠标所在显示器，也没有滚动拼接 | 长日志需要用户分多次截图 |
+| 快速预览冷启动 | Apple Vision 首次调用有系统级约 25 s 冷启动，之后 ~0.2 s | 首次开启「快速预览」时可能反而不如直接等模型 |

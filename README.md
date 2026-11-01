@@ -30,7 +30,10 @@
 | 结构化输出 | `text`（直接粘）、`markdown`（带语言围栏）、`json`（给脚本/agent） |
 | 中英混排 | 中文注释 + 代码 + 中文报错（VLM 逐字正确） |
 | 大图 | 4K/8.6MP 自动切块 + 自适应重试（见 §4） |
-| 多引擎 | GLM-OCR（主力）、Tesseract（低配/兜底）、mock（测试） |
+| 输入 | 文件 / 目录批处理 / stdin / `--region` 裁剪 |
+| 框线 | `--box-art` 从像素重建 `tree` 与表格框线（默认关闭） |
+| 流式 | `--stream` 边识别边输出；桌面端始终流式预览 |
+| 多引擎 | GLM-OCR（主力）、Apple Vision（macOS 快档）、Tesseract（低配/兜底）、mock（测试） |
 | 跨平台 | 核心是纯 Rust + `image` + HTTP；模型走 llama.cpp（mac: Metal / win: Vulkan·CUDA·CPU） |
 | 完全离线 | 默认模型、引擎、几何层都在本地；启用远程部署时截图会发到自己的服务器 |
 
@@ -38,12 +41,10 @@
 
 | 限制 | 原因 |
 |---|---|
-| box-drawing 框线（`├── ┌─┬┐`） | GLM-OCR 不输出这些码位（`box_recall = 0`）。要恢复得从像素重建规则线——未做 |
 | 多栏（tmux 分屏）的阅读顺序 | 走"按行"的几何模型；真值按栏拼接时 GLM 0.990、Tesseract 0.270 |
-| Powerline / Nerd Font 图标 | 私有区字形没有文本语义，会渲染成 tofu；未做图标映射表 |
+| Powerline / Nerd Font 图标 | 私有区字形在像素上已经是 tofu，模型没有可映射的语义；需要图标模板匹配 |
 | 真连字字体（Fira Code 把 `=>` 合成单字形） | 测试语料用 Menlo，不连字 |
-| 选区识别（`--region`） | 目前只能整图；选区由上层截图工具处理 |
-| stdin 输入 | 只能传文件路径 |
+| Windows 多显示器拖选 / 滚动长截图 | 自绘选区一次只抓鼠标所在显示器；长图需要上层拼接 |
 
 ---
 
@@ -53,7 +54,7 @@
 
 ```bash
 cargo build --release        # 产物 target/release/ocr4code（约 4 MB）
-cargo test                   # 34 单元 + 5 集成
+cargo test                   # 53 单元 + 24 集成（golden / boxdraw / CLI 输入）
 ```
 
 ### 2.2 启动主力引擎（llama.cpp + GLM-OCR）
@@ -120,15 +121,18 @@ ocr4code ocr <IMAGES>... [OPTIONS]
 
 | 参数 | 默认 | 说明 |
 |---|---|---|
-| `<IMAGES>...` | — | 一张或多张：png / jpg / webp / tiff |
+| `<IMAGES>...` | — | 图片路径、目录，或 `-` 读标准输入；目录会展开为 png / jpg / jpeg / webp / bmp / tiff |
+| `--recursive` | 关 | 目录输入时递归子目录 |
+| `--region X,Y,W,H` | 整图 | 识别前裁剪；每张输入图都应用同一个区域，越界会报出实际尺寸 |
 | `-o, --out <FILE>` | stdout | 写文件；多图依次拼接 |
 
 **引擎**
 
 | 参数 | 默认 | 说明 |
 |---|---|---|
-| `--engine` | `auto` | `auto`（先 llamacpp 再 tesseract）/ `llamacpp` / `tesseract` / `mock` |
+| `--engine` | `auto` | `auto`（先 llamacpp 再 tesseract）/ `llamacpp` / `tesseract` / `vision`（仅 macOS，见 §9）/ `mock` |
 | `--llama-url` | `http://127.0.0.1:8099` | 也可用环境变量 `OCR4CODE_LLAMA_URL` |
+| `--image-format` | `png` | `png` / `jpeg` / `jpeg:<1-100>`；只影响需要重新编码的切块，整图原样转发 |
 | `--prompt` | `OCR: preserve the original layout, spacing and line breaks exactly.` | 换 prompt 影响大于调参（见基线 §4⑤） |
 | `--max-tokens` | `3072` | 同时决定切块的行数上限 |
 | `--tile` | `auto` | `auto` / `off`；超预算时按行带切块 + 失败重试 |
@@ -142,6 +146,7 @@ ocr4code ocr <IMAGES>... [OPTIONS]
 | `--no-geometry` | 关 | 关掉缩进重建（调试用：看引擎原样输出） |
 | `--join-wrap` | 关 | 合并终端软换行（启发式，像素上无法可靠区分，误合并会毁行结构） |
 | `--keep-gutter` | 关 | 不自动识别行号槽（默认识别到就改用模型自己的空格） |
+| `--box-art` | 关 | 从像素重建 `├──`/`└──`/`│` 与表格框线；只替换行首装饰，行数不变 |
 
 **输出**
 
@@ -151,6 +156,7 @@ ocr4code ocr <IMAGES>... [OPTIONS]
 | `--lang` | 自动猜 | markdown 围栏语言（`rust`/`python`/`diff`/`bash`/…） |
 | `--stats` | 关 | 把切块/几何决策打到 stderr |
 | `-j, --jobs` | `1` | 同时识别的图片数；输出顺序与输入一致，单张失败不影响其余 |
+| `--stream` | 关 | 边生成边写 stdout；仅整图 + `text` 格式，切块或其它格式自动回退一次性 |
 
 **调试**
 
@@ -299,7 +305,7 @@ tesseract 是纯 CPU，可以直接开到核数。4K 那张只有 1.5× 提升�
 ## 6. 测试与基线
 
 ```bash
-cargo test                        # 34 单元 + 5 集成
+cargo test                        # 53 单元 + 24 集成
 python3 bench/scenes.py           # 20 个合成场景
 python3 bench/scenes2.py          # 复杂场景（双栏、图标、嵌套 diff…）
 python3 bench/scenes3.py          # 极端几何（小图 / 4K / 19:1 / 1:11）
@@ -344,7 +350,7 @@ standby list，和 macOS 的 mapped file 等价。结论一致：**不要指望�
 
 ## 8. 已知限制
 
-1. **框线字符**：GLM 不输出 box-drawing（`box_recall = 0`），但 `text_acc` 仍在 0.92–1.00——字全对，框线全丢。
+1. **框线字符**：GLM 不输出 box-drawing（`box_recall = 0`），但 `text_acc` 仍在 0.92–1.00——字全对，框线全丢。`--box-art` 能从像素恢复 `tree`/表格线，但它依赖直线检测，默认关闭；合并单元格和模型丢失左偏移时只能部分恢复。
 2. **软换行默认关闭**：像素层面无法区分"长命令恰好顶到右边距"和"真的被换行"（`tree` 是反例）。
 3. **行号槽场景放弃几何**：`editor-rust` 每行 x0 都在第 0 列，几何无效，改用模型自己的空格。
 4. **Windows 覆盖面**：桌面端已在实际 Windows 机器上验证安装、模型下载/启动和自动更新；CLI、多显示器/高 DPI 和不同 GPU 驱动仍需更多覆盖。
@@ -370,13 +376,15 @@ standby list，和 macOS 的 mapped file 等价。结论一致：**不要指望�
 |---|---|
 | 快捷键 | 默认 `⌘⇧2` / `Ctrl+Shift+2`；支持 1 个主键、2 键或 3 键组合，设置里可录制 |
 | 选区 | macOS `screencapture -i`；Windows 自绘浮层 + GDI 抓屏（鼠标所在显示器） |
+| 输入 | 全局快捷键 / 拖拽图片到窗口 / 从剪贴板识别；三条路径共用同一套引擎、错误和剪贴板逻辑 |
 | 结果 | 成功后直接写剪贴板；窗口隐藏时不抢焦点，托盘提示已复制行数；窗口不在前台时发系统通知，带首行摘要、行数和复制状态 |
-| 引擎 | 运行时随包；模型首次一键下载，自动校验、自动启动；可停止/移除/重下 |
+| 引擎 | 运行时随包；模型首次一键下载，自动校验、自动启动；可停止/移除/重下；macOS 可开「快速预览」，先用系统 OCR 出结果再由本地模型精修 |
+| 识别 | 始终流式显示（`ocr:partial`）；结果被判定可能截断时保留截图并提供「重新识别（分块）」 |
 | 远程部署 | 设置 → OCR → 部署到服务器：SSH 一键部署到 Linux，支持服务器下载（4 连接并行、可续传）或上传本机模型、CPU/Vulkan/CUDA；已有模型时主操作变为「连接」，不会重复下载；远程服务与隧道只监听回环 |
-| 设置 | 引擎/模型精度/KV 量化/空闲释放/代理/镜像/URL/prompt/max-tokens/jobs/tesseract/几何/切块/格式/历史/界面缩放；分通用/OCR/输出/高级/关于五段 |
+| 设置 | 引擎/模型精度/KV 量化/空闲释放/代理/镜像/URL/prompt 预设/max-tokens/jobs/tesseract/几何/切块/格式/历史/快速预览/界面缩放；分通用/OCR/输出/高级/关于五段 |
 | 外观 | 默认无边框 1120×740、115% 界面缩放；macOS NSVisualEffectView / Windows Acrylic |
 | 更新 | 启动检查 GitHub Releases；签名校验、自动下载、重启安装 |
-| 历史 | 最近 N 条留在本机 localStorage，可复制/删除/清空 |
+| 历史 | 最近 50 条存在应用数据目录 `history.json`（旧 localStorage 首次启动自动迁移）；可搜索、置顶、导出 Markdown/JSON、复制/删除/清空 |
 
 ### 安装依赖怎么处理
 

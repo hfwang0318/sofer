@@ -5,6 +5,38 @@ All notable changes to the desktop app. The root OCR kernel keeps its own
 
 ## Unreleased
 
+- Capture no longer falls back to tesseract silently: once `ensure_ready`
+  succeeds the config is pinned to the engine that answered, so a slow-but-up
+  server is not health-checked a second time. If the kernel's trace says the
+  reply may have been truncated, the result keeps a one-line notice and a
+  **重新识别（分块）** action, and the screenshot is retained until the next
+  capture so the retry does not need a new selection. The engine is also woken
+  with one token while the user is still dragging the selection.
+- Recognition streams: `ocr:partial` carries the text accumulated so far and
+  the capture page shows a read-only preview until the final result replaces it.
+  The kernel gains `--stream`; tiled images and non-text formats fall back to
+  one shot. On macOS, **设置 → 通用 → 快速预览** shows an Apple Vision result
+  first and refines it with the local model; the preview is never copied and
+  never enters history.
+- New input paths: drop an image onto the window, or click **从剪贴板识别**.
+  Both reuse the same readiness, busy/cancel, error classification, clipboard
+  and result-event path as the shortcut; unsupported formats and oversized
+  files get a specific next step.
+- History moved to `<app-data>/history.json` with atomic writes, corruption
+  quarantine, a 50-entry cap (pinned entries evicted last) and a one-time
+  migration from the old localStorage key. The history page adds search,
+  pinning, Markdown/JSON export, thumbnails and an empty state.
+- OCR prompt presets: 代码截图 / 终端日志 / 表格 / 公式 / 自定义, with the old
+  free-form prompt migrated to 自定义 and a 2000-character limit. The default
+  preset is byte-identical to the previous default prompt.
+- The CLI accepts `-` for stdin, directories (with `--recursive`), and
+  `--region X,Y,W,H`; it also gains `--box-art` (reconstruct `tree`/table lines
+  from pixels, off by default), `--image-format png|jpeg[:quality]`, and
+  `--engine vision` on macOS.
+- Kernel image path: the image is decoded once and handed to engines in memory;
+  tiles are encoded from pixels instead of being written to a temp file and
+  read back. This removes the per-tile disk round trip while keeping the
+  default whole-image request byte-identical.
 - Remote mode now repairs its SSH tunnel: a background watchdog probes the
   forwarded port, reconnects with jittered exponential backoff (five attempts,
   at most 30 s apart) when the ssh child exits or health checks keep failing,
@@ -60,6 +92,16 @@ All notable changes to the desktop app. The root OCR kernel keeps its own
 - Model downloads now use up to 8 parallel Range connections for large files,
   with per-chunk resume, aggregate progress/ETA, cancel support, and a
   single-stream fallback when the server ignores Range.
+
+- Fixed two history defects: `relativeTime` rendered 59.5 minutes as
+  「60 分钟前」, and malformed stored entries could throw a `RangeError`; entries
+  are now validated field by field before they reach the page. The result panel
+  also keeps its copy badge and button in sync when the automatic copy already
+  succeeded.
+- CI now enforces `cargo fmt --check` and `cargo clippy --all-targets -- -D
+  warnings` for both crates, checks the three version files agree, and runs the
+  Playwright browser-preview suite on macOS. The frontend gains a vitest harness
+  (81 unit tests) and an eight-case E2E suite.
 
 ## v0.1.10 — 2026-10-31
 

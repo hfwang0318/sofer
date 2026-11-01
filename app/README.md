@@ -88,7 +88,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 | 设置面板 | 模型精度（高/低）、代理地址/用户名/密码、使用镜像、空闲释放、KV 量化、外部 server URL、prompt、token 预算、并发、tesseract 参数、版面开关、输出格式、历史条数 |
 | 设置导航 | 进入设置后侧边栏展开二级目录（截图/界面/引擎/版面/输出/更新/关于），点击跳转并随滚动高亮 |
 | 界面缩放 | 默认 115%，可选 100/115/130%；窗口默认 1120×740 |
-| 历史 | 最近 N 条结果留在本机 `localStorage`，可复制/删除/清空 |
+| 历史 | 最近 50 条存在 `history.json`，可搜索/置顶/导出/复制/删除/清空 |
 | 深色玻璃 | 无边框窗口 + macOS `NSVisualEffectView` / Windows Acrylic + CSS 半透明层 |
 | 托盘常驻 | 关闭窗口只隐藏；托盘可截图、打开窗口、退出 |
 | 更新 | 启动时自动检查 GitHub Releases；签名校验；下载后重启安装 |
@@ -257,7 +257,10 @@ render(text/markdown/json) ──► 剪贴板
 | 事件 | 载荷 | 用途 |
 |---|---|---|
 | `ocr:phase` | `selecting` / `starting` / `recognizing` / `idle` | 忙碌态、引导文案 |
-| `ocr:result` | `OcrResult` | 结果卡片、历史、toast |
+| `ocr:partial` | `{ text, ms, preview }` | 流式预览；`preview: true` 表示 macOS 快速预览（系统 OCR），完成后由 `ocr:result` 替换 |
+| `ocr:drag` | `{ active, accepted }` | 拖拽进入/离开窗口时显示投放提示 |
+| `ocr:drop` | `string[]` | 拖入的文件路径；页面统一调用 `ocr_image_file` |
+| `ocr:result` | `OcrResult` | 结果卡片、历史、toast；`truncated` 时结果面板提供分块重试 |
 | `ocr:error` | `{ message, hint, code? }` | 错误卡片；`setup-required` 自动打开向导 |
 | `engine:download` | `DownloadProgress` | 百分比、速度、ETA、阶段、错误 |
 | `engine:state` | `ServerInfo` | 服务 stopped/starting/online/failed |
@@ -303,7 +306,8 @@ render(text/markdown/json) ──► 剪贴板
 | Fence language | `language` | 空=猜 | 仅 markdown |
 | Auto-copy | —（应用层） | 开 | 成功后写剪贴板 |
 | Notify on result | —（应用层） | 开 | 主窗口不在前台时发系统通知 |
-| History limit | —（应用层） | 20 | 只影响 `localStorage` |
+| Fast preview | —（应用层） | 关 | macOS：先出 Vision 结果，再由模型精修 |
+| History limit | —（应用层） | 20 | 同时受 50 条存储上限约束 |
 
 `mock_text` / `mock_text_file` 保留给 CLI 测试，不暴露在 UI。
 
@@ -321,6 +325,8 @@ cd app
 pnpm install
 pnpm tauri dev          # Vite + Tauri 窗口
 pnpm build              # TS 类型检查 + 前端构建
+pnpm test:run           # vitest + jsdom：lib 纯逻辑
+pnpm e2e                # Playwright：浏览器预览主流程
 pnpm tauri build        # 发布包；需要 Tauri updater 签名密钥
 pnpm tauri build --no-bundle  # 本地只构建可执行文件，不需要签名
 ```
@@ -455,19 +461,22 @@ Windows 自绘浮层和 GDI 抓屏已随 v0.1.5 发布，并在实际 Windows �
 | 设置 | macOS `~/Library/Application Support/com.ocr4code.desktop/settings.json`；Windows `%APPDATA%\com.ocr4code.desktop\settings.json` |
 | 模型 | 同级 `models/glm-ocr/`；`*.part` 为可续传临时文件 |
 | 服务日志 | macOS `~/Library/Logs/com.ocr4code.desktop/llama-server.log`；Windows `%LOCALAPPDATA%\com.ocr4code.desktop\logs\llama-server.log` |
-| 历史 | WebView `localStorage`（`ocr4code.history.v1`） |
-| 临时截图 | cache 目录，识别完成/取消后删除 |
+| 历史 | 应用数据目录 `history.json`（原子写、损坏文件隔离为 `.corrupt-*`）；旧 `localStorage` 首次启动自动迁移 |
+| 临时截图 | cache 目录，识别完成/取消后删除；结果可能截断时保留为 `retry.png`，直到下一次截图 |
+| 快速预览 | macOS 设置项 `fastPreview`，默认关闭；需要 Vision shim 可用 |
 | 设置损坏 | 改名为 `settings.json.bak`，回退默认值 |
 
-历史只存文本和元数据，不存原图；缩略图只存在于当前结果卡片。
+历史只存文本和元数据，不存原图；缩略图按条保存，单条超过 200 KB 时丢弃缩略图而不是整条。
 
 ---
 
 ## 8. 验证状态（2026-10-31）
 
 ```bash
-cargo test                       # 根 crate: 34 unit + 5 integration
-cd app/src-tauri && cargo test   # 桌面层: 39 tests（manifest/校验/断点续传/设置/快捷键形状/截图判空/远程部署/通知文案）
+cargo test                       # 根 crate: 53 unit + 24 integration（golden / boxdraw / CLI 输入）
+cd app/src-tauri && cargo test   # 桌面层: 70 tests（manifest/校验/断点续传/设置/快捷键/截图判空/远程部署/通知/历史/快速预览）
+cd app && pnpm test:run          # 前端: 81 tests
+cd app && pnpm e2e               # 浏览器预览: 8 cases
 cd app && pnpm build             # tsc + vite，通过
 cd app && pnpm tauri build --no-bundle
 ```
