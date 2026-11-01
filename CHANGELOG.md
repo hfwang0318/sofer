@@ -3,7 +3,7 @@
 All notable changes to the desktop app. The root OCR kernel keeps its own
 `cargo test`/baseline history; this file records the shipped desktop releases.
 
-## Unreleased
+## v0.1.11 — 2026-11-01
 
 - Window chrome: the macOS shadow now follows the main window's 16 px rounded
   surface instead of the window rectangle, removing the four right-angle black

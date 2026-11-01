@@ -11,7 +11,7 @@ Tauri 2 + React 19 + TypeScript，直接复用仓库根目录的 Rust crate，�
 校验 SHA-256、启动引擎。之后完全离线。
 
 > Windows 预览版安装包：
-> <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.10>
+> <https://github.com/hfwang0318/ocr4code/releases/tag/v0.1.11>
 > 由 GitHub Actions 的 `windows-latest` 构建 NSIS 安装器；版本记录见
 > [../CHANGELOG.md](../CHANGELOG.md)。
 
@@ -476,7 +476,7 @@ Windows 自绘浮层和 GDI 抓屏已随 v0.1.5 发布，并在实际 Windows �
 
 ```bash
 cargo test                       # 根 crate: 53 unit + 24 integration（golden / boxdraw / CLI 输入）
-cd app/src-tauri && cargo test   # 桌面层: 73 tests（manifest/校验/断点续传/设置/快捷键/截图判空/远程部署/历史/快速预览/弹窗定位）
+cd app/src-tauri && cargo test   # 桌面层: 75 tests（manifest/校验/断点续传/设置/快捷键/截图判空/远程部署/历史/快速预览/弹窗定位/原生圆角）
 cd app && pnpm test:run          # 前端: 81 tests
 cd app && pnpm e2e               # 浏览器预览: 8 cases
 cd app && pnpm build             # tsc + vite，通过

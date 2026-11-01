@@ -28,7 +28,7 @@ bench/
   results/           基线产物（**生成物**）
 docs/                选型报告 / 基线 / 内存实测 / UI 规范 / 本手册
 app/                 Tauri + React 桌面壳（见 app/README.md）
-CHANGELOG.md         桌面端 v0.1.0–v0.1.10 变更记录
+CHANGELOG.md         桌面端 v0.1.0–v0.1.11 变更记录
 ```
 
 真机截图的采集方法见 [bench/tools/real_capture/README.md](../bench/tools/real_capture/README.md)。
@@ -195,7 +195,7 @@ done
 
 ### 桌面端 / Windows Release
 
-- [ ] `cd app/src-tauri && cargo test`（73 tests）
+- [ ] `cd app/src-tauri && cargo test`（75 tests）
 - [ ] `cd app/src-tauri && cargo fmt -- --check && cargo clippy --all-targets -- -D warnings`
 - [ ] `cd app && pnpm test:run`（81 tests）与 `pnpm e2e`（8 cases）通过
 - [ ] `cd app && pnpm build` 通过
