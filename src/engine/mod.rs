@@ -6,6 +6,7 @@
 pub mod llamacpp;
 pub mod mock;
 pub mod tesseract;
+pub mod vision;
 
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -290,6 +291,8 @@ pub enum Spec {
     Mock { text: Option<String>, text_file: Option<std::path::PathBuf> },
     Tesseract { lang: String, psm: u32 },
     LlamaCpp { url: String, prompt: String, max_tokens: u32 },
+    /// macOS only: Apple Vision, the fast engine (~0.1 s/image, docs §4.2)
+    Vision,
     /// pick the best available at runtime
     Auto,
 }
@@ -314,6 +317,12 @@ impl Spec {
                 prompt.clone(),
                 *max_tokens,
             ))),
+            Spec::Vision => {
+                if !vision::available() {
+                    anyhow::bail!("{}", vision::unavailable_reason());
+                }
+                Ok(Box::new(vision::Vision::new()))
+            }
             Spec::Auto => {
                 let url = llamacpp::default_url();
                 let llama = llamacpp::LlamaCpp::new(url, llamacpp::DEFAULT_PROMPT.into(), 3072);
