@@ -275,19 +275,45 @@ async function previewCapture() {
   emitPreview("ocr:phase", { phase: "recognizing" } satisfies PhasePayload);
   await sleep(1300);
 
-  let settings = DEFAULT_SETTINGS;
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    if (raw) settings = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
-  } catch {
-    /* defaults are fine */
-  }
-
+  const settings = previewSettings();
   const result: OcrResult = {
     ...DEMO_RESULT,
     id: `preview-${Date.now()}`,
     capturedAt: Date.now(),
     copied: settings.autoCopy,
+    truncated: false,
+  };
+  if (settings.autoCopy) await copyText(result.text).catch(() => undefined);
+  emitPreview("ocr:result", result);
+  emitPreview("ocr:phase", { phase: "idle" } satisfies PhasePayload);
+}
+
+function previewSettings(): Settings {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (raw) return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+  } catch {
+    /* defaults are fine */
+  }
+  return DEFAULT_SETTINGS;
+}
+
+/** The chunked re-run of a retained screenshot. The real command reads the PNG
+ * Rust kept for this; the preview replays a complete result. */
+async function previewRetry() {
+  emitPreview("ocr:phase", { phase: "recognizing" } satisfies PhasePayload);
+  await sleep(900);
+  const settings = previewSettings();
+  const text = `${DEMO_RESULT.text}\n\nfn main() {\n    println!("done");\n}`;
+  const result: OcrResult = {
+    ...DEMO_RESULT,
+    id: `preview-retry-${Date.now()}`,
+    text,
+    chars: text.length,
+    lines: text.split("\n").length,
+    capturedAt: Date.now(),
+    copied: settings.autoCopy,
+    truncated: false,
   };
   if (settings.autoCopy) await copyText(result.text).catch(() => undefined);
   emitPreview("ocr:result", result);
@@ -582,6 +608,15 @@ export async function captureNow(): Promise<void> {
     return;
   }
   void previewCapture();
+}
+
+/** Re-run the retained screenshot with a chunked pass (truncated results). */
+export async function retryCapture(): Promise<void> {
+  if (isTauri) {
+    await invoke("retry_capture");
+    return;
+  }
+  void previewRetry();
 }
 
 export async function copyText(text: string): Promise<void> {

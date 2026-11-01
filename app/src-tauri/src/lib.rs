@@ -154,6 +154,13 @@ fn capture_now(app: AppHandle) {
     capture::start(app);
 }
 
+/// Re-run the retained screenshot with a chunked pass. The result arrives on
+/// the same `ocr:*` events as a normal capture.
+#[tauri::command]
+fn retry_capture(app: AppHandle) {
+    capture::retry(app);
+}
+
 #[tauri::command]
 fn quit_app(app: AppHandle) {
     app.exit(0);
@@ -683,6 +690,7 @@ pub fn run() {
             set_shortcut_enabled,
             copy_text,
             capture_now,
+            retry_capture,
             restart_app,
             screen_access,
             request_screen_access,

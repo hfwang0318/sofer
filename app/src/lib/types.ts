@@ -205,6 +205,8 @@ export interface OcrResult {
   thumbnail: string | null;
   capturedAt: number;
   copied: boolean;
+  /** The kernel thinks the reply stopped short of the image. */
+  truncated: boolean;
 }
 
 export interface OcrError {

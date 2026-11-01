@@ -1719,6 +1719,48 @@ pub fn health_ok(url: &str, timeout: Duration) -> bool {
         .unwrap_or(false)
 }
 
+/// Smallest possible image (1×1 PNG): enough for a vision chat template to
+/// accept the request without costing a real inference.
+const WARM_UP_IMAGE: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+/// Wake a server that released its model after `--sleep-idle-seconds`.
+///
+/// `/health` still answers while the model is asleep, so it cannot be used for
+/// this. One chat request with `max_tokens: 1` forces the model back into
+/// memory (~0.2–0.7 s per docs/memory-footprint.md). Best effort: the caller
+/// runs it off the capture thread and ignores a failure.
+pub fn warm_up(url: &str, timeout: Duration) -> bool {
+    let url = url.trim().trim_end_matches('/');
+    if url.is_empty() {
+        return false;
+    }
+    let body = match serde_json::to_string(&warm_up_payload()) {
+        Ok(body) => body,
+        Err(_) => return false,
+    };
+    ureq::post(&format!("{url}/v1/chat/completions"))
+        .timeout(timeout)
+        .set("Content-Type", "application/json")
+        .send_string(&body)
+        .map(|response| response.status() == 200)
+        .unwrap_or(false)
+}
+
+fn warm_up_payload() -> serde_json::Value {
+    serde_json::json!({
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": WARM_UP_IMAGE}},
+                {"type": "text", "text": "."}
+            ]
+        }],
+        "max_tokens": 1,
+        "temperature": 0.0,
+        "stream": false
+    })
+}
+
 /// Build a proxy URL from the three settings fields. Usernames/passwords are
 /// percent-encoded as URL userinfo, so `p@ss:word` becomes `p%40ss%3Aword`
 /// before it is appended to the address.
@@ -2042,6 +2084,36 @@ mod tests {
         args.windows(2)
             .find(|pair| pair[0] == key)
             .map(|pair| pair[1].as_str())
+    }
+
+    #[test]
+    fn warm_up_needs_a_url() {
+        assert!(!warm_up("", Duration::from_millis(200)));
+        assert!(!warm_up("   ", Duration::from_millis(200)));
+    }
+
+    #[test]
+    fn warm_up_payload_asks_for_one_token_and_carries_an_image() {
+        // A vision chat template rejects a text-only message, so the wake-up
+        // request has to look like a real OCR call — just with a 1×1 image.
+        let payload = warm_up_payload();
+        assert_eq!(payload["max_tokens"], 1);
+        assert_eq!(payload["temperature"], 0.0);
+        assert_eq!(payload["stream"], false);
+        let content = &payload["messages"][0]["content"];
+        assert_eq!(content[0]["type"], "image_url");
+        assert!(content[0]["image_url"]["url"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("data:image/png;base64,"));
+        assert_eq!(content[1]["type"], "text");
+    }
+
+    #[test]
+    fn warm_up_gives_up_quickly_when_nothing_listens() {
+        let started = Instant::now();
+        assert!(!warm_up("http://127.0.0.1:1", Duration::from_millis(200)));
+        assert!(started.elapsed() < Duration::from_secs(3));
     }
 
     #[test]

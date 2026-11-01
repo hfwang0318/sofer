@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { Icon } from "../components/Icon";
+import { retryCapture } from "../lib/bridge";
 import { duration, relativeTime } from "../lib/history";
 import { isMac, shortcutText } from "../lib/platform";
 import type {
@@ -30,8 +31,8 @@ interface CaptureViewProps {
   onDismissTip: () => void;
 }
 
-function engineLabel(engine: string): string {
-  if (engine.startsWith("llamacpp")) return "本地模型";
+function engineLabel(engine: string, remote: boolean): string {
+  if (engine.startsWith("llamacpp")) return remote ? "服务器模型" : "本地模型";
   if (engine.startsWith("tesseract")) return "tesseract";
   if (engine.startsWith("mock")) return "预览";
   return engine;
@@ -308,11 +309,15 @@ function ErrorPanel({
 function ResultPanel({
   result,
   copied,
+  busy,
+  remote,
   onCopy,
   onOpenHistory,
 }: {
   result: OcrResult;
   copied: boolean;
+  busy: boolean;
+  remote: boolean;
   onCopy: (text: string) => void;
   onOpenHistory: () => void;
 }) {
@@ -368,10 +373,29 @@ function ResultPanel({
         </pre>
       </div>
 
+      {result.truncated && (
+        <div className="setup-note" role="status" aria-live="polite">
+          <Icon name="alert" size={13} />
+          <span>识别结果可能不完整。</span>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => {
+              // Failures of the re-run arrive on `ocr:error`, like a capture.
+              void retryCapture().catch(() => undefined);
+            }}
+            disabled={busy}
+          >
+            <Icon name="refresh" size={13} />
+            {busy ? "正在重新识别…" : "重新识别（分块）"}
+          </button>
+        </div>
+      )}
+
       <footer className="result-meta">
         <MetaChip>
           <span className="meta-dot tone-ok" />
-          {engineLabel(result.engine)}
+          {engineLabel(result.engine, remote)}
         </MetaChip>
         <MetaChip>{formatLabel(result.format)}</MetaChip>
         <MetaChip>{result.lines} 行</MetaChip>
@@ -532,6 +556,8 @@ export function CaptureView({
             <ResultPanel
               result={result}
               copied={copied}
+              busy={busy}
+              remote={remote}
               onCopy={onCopy}
               onOpenHistory={onOpenHistory}
             />
