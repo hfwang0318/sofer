@@ -153,7 +153,7 @@ CASES="probe stop-releases-server" app/scripts/test-remote.sh
 
 先停掉应用里的远程服务，避免和脚本抢占 8099 端口和模型目录。脚本日志在
 `/tmp/ocr4code-ssh-test/e2e-logs/`，任一用例失败会返回非零退出码。
-它依赖 Docker 且要下载约 1 GB，默认不进 CI；发布前或改 `remote.rs` 后手工跑。
+它依赖 Docker 且要下载约 1 GB，默认不进 CI；发布前或改 `remote/` 后手工跑。
 
 `test-remote.sh` 固化的用例：
 
@@ -226,10 +226,10 @@ CUDA/Vulkan 仍需真机验证。
 快捷键 / 托盘 / 按钮
         │
         ▼
-capture.rs ──► 区域选择（macOS 系统 / Windows 自绘） ──► 临时 PNG
+capture/ ──► 区域选择（macOS 系统 / Windows 自绘） ──► 临时 PNG
         │
         ▼
-engine.rs ──► 运行时/模型检查 ──► 启动/复用 llama-server ──► 健康检查
+engine/  ──► 运行时/模型检查 ──► 启动/复用 llama-server ──► 健康检查
         │
         ▼
 pipeline::Config ──► pipeline::recognize（根 crate，CLI 同款）
@@ -244,9 +244,9 @@ render(text/markdown/json) ──► 剪贴板
 |---|---|---|
 | Web UI | `src/App.tsx`、`src/views/`、`src/components/` | 窗口 chrome、Capture / History / Settings、首启向导、快捷键录制、toast |
 | 桥接 | `src/lib/bridge.ts` | Tauri `invoke`/`listen` 的类型化封装；浏览器预览自动切 mock |
-| 引擎管理 | `src-tauri/src/engine.rs` | 模型 manifest、断点续传、SHA-256、llama-server 生命周期、端口/健康检查、下载事件 |
-| 远程部署 | `src-tauri/src/remote.rs` | SSH 探测/部署、运行时与模型下载或上传、远程 llama-server、隧道、健康检查、进度事件 |
-| 截图 | `src-tauri/src/capture.rs`、`src-tauri/src/capture/win.rs`、`src/overlay/` | macOS 原生选区；Windows GDI 抓屏 + Tauri 浮层选区；OCR 流程、剪贴板、托盘提示 |
+| 引擎管理 | `src-tauri/src/engine/` | 模型 manifest、断点续传、SHA-256、llama-server 生命周期、端口/健康检查、下载事件 |
+| 远程部署 | `src-tauri/src/remote/` | SSH 探测/部署、运行时与模型下载或上传、远程 llama-server、隧道、健康检查、进度事件 |
+| 截图 | `src-tauri/src/capture/`、`src/overlay/` | macOS 原生选区；Windows GDI 抓屏 + Tauri 浮层选区；OCR 流程、剪贴板、托盘提示 |
 | 更新 | `src/lib/updater.ts`、`tauri-plugin-updater` | 检查/下载/安装、进度、签名校验、重启；安装前 stop 引擎 |
 | 设置 | `src-tauri/src/settings.rs` | `settings.json` 读写、校验、`Settings → pipeline::Config` |
 | Tauri | `src-tauri/src/lib.rs` | 命令、事件、托盘、窗口材质、autostart、SIGTERM/SIGINT 清理 |
@@ -526,8 +526,8 @@ app/
 │   └── styles/                  tokens.css, shell.css, views.css, overlay.css
 ├── src-tauri/
 │   ├── src/lib.rs               Tauri builder / commands / tray / window material / signals
-│   ├── src/engine.rs            运行时、模型下载/校验、llama-server 生命周期
-│   ├── src/capture.rs            region selection → pipeline → clipboard
+│   ├── src/engine/              运行时、模型下载/校验、llama-server 生命周期
+│   ├── src/capture/             region selection → pipeline → clipboard
 │   ├── src/capture/win.rs       Windows GDI 抓屏 + 浮层会话
 │   ├── src/settings.rs           Settings ↔ pipeline::Config
 │   ├── windows/nsis-hooks.nsh   更新/卸载前结束残留 llama-server

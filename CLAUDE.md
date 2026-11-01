@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Read [docs/ui-guidelines.md](docs/ui-guidelines.md) before editing anything under
 `app/src/`, `app/src/overlay/`, or user-facing strings in `app/src-tauri/`
-(`capture.rs`, `lib.rs`, `engine.rs`, `settings.rs`). It is the project contract,
+(`capture/`, `lib.rs`, `engine/`, `settings.rs`). It is the project contract,
 not a suggestion. The gates that reviewers enforce:
 
 - One readiness state (`app/src/lib/status.ts`): titlebar, sidebar and capture page
@@ -37,8 +37,9 @@ guide in the same change and explain why. Do not silently diverge.
   (main window) and `overlay.html` → `src/overlay/main.tsx` (Windows selection
   overlay).
 - `app/src-tauri/` — privileged layer: commands/events/tray/shortcut/window
-  (`lib.rs`), capture (`capture.rs`, `capture/win.rs`), model + llama-server
-  lifecycle (`engine.rs`), persistence (`settings.rs`).
+  (`lib.rs`), capture (`capture/`), model + llama-server lifecycle (`engine/`),
+  SSH deployment and tunnel supervision (`remote/`), persistence
+  (`settings.rs`, `history.rs`).
 - `tests/golden.rs` — integration tests that feed ground-truth text through the
   geometry layer and compare indentation.
 - `bench/` — Python scene generators, scorers and baseline runners. `bench/images/`,
@@ -229,8 +230,8 @@ shortcut / tray / Capture button / dropped file / clipboard image
   uses a self-drawn Tauri overlay plus GDI (`capture/win.rs`), so it needs no
   screen-recording permission.
 - Errors are classified into `permission` / `setup-required` / `blank` /
-  `engine` / `capture` in `capture.rs`, then rendered by `CaptureView` and the
-  dialogs. A new code must be wired through `capture.rs`, `CaptureView`'s error
+  `engine` / `capture` in `capture/flow.rs`, then rendered by `CaptureView` and the
+  dialogs. A new code must be wired through `capture/`, `CaptureView`'s error
   copy, `OcrError.code` consumers and `docs/ui-guidelines.md` together.
 - Blank detection is deliberately conservative: a uniform-frame check on the
   520×360 thumbnail. Do not reintroduce sparse-grid sampling; it false-positived
@@ -252,11 +253,11 @@ shortcut / tray / Capture button / dropped file / clipboard image
   Payload structs use serde `camelCase`; `lib/types.ts` mirrors Rust structs by
   hand. Keep both sides in sync.
 - The overlay is a separate Vite entry and Tauri window; it talks to
-  `overlay_info` / `overlay_finish` / `overlay_cancel` in `capture.rs`.
+  `overlay_info` / `overlay_finish` / `overlay_cancel` in `capture/`.
 
 ### Engine and settings lifecycle
 
-- `engine.rs` deliberately has no Tauri types so it can be tested standalone.
+- `engine/` deliberately has no Tauri types so it can be tested standalone.
   It owns the pinned model manifest (revision + SHA-256), resumable parallel
   download, verification, port selection, server spawn/stop and health checks.
 - Runtime binaries are bundled in the installer but not committed. Development

@@ -51,7 +51,7 @@ c=32768  → 2,097,152 KiB = 2 GiB
 
 ## 2. 当前配置的实测
 
-启动参数与 `app/src-tauri/src/engine.rs` 一致：`-ngl 99 -c 32768 -np 3`，空闲指加载完成
+启动参数与 `app/src-tauri/src/engine/` 一致：`-ngl 99 -c 32768 -np 3`，空闲指加载完成
 后 2 s、无请求；active 指 6 张小图、`jobs=3`（或表内注明）。
 
 | 配置 | 空闲 RSS | 空闲 footprint | active 峰值 footprint | 说明 |
@@ -193,7 +193,7 @@ Q4_K_M 的 `real-editor-term` -5.5 pp、`tree` -1.7 pp。也就是说，**Q5 并
 长上下文（>8k）没有单独验证，**不建议作为默认**。
 
 **关键平台差异**：q8 KV 在 Metal 上几乎不掉速，但在 CPU 上要每 token 反量化，
-实测 2.18 s → 4.31 s。`app/` 的 Windows 内置运行时是 **CPU-only**（`engine.rs` 在
+实测 2.18 s → 4.31 s。`app/` 的 Windows 内置运行时是 **CPU-only**（`engine/server.rs` 在
 非 macOS 传 `-ngl 0`），所以 **不要把 q8 KV 无条件下放到 Windows 默认配置**。
 
 ### 4.4 mmproj 不要量化
@@ -362,7 +362,7 @@ Q4_K_M 权重 + -c 32768 -np 3 -ctk q4_0 -ctv q4_0 -cram 0 --sleep-idle-seconds 
 3. **代理拆分**：`proxy_url` + `proxy_username` + `proxy_password`；
    保存时用 `compose_proxy_url()` 做 userinfo 百分号编码（`@` → `%40`），
    `normalize_proxy_url()` 在交给 ureq 前解码。密码输入框 `type=password`。
-4. **`app/src-tauri/src/engine.rs` 的 `start_managed()`**（约 730 行）
+4. **`app/src-tauri/src/engine/` 的 `start_managed()`**（约 730 行）
    - 追加 `--sleep-idle-seconds <N>`（`N=300` 或设置项）；
    - 追加 `-cram 0`（短选项，b12018 不认 `--cram`）；
    - macOS 追加 `-ctk q8_0 -ctv q8_0`；Windows 暂不加（CPU 掉速）。
