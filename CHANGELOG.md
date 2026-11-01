@@ -53,11 +53,15 @@ All notable changes to the desktop app. The root OCR kernel keeps its own
   becomes **连接** instead of **一键部署**, so it no longer looks like a
   re-download is required. Server-side downloads use four ranged connections in
   parallel and fall back to a single connection when Range is unsupported.
-- Added a completion notification: when OCR finishes and the main window is not
-  focused, a system notification shows the first line, row count and whether the
-  text reached the clipboard. It can be turned off under
-  通用 → 识别完成通知. macOS uses Notification Center, Windows 10/11 uses Toast
-  (dev builds may be attributed to Windows PowerShell).
+- Added a completion toast for background captures: when OCR finishes while the
+  main window is not in front and the text reached the clipboard, an app-drawn
+  window at the bottom centre of the monitor under the cursor shows
+  `已复制 · N 行` and fades out after about 2.5 s. It never takes keyboard focus,
+  ignores the mouse and consecutive captures restart the same window instead of
+  stacking. Turn it off under 通用 → 识别完成提示; the stored setting key stays
+  `notifyOnResult`. This replaces the system notification, which depended on
+  notification permissions and could be silenced or collapsed by the OS. The
+  tray tooltip no longer repeats the same confirmation.
 - Added a high/low precision model option: high uses the official Q8_0 pack,
   low uses the verified `mradermacher/GLM-OCR-GGUF` Q4_K_M pack. Both share the
   same mmproj; switching precision stops the old server and guides the user

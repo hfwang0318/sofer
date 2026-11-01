@@ -20,10 +20,11 @@ use tauri::{AppHandle, Emitter, Manager};
 use ocr4code::pipeline::EngineMode;
 
 use crate::settings::{AppState, Settings};
+use crate::toast;
 
 use self::flow::{
-    emit_fast_preview, inspect_capture, notify_result, prepare_engine, recognize_to_result,
-    report_error, retry_max_tokens, spawn_warm_up, CaptureInspection,
+    emit_fast_preview, inspect_capture, prepare_engine, recognize_to_result, report_error,
+    retry_max_tokens, spawn_warm_up, CaptureInspection,
 };
 
 pub use self::input::{handle_drag_enter, handle_drag_leave, handle_drop};
@@ -265,7 +266,6 @@ pub fn overlay_cancel() -> Result<(), String> {
 
 fn run_screen(app: &AppHandle) -> Result<()> {
     let settings = current_settings(app);
-    let main_was_visible = main_window_visible(app);
 
     #[cfg(target_os = "macos")]
     if !screen_recording_granted() {
@@ -304,7 +304,7 @@ fn run_screen(app: &AppHandle) -> Result<()> {
             } else {
                 let _ = std::fs::remove_file(&path);
             }
-            complete(app, &settings, main_was_visible, result);
+            complete(app, &settings, result);
             Ok(())
         }
         Ok(None) => {
@@ -324,13 +324,12 @@ fn run_screen(app: &AppHandle) -> Result<()> {
 /// `cleanup_source`.
 fn run_image(app: &AppHandle, path: &Path) -> Result<()> {
     let settings = current_settings(app);
-    let main_was_visible = main_window_visible(app);
     let inspection = inspect_capture(path);
     if inspection.blank {
         anyhow::bail!("E_BLANK: 截图区域几乎是空白的");
     }
     if let Some(result) = process_capture(app, &settings, path, inspection, false)? {
-        complete(app, &settings, main_was_visible, result);
+        complete(app, &settings, result);
     }
     Ok(())
 }
@@ -338,7 +337,6 @@ fn run_image(app: &AppHandle, path: &Path) -> Result<()> {
 /// Re-run the retained screenshot, forcing a chunked pass.
 fn run_retry(app: &AppHandle) -> Result<()> {
     let settings = current_settings(app);
-    let main_was_visible = main_window_visible(app);
     let path = retained_capture_path(app)?;
     if !path.exists() {
         anyhow::bail!("E_CAPTURE: 上一次的截图已经不存在");
@@ -358,18 +356,12 @@ fn run_retry(app: &AppHandle) -> Result<()> {
     if !result.truncated {
         let _ = std::fs::remove_file(&path);
     }
-    complete(app, &settings, main_was_visible, result);
+    complete(app, &settings, result);
     Ok(())
 }
 
 fn current_settings(app: &AppHandle) -> Settings {
     app.state::<AppState>().settings.lock().unwrap().clone()
-}
-
-fn main_window_visible(app: &AppHandle) -> bool {
-    app.get_webview_window("main")
-        .and_then(|window| window.is_visible().ok())
-        .unwrap_or(true)
 }
 
 /// Recognise the selected pixels. `Ok(None)` means the user cancelled engine
@@ -411,19 +403,15 @@ fn process_capture(
     recognize_to_result(app, settings, &config, path, inspection).map(Some)
 }
 
-fn complete(app: &AppHandle, settings: &Settings, main_was_visible: bool, result: OcrResult) {
+fn complete(app: &AppHandle, settings: &Settings, result: OcrResult) {
     let _ = app.emit("ocr:result", result.clone());
     let _ = app.emit("ocr:phase", Phase { phase: "idle" });
-    notify_result(app, settings.notify_on_result, &result);
 
     if result.copied {
-        // Never steal focus from the editor the user wants to paste into. If the
-        // control window is hidden, the tray tooltip is the only confirmation.
-        if !main_was_visible {
-            if let Some(tray) = app.tray_by_id("main-tray") {
-                let _ = tray.set_tooltip(Some(format!("ocr4code — 已复制 {} 行", result.lines)));
-            }
-        }
+        // Never steal focus from the editor the user wants to paste into. When
+        // the main window is not in front, the toast is the confirmation that
+        // the text is already on the clipboard.
+        toast::show_for_background(app, result.lines, settings.notify_on_result);
     } else {
         // Nothing reached the clipboard, so show the result and its copy button.
         show_main(app);

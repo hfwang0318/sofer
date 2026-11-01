@@ -37,6 +37,7 @@ import type {
   ServerInfo,
   ServerState,
   Settings,
+  ToastPayload,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -819,6 +820,23 @@ export async function migrateHistoryEntries(
   await saveHistoryToDisk(legacy);
   return legacy;
 }
+
+// ---------------------------------------------------------------------------
+// Toast window
+// ---------------------------------------------------------------------------
+
+/** Content for the toast page when it mounted after the event was emitted. */
+export async function toastInfo(): Promise<ToastPayload | null> {
+  if (isTauri) return invoke<ToastPayload | null>("toast_info");
+  return { id: 1, lines: 42 };
+}
+
+export async function toastDismiss(id: number): Promise<void> {
+  if (isTauri) await invoke("toast_dismiss", { id });
+}
+
+export const onToast = (handler: (payload: ToastPayload) => void) =>
+  subscribe<ToastPayload>("toast:show", handler);
 
 export type WindowAction = "minimize" | "hide" | "toggle-maximize";
 

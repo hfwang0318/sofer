@@ -49,15 +49,15 @@ export function GeneralSection({
         />
       </SettingRow>
       <SettingRow
-        title="识别完成通知"
-        description="应用不在前台时，用系统通知显示结果首行；通知内容可能包含代码。"
+        title="识别完成提示"
+        description="应用不在前台且结果已复制时，在屏幕底部短暂显示行数。"
       >
         <Switch
           checked={draft.notifyOnResult}
           onChange={(notifyOnResult) =>
             update("notifyOnResult", notifyOnResult)
           }
-          label="识别完成通知"
+          label="识别完成提示"
         />
       </SettingRow>
       {isMac && (

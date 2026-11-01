@@ -232,6 +232,12 @@ export interface OcrPartial {
   preview?: boolean;
 }
 
+/** Mirrors `ToastPayload` in src-tauri/src/toast.rs. */
+export interface ToastPayload {
+  id: number;
+  lines: number;
+}
+
 export interface OcrError {
   message: string;
   hint: string;

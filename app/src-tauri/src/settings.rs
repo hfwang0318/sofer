@@ -95,8 +95,8 @@ pub struct Settings {
     // app layer
     pub shortcut: String,
     pub auto_copy: bool,
-    /// Show a system notification with a short preview when OCR finishes while
-    /// the window is not focused.
+    /// Show the bottom-centre toast with the copied line count when OCR
+    /// finishes while the main window is not in front.
     pub notify_on_result: bool,
     /// macOS only: show an Apple Vision result immediately, then replace it
     /// with the local model's refined text.

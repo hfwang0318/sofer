@@ -11,7 +11,6 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
-use tauri_plugin_notification::NotificationExt;
 
 use ocr4code::engine::tesseract;
 use ocr4code::pipeline::{Config, EngineMode};
@@ -329,55 +328,6 @@ fn ready_engine_url(
     }
 }
 
-/// System notification for a finished capture. Deliberately only when the
-/// window is not focused: with the app in front, the result panel is already
-/// the feedback, and the UI guidelines say not to add a success toast.
-pub(super) fn notify_result(app: &AppHandle, enabled: bool, result: &OcrResult) {
-    if !enabled {
-        return;
-    }
-    let focused = app
-        .get_webview_window("main")
-        .and_then(|window| window.is_focused().ok())
-        .unwrap_or(false);
-    if focused {
-        return;
-    }
-    if let Err(err) = app
-        .notification()
-        .builder()
-        .title("识别完成")
-        .body(notification_body(&result.text, result.lines, result.copied))
-        .show()
-    {
-        eprintln!("capture: notification failed: {err}");
-    }
-}
-
-/// First non-empty line, whitespace collapsed, capped at 80 characters, plus a
-/// short status line. Kept separate so the wording stays testable.
-fn notification_body(text: &str, lines: usize, copied: bool) -> String {
-    let first = text
-        .lines()
-        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
-        .find(|line| !line.is_empty())
-        .unwrap_or_default();
-    let mut preview: String = first.chars().take(80).collect();
-    if first.chars().count() > 80 {
-        preview.push('…');
-    }
-    let action = if copied {
-        "已复制到剪贴板"
-    } else {
-        "打开应用查看"
-    };
-    if preview.is_empty() {
-        format!("{lines} 行 · {action}")
-    } else {
-        format!("{preview}\n{lines} 行 · {action}")
-    }
-}
-
 fn format_name(format: Format) -> String {
     match format {
         Format::Text => "text",
@@ -528,23 +478,6 @@ mod tests {
             }
         }
         assert!(is_uniform(&image::DynamicImage::ImageRgb8(frame)));
-    }
-
-    #[test]
-    fn notification_preview_uses_the_first_non_empty_line() {
-        let body = notification_body("\n\n    let   value = 1;   // x\nfn main() {}", 2, true);
-        assert_eq!(body, "let value = 1; // x\n2 行 · 已复制到剪贴板");
-    }
-
-    #[test]
-    fn notification_preview_is_capped_and_has_a_fallback() {
-        let long = "x".repeat(120);
-        let body = notification_body(&long, 1, false);
-        assert!(body.starts_with(&format!("{}…", "x".repeat(80))));
-        assert!(body.ends_with("1 行 · 打开应用查看"));
-
-        let body = notification_body("  \n\t\n", 0, false);
-        assert_eq!(body, "0 行 · 打开应用查看");
     }
 
     #[test]

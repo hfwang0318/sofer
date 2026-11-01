@@ -5,8 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Before changing UI or user-facing copy (mandatory)
 
 Read [docs/ui-guidelines.md](docs/ui-guidelines.md) before editing anything under
-`app/src/`, `app/src/overlay/`, or user-facing strings in `app/src-tauri/`
-(`capture/`, `lib.rs`, `engine/`, `settings.rs`). It is the project contract,
+`app/src/`, `app/src/overlay/`, `app/src/toast/`, or user-facing strings in
+`app/src-tauri/` (`capture/`, `toast.rs`, `lib.rs`, `engine/`, `settings.rs`).
+It is the project contract,
 not a suggestion. The gates that reviewers enforce:
 
 - One readiness state (`app/src/lib/status.ts`): titlebar, sidebar and capture page
@@ -20,7 +21,9 @@ not a suggestion. The gates that reviewers enforce:
   (`permission` / `setup-required` / `blank` / `engine` / `capture`).
 - Dialogs trap focus, refocus after branch changes, restore focus on close, and
   only allow bare F1–F24 as global shortcuts.
-- No new toast for routine success; no `window.confirm`/`alert`.
+- No new in-app toast for routine success. The one exception is the app-drawn
+  background `识别完成弹窗` (bottom-centre, only when the main window is not in
+  front and the result was copied). No `window.confirm`/`alert`.
 
 If an implementation genuinely needs to break one of these rules, update the
 guide in the same change and explain why. Do not silently diverge.
@@ -33,13 +36,13 @@ guide in the same change and explain why. Do not silently diverge.
   package `ocr4code-app`) depends on the root crate by path. **This is not a
   Cargo workspace**: root `cargo test` does not build the desktop crate, and
   the desktop crate must be tested with its own manifest.
-- `app/src/` — React UI. Two Vite entries: `index.html` → `src/main.tsx`
-  (main window) and `overlay.html` → `src/overlay/main.tsx` (Windows selection
-  overlay).
+- `app/src/` — React UI. Three Vite entries: `index.html` → `src/main.tsx`
+  (main window), `overlay.html` → `src/overlay/main.tsx` (Windows selection
+  overlay) and `toast.html` → `src/toast/main.tsx` (background completion toast).
 - `app/src-tauri/` — privileged layer: commands/events/tray/shortcut/window
-  (`lib.rs`), capture (`capture/`), model + llama-server lifecycle (`engine/`),
-  SSH deployment and tunnel supervision (`remote/`), persistence
-  (`settings.rs`, `history.rs`).
+  (`lib.rs`), capture (`capture/`), completion toast (`toast.rs`), model +
+  llama-server lifecycle (`engine/`), SSH deployment and tunnel supervision
+  (`remote/`), persistence (`settings.rs`, `history.rs`).
 - `tests/golden.rs` — integration tests that feed ground-truth text through the
   geometry layer and compare indentation.
 - `bench/` — Python scene generators, scorers and baseline runners. `bench/images/`,
@@ -215,6 +218,7 @@ shortcut / tray / Capture button / dropped file / clipboard image
               └─ engine::Manager::ensure_ready (external → bundled → tesseract)
                   └─ ocr4code::pipeline::recognize_streaming (same code as CLI)
                       └─ render → clipboard → ocr:result → React
+                           └─ main window not in front → toast::show (bottom-centre window)
 ```
 
 - `capture::start` is non-blocking and runs on a thread; a second trigger while
@@ -249,11 +253,15 @@ shortcut / tray / Capture button / dropped file / clipboard image
   for browser preview. Any new command or event needs a mock branch and demo
   data, otherwise `pnpm dev` breaks.
 - Tauri events: `ocr:phase`, `ocr:partial`, `ocr:result`, `ocr:error`,
-  `ocr:drag`, `ocr:drop`, `engine:download`, `engine:state`, `remote:*`.
-  Payload structs use serde `camelCase`; `lib/types.ts` mirrors Rust structs by
-  hand. Keep both sides in sync.
+  `ocr:drag`, `ocr:drop`, `engine:download`, `engine:state`, `remote:*`,
+  `toast:show`. Payload structs use serde `camelCase`; `lib/types.ts` mirrors
+  Rust structs by hand. Keep both sides in sync.
 - The overlay is a separate Vite entry and Tauri window; it talks to
   `overlay_info` / `overlay_finish` / `overlay_cancel` in `capture/`.
+- The completion toast is another separate entry/window (`toast`, created lazily
+  by `toast.rs`). It is reused across captures, never focuses or accepts clicks,
+  and talks to `toast_info` / `toast_dismiss`; `notify_on_result` controls it
+  even though the stored key still says "notify".
 
 ### Engine and settings lifecycle
 

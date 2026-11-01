@@ -10,6 +10,7 @@ pub mod engine;
 mod history;
 pub mod remote;
 mod settings;
+mod toast;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -678,7 +679,6 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             load_settings,
             save_settings,
@@ -700,6 +700,8 @@ pub fn run() {
             capture::overlay_cancel,
             capture::ocr_image_file,
             capture::ocr_clipboard_image,
+            toast::toast_info,
+            toast::toast_dismiss,
             engine_status,
             setup_engine,
             cancel_engine_setup,

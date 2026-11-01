@@ -4,7 +4,8 @@
   "description": "Capabilities for the main control window.",
   "windows": [
     "main",
-    "region-overlay"
+    "region-overlay",
+    "toast"
   ],
   "permissions": [
     "core:default",
@@ -16,7 +17,6 @@
     "core:window:allow-start-dragging",
     "core:window:allow-toggle-maximize",
     "updater:default",
-    "process:default",
-    "notification:default"
+    "process:default"
   ]
 }
