@@ -176,7 +176,7 @@ fn directory_expansion_filters_extensions_and_sorts() {
             p.strip_prefix(dir.path())
                 .unwrap()
                 .to_string_lossy()
-                .into_owned()
+                .replace('\\', "/")
         })
         .collect();
     // Recursive batches are ordered by full path, so a subdirectory lands at its

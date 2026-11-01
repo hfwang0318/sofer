@@ -1,16 +1,20 @@
 //! Remote deployment tests: generated shell scripts, probe parsing and the
 //! tunnel watchdog policy. Kept in one module so the submodules stay focused.
 
+#[cfg(unix)]
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
+#[cfg(unix)]
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
+#[cfg(unix)]
+use super::provision::upload_command;
 use super::provision::{
     destination, parallel_download_script, parse_probe, probe_script, progress_command,
-    runtime_assets, shell_quote, upload_command,
+    runtime_assets, shell_quote,
 };
 use super::tunnel::{
     backoff_delay, server_args, start_script, tunnel_responds, WatchAction, WatchEvent, WatchState,

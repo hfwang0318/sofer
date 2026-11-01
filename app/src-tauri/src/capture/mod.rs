@@ -97,11 +97,6 @@ fn screen_recording_granted() -> bool {
     unsafe { CGPreflightScreenCaptureAccess() != 0 }
 }
 
-#[cfg(not(target_os = "macos"))]
-fn screen_recording_granted() -> bool {
-    true
-}
-
 /// A successful recognition, shaped for the React side.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

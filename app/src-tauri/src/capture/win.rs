@@ -301,14 +301,16 @@ fn capture_rect(monitor: MonitorRect) -> Result<Frame> {
             return Err(anyhow!("抓取屏幕失败：{err}"));
         }
 
-        let mut info = BITMAPINFO::default();
-        info.bmiHeader = BITMAPINFOHEADER {
-            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: monitor.width,
-            biHeight: -monitor.height,
-            biPlanes: 1,
-            biBitCount: 32,
-            biCompression: BI_RGB.0,
+        let mut info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: monitor.width,
+                biHeight: -monitor.height,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let mut bgra = vec![0u8; (monitor.width as usize) * (monitor.height as usize) * 4];
