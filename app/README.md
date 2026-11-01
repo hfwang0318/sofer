@@ -521,22 +521,29 @@ app/
 ├── src/
 │   ├── overlay/                 Windows 自绘选区 UI
 │   ├── components/              SetupDialog, Controls, WindowChrome, Sidebar, Toast
+│   ├── hooks/                   settings / history / events / engine / updates 等状态与副作用
 │   ├── views/                   CaptureView, HistoryView, SettingsView
+│   ├── views/settings/          通用/OCR/输出/高级/关于 五个 section 与共享控件
 │   ├── lib/                     bridge, updater, types, defaults, platform, history, status, format
+│   ├── test/                    vitest setup
 │   └── styles/                  tokens.css, shell.css, views.css, overlay.css
+├── e2e/                         Playwright 浏览器预览用例
+├── playwright.config.ts
 ├── src-tauri/
-│   ├── src/lib.rs               Tauri builder / commands / tray / window material / signals
-│   ├── src/engine/              运行时、模型下载/校验、llama-server 生命周期
-│   ├── src/capture/             region selection → pipeline → clipboard
+│   ├── src/lib.rs               Tauri builder / 命令注册 / tray / window material / signals
+│   ├── src/engine/              运行时、模型清单、下载/校验、llama-server 生命周期
+│   ├── src/remote/              SSH 探测/部署、上传下载、隧道看护与重连
+│   ├── src/capture/             region selection → pipeline → clipboard；拖拽/剪贴板入口
 │   ├── src/capture/win.rs       Windows GDI 抓屏 + 浮层会话
-│   ├── src/settings.rs           Settings ↔ pipeline::Config
+│   ├── src/settings.rs          Settings ↔ pipeline::Config
+│   ├── src/history.rs           history.json（原子写、迁移、配额）
 │   ├── windows/nsis-hooks.nsh   更新/卸载前结束残留 llama-server
-│   ├── runtime/                  bundled llama.cpp（macos-arm64 / windows-x64）
+│   ├── runtime/                 bundled llama.cpp（macos-arm64 / windows-x64）
 │   ├── examples/engine_probe.rs 开发用 download/start/status 探针
-│   ├── capabilities/             窗口权限
+│   ├── capabilities/            窗口权限
 │   ├── tauri.conf.json
-│   ├── tauri.macos.conf.json     resources: runtime
-│   └── tauri.windows.conf.json   resources + NSIS hook + WebView2 bootstrapper
+│   ├── tauri.macos.conf.json    resources: runtime
+│   └── tauri.windows.conf.json  resources + NSIS hook + WebView2 bootstrapper
 ├── scripts/fetch-runtime.py     重新获取固定版本运行时
 ├── scripts/stage-vc-runtime.ps1 Windows VC++ CRT 内置
 ├── THIRD_PARTY.md               运行时与模型许可
