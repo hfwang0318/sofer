@@ -140,6 +140,9 @@ export const DEMO_RESULT: OcrResult = {
   thumbnail: DEMO_THUMB,
   capturedAt: Date.now() - 42_000,
   copied: true,
+  // `?demo=result` exists to review the truncated-result notice and its
+  // chunked retry, so the canned result is the possibly-truncated one.
+  truncated: true,
 };
 
 export const DEMO_HISTORY: HistoryEntry[] = [

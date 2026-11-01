@@ -19,11 +19,12 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_notification::NotificationExt;
 
 use ocr4code::engine::tesseract;
-use ocr4code::pipeline::EngineMode;
+use ocr4code::pipeline::{Config, EngineMode};
 use ocr4code::render::{self, Format};
 
 use crate::engine;
 use crate::remote;
+use crate::settings::Settings;
 use crate::AppState;
 
 #[cfg(target_os = "windows")]
@@ -116,6 +117,9 @@ pub struct OcrResult {
     pub thumbnail: Option<String>,
     pub captured_at: u64,
     pub copied: bool,
+    /// The kernel's trace says the reply may have stopped short of the image.
+    /// The UI keeps the result and offers a chunked re-run.
+    pub truncated: bool,
 }
 
 /// A preview emitted while the model is still generating. It is always
@@ -162,51 +166,79 @@ pub fn start(app: AppHandle) {
     state.cancel.store(false, Ordering::SeqCst);
 
     std::thread::spawn(move || {
-        let result = run(&app);
-        if let Err(err) = result {
-            let raw = format!("{err:#}");
-            eprintln!("capture: {raw}");
-            let setup_required = raw.contains("E_SETUP_REQUIRED");
-            let permission = raw.contains("E_PERMISSION") || raw.contains("屏幕录制权限");
-            let blank = raw.contains("E_BLANK");
-            let message = raw
-                .replace("E_SETUP_REQUIRED: ", "")
-                .replace("E_SETUP_REQUIRED", "")
-                .replace("E_PERMISSION: ", "")
-                .replace("E_PERMISSION", "")
-                .replace("E_BLANK: ", "")
-                .replace("E_BLANK", "");
-            let hint = hint_for(&raw);
-            let message = localize_error(&message);
-            let code = if setup_required {
-                "setup-required"
-            } else if permission {
-                "permission"
-            } else if blank {
-                "blank"
-            } else if raw.to_lowercase().contains("llama")
-                || raw.to_lowercase().contains("tesseract")
-                || raw.contains("OCR")
-                || raw.contains("识别")
-                || raw.contains("运行时")
-            {
-                "engine"
-            } else {
-                "capture"
-            };
-            let _ = app.emit(
-                "ocr:error",
-                OcrFailure {
-                    message,
-                    hint,
-                    code: Some(code.to_string()),
-                },
-            );
-            let _ = app.emit("ocr:phase", Phase { phase: "idle" });
-            show_main(&app);
+        if let Err(err) = run(&app) {
+            report_capture_error(&app, err);
         }
         app.state::<AppState>().busy.store(false, Ordering::SeqCst);
     });
+}
+
+/// Re-run the last capture that came back possibly truncated.
+///
+/// The screenshot is kept in the cache directory until the next capture starts,
+/// so this never needs a new selection. It shares the busy flag with `start`:
+/// a retry while something is running is ignored rather than stacked.
+pub fn retry(app: AppHandle) {
+    let state = app.state::<AppState>();
+    if state.busy.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    state.cancel.store(false, Ordering::SeqCst);
+
+    std::thread::spawn(move || {
+        if let Err(err) = run_retry(&app) {
+            report_capture_error(&app, err);
+        }
+        app.state::<AppState>().busy.store(false, Ordering::SeqCst);
+    });
+}
+
+fn report_capture_error(app: &AppHandle, err: anyhow::Error) {
+    let raw = format!("{err:#}");
+    eprintln!("capture: {raw}");
+    let setup_required = raw.contains("E_SETUP_REQUIRED");
+    let permission = raw.contains("E_PERMISSION") || raw.contains("屏幕录制权限");
+    let blank = raw.contains("E_BLANK");
+    let capture_only = raw.contains("E_CAPTURE");
+    let message = raw
+        .replace("E_SETUP_REQUIRED: ", "")
+        .replace("E_SETUP_REQUIRED", "")
+        .replace("E_PERMISSION: ", "")
+        .replace("E_PERMISSION", "")
+        .replace("E_BLANK: ", "")
+        .replace("E_BLANK", "")
+        .replace("E_CAPTURE: ", "")
+        .replace("E_CAPTURE", "");
+    let hint = hint_for(&raw);
+    let message = localize_error(&message);
+    let code = if setup_required {
+        "setup-required"
+    } else if permission {
+        "permission"
+    } else if blank {
+        "blank"
+    } else if capture_only {
+        "capture"
+    } else if raw.to_lowercase().contains("llama")
+        || raw.to_lowercase().contains("tesseract")
+        || raw.contains("OCR")
+        || raw.contains("识别")
+        || raw.contains("运行时")
+    {
+        "engine"
+    } else {
+        "capture"
+    };
+    let _ = app.emit(
+        "ocr:error",
+        OcrFailure {
+            message,
+            hint,
+            code: Some(code.to_string()),
+        },
+    );
+    let _ = app.emit("ocr:phase", Phase { phase: "idle" });
+    show_main(app);
 }
 
 #[tauri::command]
@@ -254,27 +286,25 @@ pub fn overlay_cancel() -> Result<(), String> {
 }
 
 fn run(app: &AppHandle) -> Result<()> {
-    let settings = app
-        .state::<AppState>()
-        .settings
-        .lock()
-        .unwrap()
-        .clone();
-    let main_was_visible = app
-        .get_webview_window("main")
-        .and_then(|w| w.is_visible().ok())
-        .unwrap_or(true);
+    let settings = snapshot_settings(app);
+    let main_was_visible = main_is_visible(app);
 
     #[cfg(target_os = "macos")]
     if !screen_recording_granted() {
         anyhow::bail!("E_PERMISSION: macOS 还没有授予屏幕录制权限");
     }
 
+    // A retained screenshot only exists so a truncated result can be retried;
+    // a new capture makes it obsolete.
+    discard_retained_capture(app);
+
     let path = capture_path(app)?;
     let _ = std::fs::remove_file(&path);
     let cancel = &app.state::<AppState>().cancel;
 
     let _ = app.emit("ocr:phase", Phase { phase: "selecting" });
+    // Wake an engine that may be sleeping, in parallel with the drag.
+    spawn_warm_up(app);
     if let CaptureOutcome::Cancelled = interactive_capture(app, &path, cancel)? {
         let _ = std::fs::remove_file(&path);
         let _ = app.emit("ocr:phase", Phase { phase: "idle" });
@@ -287,68 +317,157 @@ fn run(app: &AppHandle) -> Result<()> {
         anyhow::bail!("E_BLANK: 截图区域几乎是空白的");
     }
 
-    let mut config = settings.config();
+    match process_capture(app, &settings, &path, inspection, false) {
+        Ok(Some(result)) => {
+            if result.truncated {
+                if let Err(err) = retain_capture(app, &path) {
+                    eprintln!("capture: retaining the screenshot failed: {err:#}");
+                }
+            } else {
+                let _ = std::fs::remove_file(&path);
+            }
+            complete(app, &settings, main_was_visible, result);
+            Ok(())
+        }
+        Ok(None) => {
+            let _ = std::fs::remove_file(&path);
+            Ok(())
+        }
+        Err(err) => {
+            let _ = std::fs::remove_file(&path);
+            Err(err)
+        }
+    }
+}
 
+/// Re-run the retained screenshot, forcing a chunked pass.
+fn run_retry(app: &AppHandle) -> Result<()> {
+    let settings = snapshot_settings(app);
+    let main_was_visible = main_is_visible(app);
+    let path = retained_capture_path(app)?;
+    if !path.exists() {
+        anyhow::bail!("E_CAPTURE: 上一次的截图已经不存在");
+    }
+
+    let inspection = inspect_capture(&path);
+    if inspection.blank {
+        let _ = std::fs::remove_file(&path);
+        anyhow::bail!("E_BLANK: 截图区域几乎是空白的");
+    }
+
+    let Some(result) = process_capture(app, &settings, &path, inspection, true)? else {
+        return Ok(());
+    };
+    // A complete result no longer needs the pixels; a still-truncated one stays
+    // retryable until the next capture starts.
+    if !result.truncated {
+        let _ = std::fs::remove_file(&path);
+    }
+    complete(app, &settings, main_was_visible, result);
+    Ok(())
+}
+
+/// Recognise the selected pixels. `Ok(None)` means the user cancelled engine
+/// startup (no error, no result).
+fn process_capture(
+    app: &AppHandle,
+    settings: &Settings,
+    path: &Path,
+    inspection: CaptureInspection,
+    chunked: bool,
+) -> Result<Option<OcrResult>> {
+    let mut config = settings.config();
     if settings.engine != EngineMode::Tesseract {
         let _ = app.emit("ocr:phase", Phase { phase: "starting" });
-        let manager = app.state::<Arc<engine::Manager>>().inner().clone();
-        let remote_manager = app.state::<Arc<remote::Manager>>().inner().clone();
-        let remote_cfg = settings.remote_config().ok().flatten();
-        let mut remote_ok = false;
-        let mut remote_error: Option<String> = None;
-
-        if let Some(cfg) = remote_cfg {
-            match remote_manager.ensure_ready(&cfg) {
-                Ok(url) => {
-                    config.llama_url = Some(url);
-                    remote_ok = true;
-                }
-                Err(remote::Error::Cancelled) => {
-                    let _ = app.emit("ocr:phase", Phase { phase: "idle" });
-                    return Ok(());
-                }
-                Err(err) => {
-                    // A remote-only setup must surface the reason; `auto` still
-                    // gets the local server and then tesseract as a fallback.
-                    if settings.engine == EngineMode::LlamaCpp {
-                        if matches!(err, remote::Error::NotDeployed(_)) {
-                            return Err(anyhow::anyhow!("E_SETUP_REQUIRED: {err}"));
-                        }
-                        return Err(anyhow::anyhow!("{err}"));
-                    }
-                    remote_error = Some(err.to_string());
-                }
-            }
+        if !prepare_engine(app, settings, &mut config)? {
+            let _ = app.emit("ocr:phase", Phase { phase: "idle" });
+            return Ok(None);
         }
+    }
 
-        if !remote_ok {
-            match manager.ensure_ready(&settings.llama_url, settings.server_config()) {
-                Ok(url) => config.llama_url = Some(url),
-                Err(engine::Error::Cancelled) => {
-                    let _ = app.emit("ocr:phase", Phase { phase: "idle" });
-                    return Ok(());
-                }
-                Err(err) => {
-                    let fallback =
-                        settings.engine == EngineMode::Auto && tesseract::available();
-                    if fallback {
-                        eprintln!("capture: engine unavailable ({err}); using tesseract");
-                        config.engine = EngineMode::Tesseract;
-                    } else if let Some(remote_error) = remote_error {
-                        return Err(anyhow::anyhow!("{remote_error}"));
-                    } else if matches!(err, engine::Error::SetupRequired) {
-                        return Err(anyhow::anyhow!(
-                            "E_SETUP_REQUIRED: OCR 模型还没有下载"
-                        ));
-                    } else {
-                        return Err(anyhow::anyhow!("{err}"));
+    if chunked {
+        // More, smaller tiles: halve the single-call output budget and force
+        // tiling even if the user turned it off. The kernel's own forced-split
+        // retry still applies on top of this.
+        config.tile = true;
+        config.max_tokens = retry_max_tokens(config.max_tokens);
+    }
+
+    let _ = app.emit("ocr:phase", Phase { phase: "recognizing" });
+    recognize_to_result(app, settings, &config, path, inspection).map(Some)
+}
+
+/// Resolve the engine and pin the config to what actually answered.
+///
+/// `ensure_ready` already proved that the engine is up, so leaving the mode on
+/// `auto` would health-check it a second time (800 ms) and a slow-but-healthy
+/// server could silently fall back to tesseract. `auto` only falls back when
+/// `ensure_ready` itself failed. Returns `Ok(false)` when the user cancelled.
+fn prepare_engine(app: &AppHandle, settings: &Settings, config: &mut Config) -> Result<bool> {
+    let manager = app.state::<Arc<engine::Manager>>().inner().clone();
+    let remote_manager = app.state::<Arc<remote::Manager>>().inner().clone();
+    let remote_cfg = settings.remote_config().ok().flatten();
+    let mut remote_error: Option<String> = None;
+
+    if let Some(cfg) = remote_cfg {
+        match remote_manager.ensure_ready(&cfg) {
+            Ok(url) => {
+                use_llama(config, url);
+                return Ok(true);
+            }
+            Err(remote::Error::Cancelled) => return Ok(false),
+            Err(err) => {
+                // A remote-only setup must surface the reason; `auto` still
+                // gets the local server and then tesseract as a fallback.
+                if settings.engine == EngineMode::LlamaCpp {
+                    if matches!(err, remote::Error::NotDeployed(_)) {
+                        return Err(anyhow::anyhow!("E_SETUP_REQUIRED: {err}"));
                     }
+                    return Err(anyhow::anyhow!("{err}"));
                 }
+                remote_error = Some(err.to_string());
             }
         }
     }
 
-    let _ = app.emit("ocr:phase", Phase { phase: "recognizing" });
+    match manager.ensure_ready(&settings.llama_url, settings.server_config()) {
+        Ok(url) => {
+            use_llama(config, url);
+            Ok(true)
+        }
+        Err(engine::Error::Cancelled) => Ok(false),
+        Err(err) => {
+            if settings.engine == EngineMode::Auto && tesseract::available() {
+                eprintln!("capture: engine unavailable ({err}); using tesseract");
+                config.engine = EngineMode::Tesseract;
+                // Never leave a stale address behind for the tesseract run.
+                config.llama_url = None;
+                Ok(true)
+            } else if let Some(remote_error) = remote_error {
+                Err(anyhow::anyhow!("{remote_error}"))
+            } else if matches!(err, engine::Error::SetupRequired) {
+                Err(anyhow::anyhow!(
+                    "E_SETUP_REQUIRED: OCR 模型还没有下载"
+                ))
+            } else {
+                Err(anyhow::anyhow!("{err}"))
+            }
+        }
+    }
+}
+
+fn use_llama(config: &mut Config, url: String) {
+    config.engine = EngineMode::LlamaCpp;
+    config.llama_url = Some(url);
+}
+
+fn recognize_to_result(
+    app: &AppHandle,
+    settings: &Settings,
+    config: &Config,
+    path: &Path,
+    inspection: CaptureInspection,
+) -> Result<OcrResult> {
     let engine = config.engine().context("启动 OCR 引擎")?;
     let limiter = ocr4code::pipeline::limiter(config.jobs);
 
@@ -405,7 +524,7 @@ fn run(app: &AppHandle) -> Result<()> {
 
     let captured_at = now_ms();
     let chars = text.chars().count();
-    let result = OcrResult {
+    Ok(OcrResult {
         id: format!("{captured_at}-{chars}"),
         text,
         engine: outcome.document.engine.clone(),
@@ -419,9 +538,11 @@ fn run(app: &AppHandle) -> Result<()> {
         thumbnail: inspection.thumbnail,
         captured_at,
         copied,
-    };
+        truncated: !outcome.trace.consistent,
+    })
+}
 
-    let _ = std::fs::remove_file(&path);
+fn complete(app: &AppHandle, settings: &Settings, main_was_visible: bool, result: OcrResult) {
     let _ = app.emit("ocr:result", result.clone());
     let _ = app.emit("ocr:phase", Phase { phase: "idle" });
     notify_result(app, settings.notify_on_result, &result);
@@ -441,7 +562,69 @@ fn run(app: &AppHandle) -> Result<()> {
         // Nothing reached the clipboard, so show the result and its copy button.
         show_main(app);
     }
-    Ok(())
+}
+
+fn snapshot_settings(app: &AppHandle) -> Settings {
+    app.state::<AppState>().settings.lock().unwrap().clone()
+}
+
+fn main_is_visible(app: &AppHandle) -> bool {
+    app.get_webview_window("main")
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(true)
+}
+
+/// The single-call budget used by the chunked retry.
+fn retry_max_tokens(current: u32) -> u32 {
+    (current / 2).max(1024)
+}
+
+// ---------------------------------------------------------------------------
+// Selection warm-up
+// ---------------------------------------------------------------------------
+
+/// Ask a ready engine for one token while the user is still dragging, so an
+/// idle-sleeping server is awake by the time the screenshot arrives. Best
+/// effort: it never blocks selection and never touches `busy` / `cancel`.
+fn spawn_warm_up(app: &AppHandle) {
+    let settings = snapshot_settings(app);
+    if settings.engine == EngineMode::Tesseract {
+        return;
+    }
+    let manager = app.state::<Arc<engine::Manager>>().inner().clone();
+    let remote_manager = app.state::<Arc<remote::Manager>>().inner().clone();
+    std::thread::spawn(move || {
+        let Some(url) = ready_engine_url(&settings, &manager, &remote_manager) else {
+            return;
+        };
+        if !engine::warm_up(&url, Duration::from_secs(6)) {
+            eprintln!("capture: warm-up request did not complete");
+        }
+    });
+}
+
+/// Only a server that is already up is worth waking; starting one is
+/// `ensure_ready`'s job and would duplicate work.
+fn ready_engine_url(
+    settings: &Settings,
+    manager: &engine::Manager,
+    remote_manager: &remote::Manager,
+) -> Option<String> {
+    if settings.remote_enabled {
+        let state = remote_manager.state();
+        if state.phase == "online" {
+            return state.url;
+        }
+        return None;
+    }
+    let info = manager.server_info();
+    if info.state == "online" {
+        return info.url;
+    }
+    if engine::health_ok(&settings.llama_url, Duration::from_millis(250)) {
+        return Some(settings.llama_url.clone());
+    }
+    None
 }
 
 pub fn show_main(app: &AppHandle) {
@@ -501,7 +684,7 @@ fn notification_body(text: &str, lines: usize, copied: bool) -> String {
     }
 }
 
-fn capture_path(app: &AppHandle) -> Result<PathBuf> {
+fn capture_dir(app: &AppHandle) -> Result<PathBuf> {
     let dir = app
         .path()
         .app_cache_dir()
@@ -509,7 +692,30 @@ fn capture_path(app: &AppHandle) -> Result<PathBuf> {
         .join("captures");
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("创建截图目录 {}", dir.display()))?;
-    Ok(dir.join(format!("capture-{}.png", now_ms())))
+    Ok(dir)
+}
+
+fn capture_path(app: &AppHandle) -> Result<PathBuf> {
+    Ok(capture_dir(app)?.join(format!("capture-{}.png", now_ms())))
+}
+
+/// The screenshot kept for a chunked retry. A fixed name means one file at
+/// most, and it is always cleared when the next capture starts.
+fn retained_capture_path(app: &AppHandle) -> Result<PathBuf> {
+    Ok(capture_dir(app)?.join("retry.png"))
+}
+
+fn retain_capture(app: &AppHandle, path: &Path) -> Result<()> {
+    let target = retained_capture_path(app)?;
+    let _ = std::fs::remove_file(&target);
+    std::fs::rename(path, &target)
+        .with_context(|| format!("保留截图 {}", target.display()))
+}
+
+fn discard_retained_capture(app: &AppHandle) {
+    if let Ok(path) = retained_capture_path(app) {
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 fn now_ms() -> u64 {
@@ -544,6 +750,9 @@ fn localize_error(message: &str) -> String {
 fn hint_for(message: &str) -> String {
     if message.contains("E_SETUP_REQUIRED") {
         return "下载 OCR 模型后即可截图。".into();
+    }
+    if message.contains("E_CAPTURE") {
+        return "重新截图后再试。".into();
     }
     if message.contains("E_PERMISSION") || message.contains("屏幕录制权限") {
         return "在系统设置 → 隐私与安全性 → 屏幕录制中勾选 ocr4code，然后重启应用。"
@@ -726,6 +935,28 @@ mod tests {
             }
         }
         assert!(is_uniform(&image::DynamicImage::ImageRgb8(frame)));
+    }
+
+    #[test]
+    fn a_ready_engine_is_pinned_instead_of_rechecked() {
+        // Leaving the mode on `auto` after `ensure_ready` succeeded would run a
+        // second 800 ms health check and could silently downgrade to tesseract.
+        let mut config = Config::default();
+        assert_eq!(config.engine, EngineMode::Auto);
+        use_llama(&mut config, "http://127.0.0.1:18099".into());
+        assert_eq!(config.engine, EngineMode::LlamaCpp);
+        assert_eq!(
+            config.llama_url.as_deref(),
+            Some("http://127.0.0.1:18099")
+        );
+    }
+
+    #[test]
+    fn chunked_retry_halves_the_output_budget_with_a_floor() {
+        assert_eq!(retry_max_tokens(3072), 1536);
+        assert_eq!(retry_max_tokens(2048), 1024);
+        assert_eq!(retry_max_tokens(1536), 1024);
+        assert_eq!(retry_max_tokens(512), 1024);
     }
 
     #[test]
