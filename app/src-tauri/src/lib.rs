@@ -7,6 +7,7 @@
 
 mod capture;
 pub mod engine;
+mod history;
 pub mod remote;
 mod settings;
 
@@ -686,6 +687,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_settings,
             save_settings,
+            history::load_history,
+            history::save_history,
+            history::migrate_history,
             app_info,
             set_shortcut_enabled,
             copy_text,
