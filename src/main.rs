@@ -67,6 +67,10 @@ struct OcrArgs {
     #[arg(long)]
     keep_gutter: bool,
 
+    /// rebuild tree / table box-drawing from the screenshot's straight lines
+    #[arg(long)]
+    box_art: bool,
+
     /// print layout statistics to stderr
     #[arg(long)]
     stats: bool,
@@ -154,6 +158,7 @@ fn ocr(args: OcrArgs) -> Result<()> {
         no_geometry: args.no_geometry,
         join_wrap: args.join_wrap,
         keep_gutter: args.keep_gutter,
+        box_art: args.box_art,
         format: args.format,
         language: args.lang.clone(),
         jobs: args.jobs,

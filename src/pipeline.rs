@@ -20,7 +20,7 @@ use crate::engine::{llamacpp, tesseract, Engine, EngineOutput, Spec};
 use crate::geom;
 use crate::pool::Semaphore;
 use crate::render::Format;
-use crate::{lang, repair, tile, Document};
+use crate::{boxdraw, lang, repair, tile, Document};
 
 /// Which engine to build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,6 +68,9 @@ pub struct Config {
     pub join_wrap: bool,
     /// trust the model's spacing instead of stripping a detected line-number gutter
     pub keep_gutter: bool,
+    /// rebuild box-drawing characters (trees, tables) from detected straight
+    /// lines; off by default because it only helps when the engine dropped them
+    pub box_art: bool,
     /// output shape; applied by the caller through [`crate::render::render`]
     pub format: Format,
     /// markdown fence language; `None` = guess from the text
@@ -93,6 +96,7 @@ impl Default for Config {
             no_geometry: false,
             join_wrap: false,
             keep_gutter: false,
+            box_art: false,
             format: Format::Text,
             language: None,
             jobs: 1,
@@ -225,7 +229,8 @@ pub fn recognize(
     limiter: &Semaphore,
 ) -> Result<Outcome> {
     let img = image::open(path).with_context(|| format!("opening image {}", path.display()))?;
-    let geom = geom::analyze(&img.to_luma8());
+    let luma = img.to_luma8();
+    let geom = geom::analyze(&luma);
     let adv = geom.advance_prior();
 
     let plan = if cfg.tile {
@@ -274,6 +279,9 @@ pub fn recognize(
     let consistent = tile::looks_consistent(out.lines.len(), &geom.bands);
     let (mut lines, stats) = assemble(&out.lines, &geom, &cfg.opts());
     repair::normalize(&mut lines);
+    if cfg.box_art {
+        boxdraw::apply(&luma, &geom, stats.advance, &mut lines);
+    }
     let text = lines
         .iter()
         .map(|l| l.rendered())
