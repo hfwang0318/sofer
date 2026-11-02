@@ -8,6 +8,9 @@ export const isMac =
   (/Mac|iPhone|iPad/.test(navigator.platform) ||
     navigator.userAgent.includes("Mac OS X"));
 
+export const isWindows =
+  typeof navigator !== "undefined" && /Win/.test(navigator.platform);
+
 const KEY_LABELS: Record<string, string> = {
   CommandOrControl: isMac ? "⌘" : "Ctrl",
   Command: isMac ? "⌘" : "Ctrl",

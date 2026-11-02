@@ -3,7 +3,11 @@
 All notable changes to the desktop app. The root OCR kernel keeps its own
 `cargo test`/baseline history; this file records the shipped desktop releases.
 
-## Unreleased
+## v1.1.0 — 2026-11-02
+
+Windows 默认更省内存：开启「压缩识别缓存」（KV q8_0），并在每次识别结束后立即释放
+模型内存（下次截图重新加载）；macOS 保持空闲 5 分钟释放。设置 → OCR 的「空闲释放内存」
+新增「立即释放」，两个平台都可手动选择。
 
 内核后处理改进。26 个基准场景的质量指标与 1.0.0 完全持平（逐场景 `content_acc`
 只有 tesseract `git-diff` 曾短暂回退，已修正），新增能力主要作用于病态模型输出。

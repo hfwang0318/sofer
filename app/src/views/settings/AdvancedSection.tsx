@@ -179,7 +179,7 @@ export function AdvancedSection({
 
       <SettingRow
         title="压缩识别缓存"
-        description="减少内存占用；Windows 上可能变慢。"
+        description="默认开启，减少内存占用；关闭后识别略快，但占用更多内存。"
       >
         <Switch
           checked={draft.kvCacheQuant}

@@ -213,6 +213,11 @@ impl Manager {
     }
 }
 
+/// `--sleep-idle-seconds` value that releases the model right after each
+/// capture. It is a real second rather than a sentinel because 0 already means
+/// "never release".
+pub const IMMEDIATE_RELEASE_SECS: u64 = 1;
+
 /// llama-server startup knobs derived from the persisted settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ServerConfig {
@@ -229,8 +234,12 @@ impl Default for ServerConfig {
             quality: ModelQuality::High,
             jobs: 3,
             max_tokens: 3072,
-            kv_cache_quant: cfg!(target_os = "macos"),
-            idle_sleep_secs: 300,
+            kv_cache_quant: true,
+            idle_sleep_secs: if cfg!(target_os = "windows") {
+                IMMEDIATE_RELEASE_SECS
+            } else {
+                300
+            },
         }
     }
 }

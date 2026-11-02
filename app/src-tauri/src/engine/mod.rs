@@ -40,7 +40,7 @@ pub use self::proxy::{compose_proxy_url, split_proxy_url};
 pub use self::runtime::{runtime_ready_at, RUNTIME_VERSION};
 pub use self::server::{
     health_ok, llama_slots, per_slot_ctx, total_ctx, warm_up, ServerConfig, CONTEXT_MARGIN,
-    PROMPT_TOKEN_BUDGET,
+    IMMEDIATE_RELEASE_SECS, PROMPT_TOKEN_BUDGET,
 };
 
 use self::manifest::{marker_ok, marker_path, MMPROJ};

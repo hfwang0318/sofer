@@ -350,9 +350,9 @@ python3 bench/baseline.py --engines llamacpp --variant 1x
 
 ## 5. 推荐配置
 
-> app 当前默认：**低精度 Q4_K_M**、空闲 5 分钟释放、`-cram 0`、macOS KV q8、
-> Windows f16 KV；`-c/-np` 跟随 `jobs` 与 `max_tokens` 计算。下面保留手动部署命令，
-> 便于 CLI 或外部 server 复现。
+> app 当前默认：**低精度 Q4_K_M**、KV q8（所有平台）、`-cram 0`；macOS 空闲 5 分钟
+> 释放，Windows 每次识别后立即释放（`--sleep-idle-seconds 1`）；`-c/-np` 跟随
+> `jobs` 与 `max_tokens` 计算。下面保留手动部署命令，便于 CLI 或外部 server 复现。
 
 ### A. 默认（macOS / Metal，质量优先）
 

@@ -9,7 +9,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::engine::{
     compose_proxy_url, normalize_proxy_url, split_proxy_url, DownloadOptions, ModelQuality,
-    ServerConfig,
+    ServerConfig, IMMEDIATE_RELEASE_SECS,
 };
 use crate::remote::{self, Accel, RemoteConfig, Source};
 use sofer::engine::llamacpp;
@@ -109,9 +109,11 @@ pub struct Settings {
     pub proxy_username: String,
     pub proxy_password: String,
     pub model_quality: ModelQuality,
-    /// Unload the model after this many idle seconds (0 = never).
+    /// Unload the model after this many idle seconds (0 = never,
+    /// 1 = right after each capture).
     pub idle_sleep_secs: u64,
-    /// Quantize the KV cache to q8_0. Default on for Apple Metal, off for CPU.
+    /// Quantize the KV cache to q8_0. On by default on every platform; the
+    /// memory saving matters more than the CPU-side speed cost.
     pub kv_cache_quant: bool,
     pub ui_scale: f64,
     pub auto_check_updates: bool,
@@ -168,8 +170,15 @@ impl Default for Settings {
             proxy_username: String::new(),
             proxy_password: String::new(),
             model_quality: ModelQuality::Low,
-            idle_sleep_secs: 300,
-            kv_cache_quant: cfg!(target_os = "macos"),
+            // Windows keeps the whole model resident in RAM; release it after
+            // every capture so idle time does not hold ~1 GB. macOS keeps the
+            // 5-minute release because Metal reloads are cheap.
+            idle_sleep_secs: if cfg!(target_os = "windows") {
+                IMMEDIATE_RELEASE_SECS
+            } else {
+                300
+            },
+            kv_cache_quant: true,
             ui_scale: 1.15,
             auto_check_updates: true,
             auto_download_updates: true,
@@ -492,8 +501,8 @@ pub fn validate(settings: &Settings) -> Result<(), String> {
             return Err("自定义提示词不能为空。".into());
         }
     }
-    if settings.idle_sleep_secs != 0 && !(60..=3600).contains(&settings.idle_sleep_secs) {
-        return Err("空闲释放时间应为 0（关闭）或 60–3600 秒。".into());
+    if settings.idle_sleep_secs > 3600 {
+        return Err("空闲释放时间应为 0（关闭）或 1–3600 秒。".into());
     }
     if settings.psm > 13 {
         return Err("tesseract PSM 应在 0 到 13 之间。".into());
@@ -551,8 +560,15 @@ mod tests {
         assert!(!config.join_wrap);
         assert!(config.tile);
         assert_eq!(settings.model_quality, ModelQuality::Low);
-        assert_eq!(settings.idle_sleep_secs, 300);
-        assert_eq!(settings.kv_cache_quant, cfg!(target_os = "macos"));
+        assert_eq!(
+            settings.idle_sleep_secs,
+            if cfg!(target_os = "windows") {
+                IMMEDIATE_RELEASE_SECS
+            } else {
+                300
+            }
+        );
+        assert!(settings.kv_cache_quant);
         assert!(!settings.use_mirror);
         assert!(settings.proxy_url.is_empty());
         assert!(settings.notify_on_result);

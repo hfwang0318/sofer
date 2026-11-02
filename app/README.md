@@ -291,8 +291,8 @@ render(text/markdown/json) ──► 剪贴板
 | Model precision | `model_quality` | `low` | Q4_K_M；`high` 为官方 Q8_0 |
 | Model mirror | `use_mirror` | 关 | 勾选后走 `hf-mirror.com` |
 | Download proxy | `proxy_url/username/password` | 空 | 保存时自动做 userinfo 编码 |
-| Idle release | `idle_sleep_secs` | `300` | 0 = 关闭；其余 60–3600 秒 |
-| KV cache quantization | `kv_cache_quant` | macOS 开 / Windows 关 | q8_0；CPU 上会变慢 |
+| Idle release | `idle_sleep_secs` | macOS `300`；Windows `1` | 0 = 关闭；1 = 每次识别后；其余 1–3600 秒 |
+| KV cache quantization | `kv_cache_quant` | 开（所有平台） | q8_0；CPU 上会变慢 |
 | Recognition engine | `engine` | `auto` | 见上面的引擎行为 |
 | External llama.cpp URL | `llama_url` | `http://127.0.0.1:8099` | 可选；内置 server 用独立端口 |
 | Prompt | `prompt` | 基线默认 prompt | 对版面影响大于其它参数 |
@@ -421,9 +421,9 @@ cargo run --example engine_probe -- start
 `llama-server` 可能不认新参数，会自动跳过（`-c/-np` 和 KV 量化仍生效）。
 
 默认 **低精度 Q4_K_M**（包括从旧设置升级、没有显式选过高精度的安装）；已有
-`"modelQuality":"high"` 的配置会保留高精度。默认还会开 **空闲 5 分钟释放**、macOS
-**KV q8**、Windows **f16 KV**，`-c/-np` 随 `jobs`/`max_tokens` 自动计算，`-cram 0`
-关闭 prompt cache。
+`"modelQuality":"high"` 的配置会保留高精度。默认还会开 **KV q8**（所有平台）；
+macOS 空闲 5 分钟后释放，Windows **每次识别结束后立即释放**（下次截图重新加载模型），
+`-c/-np` 随 `jobs`/`max_tokens` 自动计算，`-cram 0` 关闭 prompt cache。
 
 TLS 证书使用系统信任库；如果代理/安全软件会劫持 HTTPS，需要把它的根证书安装到系统信任库，否则会出现 `unknown issuer`。
 

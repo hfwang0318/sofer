@@ -591,8 +591,10 @@ segment() {
     # No curl --retry here: a retried response would be appended after the
     # partial bytes from the failed attempt. The outer loop resumes from the
     # file size instead, which also works after a cancel/restart.
-    curl -fL --connect-timeout 15 --speed-time 60 --speed-limit 1024 \
-      --no-progress-meter --range "$FROM-$END" "$URL" >> "$PARTFILE"
+    # -sS instead of --no-progress-meter: the latter needs curl >= 7.67 and
+    # older distro curl (CentOS 7, Ubuntu 18.04) rejects the option outright.
+    curl -fsSL --connect-timeout 15 --speed-time 60 --speed-limit 1024 \
+      --range "$FROM-$END" "$URL" >> "$PARTFILE"
     NEW=$(stat -c %s "$PARTFILE" 2>/dev/null || echo 0)
     if [ "$NEW" -gt "$WANT" ]; then rm -f "$PARTFILE"; return 2; fi
     if [ "$NEW" -le "$HAVE" ]; then
@@ -676,8 +678,8 @@ pub(super) fn progress_command(target: PollTarget<'_>) -> String {
 fn download_function() -> String {
     "fetch() {\n\
        if command -v curl >/dev/null 2>&1; then\n\
-         curl -fL --retry 3 --connect-timeout 15 --speed-time 60 --speed-limit 1024 -C - --no-progress-meter -o \"$2\" \"$1\" || \\\n\
-           curl -fL --retry 3 --connect-timeout 15 --speed-time 60 --speed-limit 1024 --no-progress-meter -o \"$2\" \"$1\";\n\
+         curl -fsSL --retry 3 --connect-timeout 15 --speed-time 60 --speed-limit 1024 -C - -o \"$2\" \"$1\" || \\\n\
+           curl -fsSL --retry 3 --connect-timeout 15 --speed-time 60 --speed-limit 1024 -o \"$2\" \"$1\";\n\
        elif command -v wget >/dev/null 2>&1; then\n\
          wget -q -c --timeout=30 --tries=3 -O \"$2\" \"$1\";\n\
        else\n\

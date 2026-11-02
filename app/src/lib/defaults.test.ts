@@ -14,7 +14,7 @@ import {
   SETTINGS_KEY,
   SETUP_DISMISSED_KEY,
 } from "./defaults";
-import { isMac } from "./platform";
+import { isWindows } from "./platform";
 import type { Settings } from "./types";
 
 /** Keep this list in sync with `interface Settings` in types.ts. */
@@ -80,13 +80,13 @@ describe("DEFAULT_SETTINGS", () => {
     expect(DEFAULT_SETTINGS.historyLimit).toBe(20);
     expect(DEFAULT_SETTINGS.maxTokens).toBe(3072);
     expect(DEFAULT_SETTINGS.jobs).toBe(3);
-    expect(DEFAULT_SETTINGS.idleSleepSecs).toBe(300);
+    expect(DEFAULT_SETTINGS.idleSleepSecs).toBe(isWindows ? 1 : 300);
     expect(DEFAULT_SETTINGS.uiScale).toBe(1.15);
     expect(DEFAULT_SETTINGS.psm).toBe(6);
   });
 
-  it("follows the platform for KV-cache quantization", () => {
-    expect(DEFAULT_SETTINGS.kvCacheQuant).toBe(isMac);
+  it("defaults KV-cache quantization on for every platform", () => {
+    expect(DEFAULT_SETTINGS.kvCacheQuant).toBe(true);
   });
 
   it("keeps remote deployment off with an empty host", () => {

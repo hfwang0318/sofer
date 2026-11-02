@@ -140,7 +140,7 @@ export function OcrSection({
       </SettingRow>
       <SettingRow
         title="空闲释放内存"
-        description="闲置后释放内存。下次截图会稍慢一点。"
+        description="闲置后释放内存；「立即释放」在每次识别结束后就释放，下次截图重新加载。"
       >
         <Segmented
           label="空闲释放内存"
@@ -148,6 +148,7 @@ export function OcrSection({
           onChange={(value) => update("idleSleepSecs", Number(value))}
           options={[
             { value: "0", label: "关闭" },
+            { value: "1", label: "立即释放" },
             { value: "300", label: "5 分钟" },
             { value: "600", label: "10 分钟" },
             { value: "1800", label: "30 分钟" },

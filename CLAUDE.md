@@ -283,8 +283,9 @@ shortcut / tray / Capture button / dropped file / clipboard image
   quantization or idle sleep changes the server command line and stops the
   managed server (`server_signature`). A quality change also cancels an in-flight
   download for the old pack.
-- Defaults: low-precision Q4_K_M, 5-minute idle sleep, KV q8 on macOS / off on
-  Windows CPU, 3 parallel jobs, 3072 max output tokens, UI scale 1.15.
+- Defaults: low-precision Q4_K_M, KV q8 on every platform, 5-minute idle sleep
+  on macOS, release right after each capture on Windows, 3 parallel jobs,
+  3072 max output tokens, UI scale 1.15.
 - `pnpm tauri build` enables updater artifacts and fails without signing keys;
   use `--no-bundle` for local builds. Windows install stops `llama-server`
   first so NSIS can replace the runtime files.

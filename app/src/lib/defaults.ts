@@ -1,4 +1,4 @@
-import { isMac } from "./platform";
+import { isWindows } from "./platform";
 import type {
   HistoryEntry,
   ModelQuality,
@@ -66,8 +66,10 @@ export const DEFAULT_SETTINGS: Settings = {
   proxyUsername: "",
   proxyPassword: "",
   modelQuality: "low",
-  idleSleepSecs: 300,
-  kvCacheQuant: isMac,
+  // Windows releases the model after every capture by default; macOS keeps the
+  // 5-minute idle release. Mirrors `Settings::default()` in settings.rs.
+  idleSleepSecs: isWindows ? 1 : 300,
+  kvCacheQuant: true,
   uiScale: 1.15,
   autoCheckUpdates: true,
   autoDownloadUpdates: true,
