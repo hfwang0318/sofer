@@ -16,11 +16,10 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::assemble::{assemble, AssembleStats, Opts};
-use crate::engine::{
-    self, llamacpp, tesseract, Engine, EngineOutput, ImageFormat, ImageInput, Spec,
-};
+use crate::engine::{llamacpp, tesseract, Engine, EngineOutput, ImageFormat, ImageInput, Spec};
 use crate::geom;
 use crate::pool::Semaphore;
+use crate::preprocess::{self, Transform};
 use crate::render::Format;
 use crate::{boxdraw, lang, repair, tile, Document};
 
@@ -80,6 +79,15 @@ pub struct Config {
     pub language: Option<String>,
     /// how many engine calls may be in flight (only matters when tiling)
     pub jobs: usize,
+    /// decoded-pixel ceiling; `0` disables it. A small compressed file can
+    /// decode into hundreds of megapixels and `geom` allocates per pixel.
+    pub max_pixels: u64,
+    /// crop the background margins before the model sees the image
+    pub trim: bool,
+    /// upscale screenshots whose text is too small for the vision encoder
+    pub upscale_small: bool,
+    /// estimate the ink background per block instead of once per frame
+    pub adaptive_background: bool,
 
     // CLI-only escape hatches for testing the layout layer without a model.
     pub mock_text: Option<String>,
@@ -104,6 +112,10 @@ impl Default for Config {
             image_format: ImageFormat::Png,
             language: None,
             jobs: 1,
+            max_pixels: preprocess::DEFAULT_MAX_PIXELS,
+            trim: true,
+            upscale_small: true,
+            adaptive_background: true,
             mock_text: None,
             mock_text_file: None,
         }
@@ -176,6 +188,7 @@ pub fn limiter(jobs: usize) -> Arc<Semaphore> {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Trace {
+    pub preprocess: PreprocessTrace,
     pub tiling: Option<TilingTrace>,
     pub retry: Option<RetryTrace>,
     pub geometry: GeometryTrace,
@@ -184,6 +197,22 @@ pub struct Trace {
     pub consistent: bool,
     pub rows: usize,
     pub bands: usize,
+}
+
+/// What happened to the image before the engine saw it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreprocessTrace {
+    /// The engine received the caller's original bytes untouched.
+    pub forwarded: bool,
+    /// Content-box crop applied to the model copy, `[x0, y0, width, height]`
+    /// in normalized-original pixels.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crop: Option<[u32; 4]>,
+    /// Uniform upscale factor for small text (1.0 = none).
+    pub scale: f32,
+    /// Frame size after EXIF/alpha/pixel-cap normalization.
+    pub pixels: u64,
 }
 
 /// What the engine-boundary cleanup changed before assembly.
@@ -238,6 +267,70 @@ pub struct Outcome {
     pub trace: Trace,
 }
 
+/// Everything the engine calls need, after normalization but before any
+/// request. Geometry and tile coordinates always refer to `image`.
+struct Prepared {
+    /// Normalized original (orientation, alpha and pixel cap applied).
+    image: image::DynamicImage,
+    /// The model copy, when cropping or upscaling changed it. `None` means the
+    /// model sees `image` itself, so no second full-frame buffer is allocated.
+    model: Option<image::DynamicImage>,
+    bytes: Vec<u8>,
+    /// MIME for forwarding `bytes` verbatim; `None` forces a re-encode.
+    source: Option<&'static str>,
+    transform: Transform,
+    /// Content box that was cropped for the model, if any.
+    crop: Option<[u32; 4]>,
+    luma: image::GrayImage,
+    geom: geom::Geometry,
+    adv: f32,
+    plan: Option<tile::Plan>,
+}
+
+impl Prepared {
+    fn model(&self) -> &image::DynamicImage {
+        self.model.as_ref().unwrap_or(&self.image)
+    }
+
+    fn input(&self) -> ImageInput<'_> {
+        match self.source {
+            Some(mime) => ImageInput::with_source(self.model(), &self.bytes, mime),
+            None => ImageInput::from_pixels(self.model()),
+        }
+    }
+
+    /// Crop one tile in original-image coordinates onto the model copy.
+    fn crop_tile(&self, t: &tile::Tile) -> image::DynamicImage {
+        let model = self.model();
+        let map = |value: f32, offset: u32, limit: u32, round_up: bool| -> u32 {
+            let scaled = (value - offset as f32) * self.transform.scale;
+            let scaled = if round_up {
+                scaled.ceil()
+            } else {
+                scaled.floor()
+            };
+            scaled.clamp(0.0, limit as f32) as u32
+        };
+        let x0 = map(
+            t.x0 as f32,
+            self.transform.dx,
+            model.width().saturating_sub(1),
+            false,
+        );
+        let y0 = map(
+            t.y0 as f32,
+            self.transform.dy,
+            model.height().saturating_sub(1),
+            false,
+        );
+        let x1 = map(t.x1 as f32, self.transform.dx, model.width(), true);
+        let y1 = map(t.y1 as f32, self.transform.dy, model.height(), true);
+        let x1 = x1.max(x0 + 1).min(model.width());
+        let y1 = y1.max(y0 + 1).min(model.height());
+        model.crop_imm(x0, y0, x1 - x0, y1 - y0)
+    }
+}
+
 /// Recognise one image with an already-built engine.
 ///
 /// The call blocks (a VLM request or tesseract process). Callers that must stay
@@ -249,12 +342,38 @@ pub fn recognize(
     cfg: &Config,
     limiter: &Semaphore,
 ) -> Result<Outcome> {
-    let (img, bytes, luma, geom, adv, plan) = prepare(path, cfg)?;
-    let input = ImageInput::with_source(&img, &bytes, engine::mime_for_path(path));
-    let out = run_engine(engine, &input, plan.as_ref(), cfg, limiter)?;
+    let prep = prepare(path, cfg)?;
+    recognize_prepared(engine, &prep, path, cfg, limiter)
+}
+
+/// Like [`recognize`], but reuse an already-decoded image.
+///
+/// The desktop app decodes once for its thumbnail and blank check; decoding a
+/// 4K screenshot a second time is pure latency and a second peak allocation.
+/// The caller must pass the result of [`preprocess::decode`] so the EXIF
+/// orientation matches what `prepare` would have done.
+pub fn recognize_decoded(
+    engine: &dyn Engine,
+    path: &Path,
+    decoded: preprocess::Decoded,
+    cfg: &Config,
+    limiter: &Semaphore,
+) -> Result<Outcome> {
+    let prep = prepare_decoded(path, decoded, cfg)?;
+    recognize_prepared(engine, &prep, path, cfg, limiter)
+}
+
+fn recognize_prepared(
+    engine: &dyn Engine,
+    prep: &Prepared,
+    path: &Path,
+    cfg: &Config,
+    limiter: &Semaphore,
+) -> Result<Outcome> {
+    let out = run_engine(engine, prep, prep.plan.as_ref(), cfg, limiter)?;
     let (out, used, retry_trace) =
-        retry_if_truncated(engine, &input, &geom, adv, cfg, limiter, out, plan)?;
-    Ok(finish(out, used, retry_trace, &luma, &geom, path, cfg))
+        retry_if_truncated(engine, prep, cfg, limiter, out, prep.plan.clone())?;
+    Ok(finish(out, used, retry_trace, prep, path, cfg))
 }
 
 /// Like [`recognize`], but report the model's text through `on_delta` while it
@@ -272,13 +391,37 @@ pub fn recognize_streaming(
     limiter: &Semaphore,
     on_delta: &mut dyn FnMut(&str),
 ) -> Result<Outcome> {
-    let (img, bytes, luma, geom, adv, plan) = prepare(path, cfg)?;
-    let input = ImageInput::with_source(&img, &bytes, engine::mime_for_path(path));
+    let prep = prepare(path, cfg)?;
+    streaming_prepared(engine, &prep, path, cfg, limiter, on_delta)
+}
 
-    let out = if plan.is_none() {
+/// Like [`recognize_streaming`], but reuse an already-decoded image (see
+/// [`recognize_decoded`]).
+pub fn recognize_streaming_decoded(
+    engine: &dyn Engine,
+    path: &Path,
+    decoded: preprocess::Decoded,
+    cfg: &Config,
+    limiter: &Semaphore,
+    on_delta: &mut dyn FnMut(&str),
+) -> Result<Outcome> {
+    let prep = prepare_decoded(path, decoded, cfg)?;
+    streaming_prepared(engine, &prep, path, cfg, limiter, on_delta)
+}
+
+fn streaming_prepared(
+    engine: &dyn Engine,
+    prep: &Prepared,
+    path: &Path,
+    cfg: &Config,
+    limiter: &Semaphore,
+    on_delta: &mut dyn FnMut(&str),
+) -> Result<Outcome> {
+    let out = if prep.plan.is_none() {
         let _permit = limiter.acquire();
+        let input = prep.input();
         let mut emitted = false;
-        match engine.recognize_stream(path, &mut |delta| {
+        match engine.recognize_stream_image(&input, cfg.image_format, &mut |delta| {
             emitted = true;
             on_delta(delta);
         }) {
@@ -290,64 +433,122 @@ pub fn recognize_streaming(
             Err(err) => return Err(err.context("streaming interrupted mid-reply")),
         }
     } else {
-        run_engine(engine, &input, plan.as_ref(), cfg, limiter)?
+        run_engine(engine, prep, prep.plan.as_ref(), cfg, limiter)?
     };
 
     let (out, used, retry_trace) =
-        retry_if_truncated(engine, &input, &geom, adv, cfg, limiter, out, plan)?;
-    Ok(finish(out, used, retry_trace, &luma, &geom, path, cfg))
+        retry_if_truncated(engine, prep, cfg, limiter, out, prep.plan.clone())?;
+    Ok(finish(out, used, retry_trace, prep, path, cfg))
 }
 
-type Prepared = (
-    image::DynamicImage,
-    Vec<u8>,
-    image::GrayImage,
-    geom::Geometry,
-    f32,
-    Option<tile::Plan>,
-);
-
-/// Read and decode the image once, then decide whether it needs tiles.
+/// Read and decode the image once, then normalize it for the engine.
 fn prepare(path: &Path, cfg: &Config) -> Result<Prepared> {
     // Read the file once: decode for the geometry layer and keep the encoded
     // bytes for the engine, instead of letting the engine re-read the path.
     let bytes = std::fs::read(path).with_context(|| format!("reading image {}", path.display()))?;
-    let img = image::load_from_memory(&bytes)
-        .with_context(|| format!("decoding image {}", path.display()))?;
-    let luma = img.to_luma8();
-    let geom = geom::analyze(&luma);
+    let decoded =
+        preprocess::decode(&bytes).with_context(|| format!("decoding image {}", path.display()))?;
+    Ok(build_prepared(decoded, bytes, cfg))
+}
+
+fn prepare_decoded(path: &Path, decoded: preprocess::Decoded, cfg: &Config) -> Result<Prepared> {
+    // The bytes are still needed for the forward-unchanged fast path; reading
+    // them again is a page-cache hit, unlike decoding the frame twice.
+    let bytes = std::fs::read(path).with_context(|| format!("reading image {}", path.display()))?;
+    Ok(build_prepared(decoded, bytes, cfg))
+}
+
+/// Normalize, analyse, and decide what the model should see.
+///
+/// The order matters: orientation and alpha must be fixed before `geom` looks
+/// at luminance, while cropping and upscaling only touch the model copy and
+/// leave the geometry coordinate space alone.
+fn build_prepared(decoded: preprocess::Decoded, bytes: Vec<u8>, cfg: &Config) -> Prepared {
+    let (image, alpha_changed) = preprocess::flatten_alpha(decoded.image);
+    let (image, capped) = preprocess::cap_pixels(image, cfg.max_pixels);
+    let luma = image.to_luma8();
+    let geom = geom::analyze_with(&luma, cfg.adaptive_background);
     let adv = geom.advance_prior();
     let plan = if cfg.tile {
         tile::plan(&geom, adv, cfg.max_tokens)
     } else {
         None
     };
-    Ok((img, bytes, luma, geom, adv, plan))
+
+    let mut changed = decoded.reoriented || alpha_changed || capped;
+    let mut model: Option<image::DynamicImage> = None;
+    let mut transform = Transform::IDENTITY;
+    let mut crop = None;
+
+    if cfg.trim {
+        // Half a cell horizontally keeps the first/last glyph whole; a quarter
+        // of a line vertically keeps ascenders and descenders from being cut.
+        let pad_x = (geom.line_height * 0.5).max(2.0);
+        let pad_y = (geom.line_height * 0.25).max(2.0);
+        if let Some(bounds) = preprocess::content_bounds(&geom, pad_x, pad_y) {
+            if preprocess::trim_is_worthwhile(&image, bounds) {
+                model = Some(image.crop_imm(bounds.x0, bounds.y0, bounds.width(), bounds.height()));
+                transform.dx = bounds.x0;
+                transform.dy = bounds.y0;
+                crop = Some([bounds.x0, bounds.y0, bounds.width(), bounds.height()]);
+                changed = true;
+            }
+        }
+    }
+
+    let base = model.as_ref().unwrap_or(&image);
+    if let Some((upscaled, factor)) =
+        preprocess::upscale_small(base, geom.line_height, cfg.upscale_small)
+    {
+        model = Some(upscaled);
+        transform.scale = factor;
+        changed = true;
+    }
+
+    // The original bytes may only go out when nothing above changed a pixel.
+    // WebP/TIFF are always re-encoded: llama.cpp decodes images with stb_image,
+    // which does not understand either format.
+    let source = if changed {
+        None
+    } else {
+        preprocess::forwardable_mime(decoded.format)
+    };
+
+    Prepared {
+        image,
+        model,
+        bytes,
+        source,
+        transform,
+        crop,
+        luma,
+        geom,
+        adv,
+        plan,
+    }
 }
 
 /// The budget estimate can be wrong (tokenizers vary, models ramble). If the
 /// first pass came back with far fewer rows than the image has, that is the
 /// signature of a truncated reply — retry once, split, and keep whichever is
 /// closer to the real row count.
-#[allow(clippy::too_many_arguments)]
 fn retry_if_truncated(
     engine: &dyn Engine,
-    input: &ImageInput<'_>,
-    geom: &geom::Geometry,
-    adv: f32,
+    prepared: &Prepared,
     cfg: &Config,
     limiter: &Semaphore,
     mut out: EngineOutput,
     mut used: Option<tile::Plan>,
 ) -> Result<(EngineOutput, Option<tile::Plan>, Option<RetryTrace>)> {
+    let bands = prepared.geom.bands.len();
     let mut retry_trace = None;
-    if cfg.tile && used.is_none() && tile::should_retry(out.lines.len(), geom.bands.len(), false) {
-        if let Some(forced) = tile::plan_forced(geom, adv, cfg.max_tokens) {
+    if cfg.tile && used.is_none() && tile::should_retry(out.lines.len(), bands, false) {
+        if let Some(forced) = tile::plan_forced(&prepared.geom, prepared.adv, cfg.max_tokens) {
             let first_rows = out.lines.len();
             let tiles = forced.tiles.len();
-            let retry = run_engine(engine, input, Some(&forced), cfg, limiter)?;
+            let retry = run_engine(engine, prepared, Some(&forced), cfg, limiter)?;
             let retry_rows = retry.lines.len();
-            let accepted = tile::is_better(retry_rows, first_rows, geom.bands.len());
+            let accepted = tile::is_better(retry_rows, first_rows, bands);
             if accepted {
                 out = retry;
                 used = Some(forced);
@@ -355,7 +556,7 @@ fn retry_if_truncated(
             retry_trace = Some(RetryTrace {
                 rows: first_rows,
                 retry_rows,
-                bands: geom.bands.len(),
+                bands,
                 tiles,
                 accepted,
             });
@@ -371,11 +572,12 @@ fn finish(
     mut out: EngineOutput,
     used: Option<tile::Plan>,
     retry_trace: Option<RetryTrace>,
-    luma: &image::GrayImage,
-    geom: &geom::Geometry,
+    prep: &Prepared,
     path: &Path,
     cfg: &Config,
 ) -> Outcome {
+    let luma = &prep.luma;
+    let geom = &prep.geom;
     let tiling = used.as_ref().map(|p| TilingTrace {
         tiles: p.tiles.len(),
         rows_per_tile: p.rows_per_tile,
@@ -443,6 +645,12 @@ fn finish(
             out.lines.len(),
             geom,
             &stats,
+            PreprocessTrace {
+                forwarded: prep.source.is_some(),
+                crop: prep.crop,
+                scale: prep.transform.scale,
+                pixels: u64::from(prep.image.width()) * u64::from(prep.image.height()),
+            },
             CleanTrace {
                 fence: fence_lang,
                 deduped_rows: deduped,
@@ -455,16 +663,21 @@ fn finish(
     }
 }
 
+// The trace is a flat record of independent decisions; grouping them into a
+// builder would add indirection without making the call site clearer.
+#[allow(clippy::too_many_arguments)]
 fn trace(
     rows: usize,
     geom: &geom::Geometry,
     stats: &AssembleStats,
+    preprocess: PreprocessTrace,
     clean: CleanTrace,
     tiling: Option<TilingTrace>,
     retry: Option<RetryTrace>,
     consistent: bool,
 ) -> Trace {
     Trace {
+        preprocess,
         tiling,
         retry,
         geometry: GeometryTrace {
@@ -491,14 +704,14 @@ fn trace(
 /// path never writes to (or reads back from) the temp directory.
 fn run_engine(
     engine: &dyn Engine,
-    input: &ImageInput<'_>,
+    prepared: &Prepared,
     plan: Option<&tile::Plan>,
     cfg: &Config,
     limiter: &Semaphore,
 ) -> Result<EngineOutput> {
     let Some(p) = plan else {
         let _permit = limiter.acquire();
-        return engine.recognize_image(input, cfg.image_format);
+        return engine.recognize_image(&prepared.input(), cfg.image_format);
     };
 
     // Tiles are independent, so they run concurrently — bounded by the same
@@ -509,9 +722,7 @@ fn run_engine(
     let started = std::time::Instant::now();
     type TileOut = (u64, Vec<crate::engine::RawLine>);
     let results = crate::pool::map(&p.tiles, cfg.jobs.max(1), |_, t| -> Result<TileOut> {
-        let crop = input
-            .image
-            .crop_imm(0, t.y0, input.image.width(), t.y1.saturating_sub(t.y0));
+        let crop = prepared.crop_tile(t);
         let out = {
             let _permit = limiter.acquire();
             engine.recognize_image(&ImageInput::from_pixels(&crop), cfg.image_format)?
@@ -598,18 +809,24 @@ mod tests {
                 tile::Tile {
                     first_band: 0,
                     last_band: 1,
+                    x0: 0,
+                    x1: 40,
                     y0: 0,
                     y1: 10,
                 },
                 tile::Tile {
                     first_band: 1,
                     last_band: 2,
+                    x0: 0,
+                    x1: 40,
                     y0: 10,
                     y1: 20,
                 },
                 tile::Tile {
                     first_band: 2,
                     last_band: 3,
+                    x0: 0,
+                    x1: 40,
                     y0: 20,
                     y1: 30,
                 },
@@ -617,6 +834,27 @@ mod tests {
             rows_per_tile: 2,
             tokens_per_row: 10,
             reason: "test",
+        }
+    }
+
+    fn prepared(img: &DynamicImage, source: Option<(&'static str, Vec<u8>)>) -> Prepared {
+        let luma = img.to_luma8();
+        let geom = crate::geom::analyze(&luma);
+        let (bytes, source) = match source {
+            Some((mime, bytes)) => (bytes, Some(mime)),
+            None => (Vec::new(), None),
+        };
+        Prepared {
+            image: img.clone(),
+            model: None,
+            bytes,
+            source,
+            transform: Transform::IDENTITY,
+            crop: None,
+            luma,
+            geom,
+            adv: 1.0,
+            plan: None,
         }
     }
 
@@ -634,7 +872,7 @@ mod tests {
 
         let out = run_engine(
             &engine,
-            &ImageInput::from_pixels(&img),
+            &prepared(&img, None),
             Some(&plan()),
             &cfg,
             &limiter,
@@ -667,7 +905,7 @@ mod tests {
 
         run_engine(
             &engine,
-            &ImageInput::with_source(&img, b"encoded-source", "image/png"),
+            &prepared(&img, Some(("image/png", b"encoded-source".to_vec()))),
             None,
             &cfg,
             &limiter,

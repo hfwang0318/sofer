@@ -98,6 +98,21 @@ fn screen_recording_granted() -> bool {
     unsafe { CGPreflightScreenCaptureAccess() != 0 }
 }
 
+/// One recognised line's ink region, in original-image pixels.
+///
+/// Only non-blank rows carry one: a blank line rebuilt from band spacing has
+/// nothing in the image to outline.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewBox {
+    /// Index into `OcrResult::text`'s line list.
+    pub line: usize,
+    pub x0: f32,
+    pub y0: f32,
+    pub x1: f32,
+    pub y1: f32,
+}
+
 /// A successful recognition, shaped for the React side.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -118,6 +133,10 @@ pub struct OcrResult {
     /// The kernel's trace says the reply may have stopped short of the image.
     /// The UI keeps the result and offers a chunked re-run.
     pub truncated: bool,
+    /// Regions the model actually recognised; empty when the engine supplied
+    /// no geometry. The UI draws these over the thumbnail when the user turns
+    /// the preview-annotation setting on.
+    pub preview_boxes: Vec<PreviewBox>,
 }
 
 /// Emitted while the model is still generating; `text` is everything so far.

@@ -3,6 +3,36 @@
 All notable changes to the desktop app. The root OCR kernel keeps its own
 `cargo test`/baseline history; this file records the shipped desktop releases.
 
+## v1.2.0 — 2026-11-02
+
+图片进入模型前的预处理（内核 + 桌面端）：
+
+- EXIF 方向：拖入手机照片不再按存储方向识别（`image::load_from_memory` 不应用，
+  llama.cpp 也不解析 EXIF）。
+- 透明背景合成白底：剪贴板复制的带 alpha PNG 不再把透明区当作墨迹/黑底。
+- 解码像素上限（默认 5000 万）：此前只限制文件字节数，一个 40 MB 的 PNG 可以
+  解码成数亿像素并耗尽内存。
+- 内容裁边：只裁掉面积 ≥35% 的背景边距；2–20% 的小裁边会让模型对画面尺寸敏感，
+  `text_acc` 反而掉 1.1 pp，因此按 35% 设阈值。
+- 1× 截图 2× 放大：26 场景 `content_acc` 0.934→0.955，`sym_recall` 0.970→0.995，
+  基本追平原生 2×；代价是同批次耗时 +88%。
+- 几何层背景改为 64 px 分块插值，深浅混排/渐变背景更稳。
+- 桌面端复用 `inspect_capture` 的解码结果，不再对同一张 4K 图解码两次。
+- 远程部署自动用 JPEG q90（SSH 隧道带宽受限）；本地仍优先转发原始字节。
+- `--stats` 增加 `preprocess` 段；CLI 新增 `--no-trim`、`--no-upscale-small`、
+  `--no-adaptive-background`、`--max-pixels`。
+- 结果页的截图预览改为完整缩放（`object-fit: contain`），宽图和竖图不再被裁成
+  左上角一块。
+- 点击结果预览可在弹窗中放大查看；点击遮罩、按 `Esc` 或点关闭都会退出，焦点锁在
+  弹窗内并在关闭后还给缩略图。
+- 新增「通用 → 预览标注」开关（默认关闭）：在预览图上框出模型识别到的每一行文字，
+  放大弹窗中同样生效。`Line` 新增 `bbox` 字段，`OcrResult` 新增 `previewBoxes`。
+- `sofer-app` 新增 `SOFER_IMAGE_MAX_TOKENS` 环境变量，映射到 llama-server 的
+  `--image-max-tokens`（默认不限制）。
+
+2× 基线（26 场景）逐项不变：0.957 / 0.983 / 0.996 / 0.91 / 0.98。
+完整消融见 [docs/baseline.md](docs/baseline.md) §5。
+
 ## v1.1.0 — 2026-11-02
 
 Windows 默认更省内存：开启「压缩识别缓存」（KV q8_0），并在每次识别结束后立即释放

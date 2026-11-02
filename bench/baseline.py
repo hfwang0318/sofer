@@ -43,7 +43,7 @@ def scenes(only=None):
     return all_scenes
 
 
-def run(engine, scene, variant, prompt=None, timeout=1200):
+def run(engine, scene, variant, prompt=None, extra=None, timeout=1200):
     peak_mb = None
     # variant -> file suffix; "2xjpg" is the JPEG re-encode of the same 2x frame
     SUFFIX = {"2x": "@2x.png", "1x": "@1x.png", "2xjpg": "@2x.jpg", "photo": "@photo.jpg"}
@@ -54,6 +54,8 @@ def run(engine, scene, variant, prompt=None, timeout=1200):
     cmd = [cli_bin(), "ocr", img, "--engine", engine, "--format", "json"]
     if prompt:
         cmd += ["--prompt", prompt]
+    if extra:
+        cmd += extra
     if engine == "mock":
         # the mock engine replays the whole truth text regardless of the image, so
         # tiling would just duplicate it; mock measures the geometry layer only
@@ -106,7 +108,9 @@ def main():
     ap.add_argument("--md", default=None)
     ap.add_argument("--prompt", default=None, help="prompt for the llamacpp engine")
     ap.add_argument("--scenes", default=None, help="comma separated subset of scenes")
+    ap.add_argument("--extra", default=None, help="extra CLI arguments, e.g. --no-trim")
     args = ap.parse_args()
+    extra = args.extra.split() if args.extra else None
 
     engines = [e.strip() for e in args.engines.split(",") if e.strip()]
     rows = []
@@ -114,7 +118,7 @@ def main():
     for eng in engines:
         per = []
         for s in scenes(args.scenes):
-            doc, wall, err = run(eng, s, args.variant, args.prompt)
+            doc, wall, err = run(eng, s, args.variant, args.prompt, extra)
             if doc is None:
                 if err != "missing-variant":
                     print(f"  {eng:12s} {s:18s} FAILED {err[:80] if err else ''}")

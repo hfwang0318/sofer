@@ -32,6 +32,13 @@ const MAX_ROWS_PER_TILE: usize = 24;
 pub struct Tile {
     pub first_band: usize,
     pub last_band: usize,
+    /// Horizontal extent of this tile's ink, in original-image pixels.
+    ///
+    /// A terminal centred on a 5K screen leaves huge empty margins on both
+    /// sides; cropping them per tile gives the vision encoder a higher
+    /// effective resolution without splitting columns across two requests.
+    pub x0: u32,
+    pub x1: u32,
     pub y0: u32,
     pub y1: u32,
 }
@@ -109,15 +116,25 @@ fn build(geom: &Geometry, step: usize, tokens_per_row: u32, reason: &'static str
     let bands = &geom.bands;
     let n = bands.len();
     let step = step.max(1);
+    // Half a line height of horizontal margin keeps the first/last glyph whole;
+    // one line of vertical overlap already comes from the band indices.
+    let pad_x = (geom.line_height * 0.5).max(2.0);
     let mut tiles = Vec::new();
     let mut i = 0;
     while i < n {
         let j = (i + step).min(n);
         let y0 = bands[i.saturating_sub(1)].y0 as u32;
         let y1 = bands[j.min(n - 1)].y1 as u32;
+        let slice = &bands[i..j];
+        let min_x = slice.iter().map(|b| b.x0).fold(f32::MAX, f32::min);
+        let max_x = slice.iter().map(|b| b.x1).fold(0.0f32, f32::max);
+        let x0 = (min_x - pad_x).floor().clamp(0.0, geom.width as f32) as u32;
+        let x1 = (max_x + pad_x).ceil().clamp(0.0, geom.width as f32) as u32;
         tiles.push(Tile {
             first_band: i,
             last_band: j,
+            x0,
+            x1: x1.max(x0 + 1).min(geom.width),
             y0,
             y1,
         });

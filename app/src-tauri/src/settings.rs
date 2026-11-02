@@ -101,6 +101,8 @@ pub struct Settings {
     /// macOS only: show an Apple Vision result immediately, then replace it
     /// with the local model's refined text.
     pub fast_preview: bool,
+    /// Outline the regions the model recognised on the result thumbnail.
+    pub show_boxes: bool,
     pub history_limit: u32,
 
     // model download
@@ -164,6 +166,7 @@ impl Default for Settings {
             auto_copy: true,
             notify_on_result: true,
             fast_preview: false,
+            show_boxes: false,
             history_limit: 20,
             use_mirror: false,
             proxy_url: String::new(),
@@ -230,6 +233,10 @@ impl Settings {
             max_tokens: self.max_tokens,
             kv_cache_quant: self.kv_cache_quant,
             idle_sleep_secs: self.idle_sleep_secs,
+            image_max_tokens: std::env::var("SOFER_IMAGE_MAX_TOKENS")
+                .ok()
+                .and_then(|value| value.trim().parse().ok())
+                .filter(|value| *value > 0),
         }
     }
 
@@ -332,6 +339,10 @@ impl Settings {
                 }
             },
             jobs: self.jobs as usize,
+            max_pixels: sofer::preprocess::DEFAULT_MAX_PIXELS,
+            trim: true,
+            upscale_small: true,
+            adaptive_background: true,
             mock_text: None,
             mock_text_file: None,
         }

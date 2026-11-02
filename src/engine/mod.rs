@@ -225,6 +225,31 @@ pub trait Engine: Send + Sync {
         }
         Ok(out)
     }
+
+    /// Streaming version of [`Engine::recognize_image`].
+    ///
+    /// The pipeline pre-processes (crops/upscales) the model copy, so a
+    /// path-based stream would show the user a different image from the one
+    /// being recognised. Engines that can stream from encoded bytes override
+    /// this; the default is a blocking call followed by one delta.
+    fn recognize_stream_image(
+        &self,
+        input: &ImageInput<'_>,
+        format: ImageFormat,
+        on_delta: &mut dyn FnMut(&str),
+    ) -> Result<EngineOutput> {
+        let out = self.recognize_image(input, format)?;
+        if !out.lines.is_empty() {
+            let text = out
+                .lines
+                .iter()
+                .map(|line| line.text.as_str())
+                .collect::<Vec<_>>()
+                .join("\n");
+            on_delta(&text);
+        }
+        Ok(out)
+    }
 }
 
 /// MIME type used when forwarding a file the way the path-based flow did.
@@ -237,6 +262,8 @@ pub fn mime_for_path(path: &Path) -> &'static str {
     {
         Some("jpg") | Some("jpeg") => "image/jpeg",
         Some("webp") => "image/webp",
+        Some("bmp") => "image/bmp",
+        Some("tif") | Some("tiff") => "image/tiff",
         _ => "image/png",
     }
 }
@@ -475,6 +502,9 @@ mod tests {
         assert_eq!(mime_for_path(Path::new("a.JPG")), "image/jpeg");
         assert_eq!(mime_for_path(Path::new("a.jpeg")), "image/jpeg");
         assert_eq!(mime_for_path(Path::new("a.webp")), "image/webp");
+        assert_eq!(mime_for_path(Path::new("a.bmp")), "image/bmp");
+        assert_eq!(mime_for_path(Path::new("a.tif")), "image/tiff");
+        assert_eq!(mime_for_path(Path::new("a.TIFF")), "image/tiff");
         assert_eq!(mime_for_path(Path::new("a.unknown")), "image/png");
     }
 }

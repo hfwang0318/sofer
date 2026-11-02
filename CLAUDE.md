@@ -165,7 +165,8 @@ signing must still be verified in a native build.
 ### Kernel pipeline
 
 ```text
-image ─► engine (llamacpp / vision / tesseract / mock) ─► text lines (bbox optional)
+image ─► preprocess (EXIF, alpha, pixel cap, content crop, 2x small text)
+             └► model copy ─► engine (llamacpp / vision / tesseract / mock) ─► text lines
       └► geom (ink mask, row bands, x0/x1, advance, column runs) ─► tile when over budget
                                                          │
               repair (fence strip, dedupe, dashes, quotes, full-width) ◄─┘
@@ -185,10 +186,15 @@ indentation responsibility into an engine.
 
 - `src/pipeline.rs` — the reusable pipeline and `Config`, shared by CLI and the
   desktop app. `Config` is the single source of truth for kernel knobs.
-- `src/geom.rs` — polarity-independent ink mask, row projection, per-band x0/x1,
-  grid-fit advance, per-band column runs (used for gutter columns and pixel
-  spacing).
-- `src/tile.rs` — budget-based tiling, stitching by band index, adaptive retry.
+- `src/preprocess.rs` — the model copy: EXIF orientation, transparent→white,
+  decoded-pixel cap, content-box crop, 2× upscale for small text. Geometry keeps
+  working in the normalized original's coordinates; `Transform` maps a tile onto
+  the model copy. Original bytes are forwarded only when nothing changed.
+- `src/geom.rs` — polarity-independent ink mask (64 px local background), row
+  projection, per-band x0/x1, grid-fit advance, per-band column runs (used for
+  gutter columns and pixel spacing).
+- `src/tile.rs` — budget-based tiling, per-tile horizontal ink bounds, stitching
+  by band index, adaptive retry.
 - `src/pool.rs` — ordered parallel map and the shared job semaphore.
 - `src/assemble.rs` — text-line ↔ band pairing, line-number gutter (code column
   from the second ink run), blank-line rebuild from band spacing, pixel spacing,

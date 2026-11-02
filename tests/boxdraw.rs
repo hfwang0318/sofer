@@ -125,6 +125,7 @@ fn line(text: &str) -> Line {
         indent: 0,
         conf: None,
         x0: None,
+        bbox: None,
     }
 }
 

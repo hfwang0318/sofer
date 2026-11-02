@@ -151,7 +151,35 @@ impl Engine for LlamaCpp {
     ) -> Result<EngineOutput> {
         let t0 = Instant::now();
         let bytes = std::fs::read(image).with_context(|| format!("reading {}", image.display()))?;
-        let payload = self.payload(&bytes, mime_for_path(image), true);
+        self.stream_bytes(t0, &bytes, mime_for_path(image), on_delta)
+    }
+
+    fn recognize_stream_image(
+        &self,
+        input: &ImageInput<'_>,
+        format: ImageFormat,
+        on_delta: &mut dyn FnMut(&str),
+    ) -> Result<EngineOutput> {
+        let t0 = Instant::now();
+        // Same forwarding rule as `recognize_image`: the caller's original
+        // bytes go out untouched only when no preprocessing changed them.
+        if let (ImageFormat::Png, Some((bytes, mime))) = (format, input.source) {
+            return self.stream_bytes(t0, bytes, mime, on_delta);
+        }
+        let bytes = format.encode(input.image)?;
+        self.stream_bytes(t0, &bytes, format.mime(), on_delta)
+    }
+}
+
+impl LlamaCpp {
+    fn stream_bytes(
+        &self,
+        t0: Instant,
+        bytes: &[u8],
+        mime: &str,
+        on_delta: &mut dyn FnMut(&str),
+    ) -> Result<EngineOutput> {
+        let payload = self.payload(bytes, mime, true);
         let mut reader = ureq::post(&self.endpoint())
             .timeout(REQUEST_TIMEOUT)
             .send_json(payload)

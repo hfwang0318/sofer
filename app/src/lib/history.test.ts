@@ -25,6 +25,7 @@ const RESULT: OcrResult = {
   capturedAt: 1_760_000_000_000,
   copied: true,
   truncated: false,
+  previewBoxes: [],
 };
 
 const ENTRY: HistoryEntry = {

@@ -444,16 +444,55 @@
   min-height: 170px;
 }
 
+.result-thumb-wrap {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 170px;
+  padding: 0;
+  border: 0;
+  background: #0a0b0e;
+  cursor: zoom-in;
+  overflow: hidden;
+}
+
+.result-thumb-wrap:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .result-thumb {
-  width: 172px;
+  display: block;
+  width: 100%;
   height: 100%;
   min-height: 170px;
   border-right: 1px solid var(--line-faint);
   background: #0a0b0e;
-  object-fit: cover;
-  object-position: top left;
+  /* Show the whole capture: `cover` cropped wide and tall screenshots to the
+     top-left corner, which made the preview look like a different image. */
+  object-fit: contain;
+  object-position: center;
   opacity: 0.92;
   user-select: none;
+}
+
+/* Recognised-region outlines, drawn in original-image coordinates. The SVG
+   viewBox and `meet` alignment match the thumbnail's `object-fit: contain`,
+   so the boxes land on the same pixels without a scale calculation. */
+.preview-boxes {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.preview-boxes rect {
+  fill: rgba(203, 245, 108, 0.14);
+  stroke: rgba(203, 245, 108, 0.85);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
 }
 
 .result-thumb-empty {
@@ -479,6 +518,55 @@
   word-break: break-word;
   tab-size: 4;
   user-select: text;
+}
+
+/* ---- enlarged preview --------------------------------------------------- */
+
+.preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(5, 6, 9, 0.72);
+  backdrop-filter: blur(16px) saturate(120%);
+  -webkit-backdrop-filter: blur(16px) saturate(120%);
+  animation: backdrop-in 0.18s var(--ease);
+}
+
+.preview-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: min(92vw, 1600px);
+  max-height: 92vh;
+}
+
+.preview-dialog-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.preview-dialog-media {
+  position: relative;
+  display: inline-block;
+  max-width: min(92vw, 1600px);
+  max-height: calc(92vh - 44px);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: #0a0b0e;
+  box-shadow: 0 40px 120px rgba(0, 0, 0, 0.7);
+}
+
+.preview-dialog-media img {
+  display: block;
+  max-width: min(92vw, 1600px);
+  max-height: calc(92vh - 44px);
+  object-fit: contain;
 }
 
 .result-meta {
@@ -1374,10 +1462,6 @@
 
   .result-body {
     grid-template-columns: 148px minmax(0, 1fr);
-  }
-
-  .result-thumb {
-    width: 148px;
   }
 
   .error-panel {

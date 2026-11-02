@@ -33,6 +33,8 @@ export interface Settings {
   notifyOnResult: boolean;
   /** macOS only: show a fast Apple Vision result before the refined one. */
   fastPreview: boolean;
+  /** Outline the regions the model recognised on the result thumbnail. */
+  showBoxes: boolean;
   historyLimit: number;
   useMirror: boolean;
   proxyUrl: string;
@@ -202,6 +204,16 @@ export interface AppInfo {
   version: string;
 }
 
+/** One recognised line's ink region, in original-image pixels. */
+export interface PreviewBox {
+  /** Index into the result's line list. */
+  line: number;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
 /** Mirrors `OcrResult` in src-tauri/src/capture.rs. */
 export interface OcrResult {
   id: string;
@@ -219,6 +231,8 @@ export interface OcrResult {
   copied: boolean;
   /** The kernel thinks the reply stopped short of the image. */
   truncated: boolean;
+  /** Regions the model actually recognised; empty when geometry was unavailable. */
+  previewBoxes: PreviewBox[];
 }
 
 /**

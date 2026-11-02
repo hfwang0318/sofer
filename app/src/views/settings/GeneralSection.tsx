@@ -73,6 +73,16 @@ export function GeneralSection({
         </SettingRow>
       )}
       <SettingRow
+        title="预览标注"
+        description="在结果预览图上框出模型识别到的每一行文字；点击预览可放大查看。"
+      >
+        <Switch
+          checked={draft.showBoxes}
+          onChange={(showBoxes) => update("showBoxes", showBoxes)}
+          label="预览图上标注识别区域"
+        />
+      </SettingRow>
+      <SettingRow
         title="界面缩放"
         description="调整窗口内的字号和控件大小。"
       >

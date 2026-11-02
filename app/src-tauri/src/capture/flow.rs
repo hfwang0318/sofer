@@ -20,7 +20,7 @@ use crate::engine;
 use crate::remote;
 use crate::settings::Settings;
 
-use super::{current_settings, now_ms, OcrPartial, OcrResult};
+use super::{current_settings, now_ms, OcrPartial, OcrResult, PreviewBox};
 
 /// One token per IPC event would flood the webview; ~8 updates a second is
 /// enough for a preview. The first delta is always sent immediately.
@@ -106,7 +106,7 @@ pub(super) fn prepare_engine(
     if let Some(cfg) = remote_cfg {
         match remote_manager.ensure_ready(&cfg) {
             Ok(url) => {
-                use_llama(config, url);
+                use_llama(config, url, true);
                 return Ok(true);
             }
             Err(remote::Error::Cancelled) => return Ok(false),
@@ -126,7 +126,7 @@ pub(super) fn prepare_engine(
 
     match manager.ensure_ready(&settings.llama_url, settings.server_config()) {
         Ok(url) => {
-            use_llama(config, url);
+            use_llama(config, url, false);
             Ok(true)
         }
         Err(engine::Error::Cancelled) => Ok(false),
@@ -148,9 +148,15 @@ pub(super) fn prepare_engine(
     }
 }
 
-fn use_llama(config: &mut Config, url: String) {
+fn use_llama(config: &mut Config, url: String, remote: bool) {
     config.engine = EngineMode::LlamaCpp;
     config.llama_url = Some(url);
+    if remote {
+        // Uploading through an SSH tunnel is bandwidth-bound; JPEG q90 shrinks
+        // the payload substantially while the bench shows no content loss at
+        // this quality (the q70 corpus is equally flat, only indent -3 pp).
+        config.image_format = sofer::engine::ImageFormat::Jpeg { quality: 90 };
+    }
 }
 
 /// Show a fast Apple Vision result before the local model finishes.
@@ -232,13 +238,23 @@ pub(super) fn recognize_to_result(
                 );
             }
         };
-        let outcome = sofer::pipeline::recognize_streaming(
-            engine.as_ref(),
-            path,
-            config,
-            &limiter,
-            &mut on_delta,
-        )?;
+        let outcome = match inspection.decoded {
+            Some(decoded) => sofer::pipeline::recognize_streaming_decoded(
+                engine.as_ref(),
+                path,
+                decoded,
+                config,
+                &limiter,
+                &mut on_delta,
+            )?,
+            None => sofer::pipeline::recognize_streaming(
+                engine.as_ref(),
+                path,
+                config,
+                &limiter,
+                &mut on_delta,
+            )?,
+        };
         // Ship the tail that arrived between the last throttle tick and the end.
         if emitted_len < accumulated.len() {
             let _ = app.emit(
@@ -264,6 +280,22 @@ pub(super) fn recognize_to_result(
 
     let captured_at = now_ms();
     let chars = text.chars().count();
+    let preview_boxes = outcome
+        .document
+        .lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| !line.text.is_empty())
+        .filter_map(|(line, value)| {
+            value.bbox.map(|bbox| PreviewBox {
+                line,
+                x0: bbox.x0,
+                y0: bbox.y0,
+                x1: bbox.x1,
+                y1: bbox.y1,
+            })
+        })
+        .collect();
     Ok(OcrResult {
         id: format!("{captured_at}-{chars}"),
         text,
@@ -279,6 +311,7 @@ pub(super) fn recognize_to_result(
         captured_at,
         copied,
         truncated: !outcome.trace.consistent,
+        preview_boxes,
     })
 }
 
@@ -381,37 +414,53 @@ fn hint_for(message: &str) -> String {
 pub(super) struct CaptureInspection {
     pub(super) blank: bool,
     pub(super) thumbnail: Option<String>,
+    /// Decoded once for the blank check and the thumbnail; the recognition
+    /// call reuses it instead of decoding a 4K screenshot a second time.
+    pub(super) decoded: Option<sofer::preprocess::Decoded>,
 }
 
 /// A capture made without screen-recording permission is an almost uniformly
 /// colored frame. Decode once to check that and to build the result thumbnail.
+///
+/// The decode goes through [`sofer::preprocess::decode`] so the EXIF
+/// orientation and the format metadata match what the pipeline would do.
 pub(super) fn inspect_capture(path: &Path) -> CaptureInspection {
-    let Ok(image) = image::open(path) else {
+    let Ok(bytes) = std::fs::read(path) else {
         return CaptureInspection {
             blank: false,
             thumbnail: None,
+            decoded: None,
         };
     };
-    let thumb = image.thumbnail(520, 360);
+    let Ok(decoded) = sofer::preprocess::decode(&bytes) else {
+        return CaptureInspection {
+            blank: false,
+            thumbnail: None,
+            decoded: None,
+        };
+    };
+    let thumb = decoded.image.thumbnail(520, 360);
     if is_uniform(&thumb) {
         return CaptureInspection {
             blank: true,
             thumbnail: None,
+            decoded: None,
         };
     }
-    let mut bytes = Cursor::new(Vec::new());
+    let mut out = Cursor::new(Vec::new());
     let thumbnail = thumb
-        .write_to(&mut bytes, image::ImageFormat::Png)
+        .write_to(&mut out, image::ImageFormat::Png)
         .ok()
         .map(|()| {
             format!(
                 "data:image/png;base64,{}",
-                STANDARD.encode(bytes.into_inner())
+                STANDARD.encode(out.into_inner())
             )
         });
     CaptureInspection {
         blank: false,
         thumbnail,
+        decoded: Some(decoded),
     }
 }
 

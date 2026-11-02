@@ -226,6 +226,12 @@ pub struct ServerConfig {
     pub max_tokens: u32,
     pub kv_cache_quant: bool,
     pub idle_sleep_secs: u64,
+    /// Cap on the vision encoder's token count (`--image-max-tokens`).
+    ///
+    /// Off by default: it trades small-text fidelity for speed on very large
+    /// screenshots, and the correct value depends on the encoder. Set
+    /// `SOFER_IMAGE_MAX_TOKENS` to A/B it without rebuilding the UI.
+    pub image_max_tokens: Option<u32>,
 }
 
 impl Default for ServerConfig {
@@ -240,6 +246,7 @@ impl Default for ServerConfig {
             } else {
                 300
             },
+            image_max_tokens: None,
         }
     }
 }
@@ -400,6 +407,12 @@ pub(super) fn server_args(
         if config.idle_sleep_secs > 0 {
             args.push("--sleep-idle-seconds".into());
             args.push(config.idle_sleep_secs.to_string());
+        }
+        // Only the pinned runtime knows this flag; an older system binary
+        // would exit on an unknown argument (same rule as `-cram`).
+        if let Some(max_tokens) = config.image_max_tokens {
+            args.push("--image-max-tokens".into());
+            args.push(max_tokens.to_string());
         }
     }
     if config.kv_cache_quant {

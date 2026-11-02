@@ -1,4 +1,10 @@
-import { useRef, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { Icon } from "../components/Icon";
 import { retryCapture } from "../lib/bridge";
@@ -19,6 +25,8 @@ interface CaptureViewProps {
   result: OcrResult | null;
   error: OcrError | null;
   copied: boolean;
+  /** Outline recognised regions on the result preview (settings → 通用). */
+  showBoxes: boolean;
   setupBlocking: boolean;
   remote: boolean;
   permissionDenied: boolean;
@@ -341,11 +349,121 @@ function ErrorPanel({
   );
 }
 
+/** Outline the ink regions the model actually recognised. */
+function PreviewBoxes({ result }: { result: OcrResult }) {
+  if (result.previewBoxes.length === 0) return null;
+  return (
+    <svg
+      className="preview-boxes"
+      viewBox={`0 0 ${result.width} ${result.height}`}
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+    >
+      {result.previewBoxes.map((box) => (
+        <rect
+          key={`${box.line}-${box.x0}-${box.y0}`}
+          x={box.x0}
+          y={box.y0}
+          width={Math.max(1, box.x1 - box.x0)}
+          height={Math.max(1, box.y1 - box.y0)}
+        />
+      ))}
+    </svg>
+  );
+}
+
+/** Enlarged preview. Backdrop click, Esc and the close button all dismiss it. */
+function PreviewDialog({
+  result,
+  showBoxes,
+  onClose,
+}: {
+  result: OcrResult;
+  showBoxes: boolean;
+  onClose: () => void;
+}) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusables = dialogRef.current?.querySelectorAll<HTMLElement>(
+        "button, [href], [tabindex]:not([tabindex='-1'])",
+      );
+      if (!focusables || focusables.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      if (previous?.isConnected) previous.focus();
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="preview-backdrop"
+      onMouseDown={(event) => {
+        // Only a press on the backdrop itself closes: selecting text inside
+        // the image and releasing over the backdrop must not dismiss it.
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="preview-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="截图预览"
+        ref={dialogRef}
+      >
+        <div className="preview-dialog-bar">
+          <span className="muted">
+            {result.width} × {result.height}
+          </span>
+          <button
+            ref={closeRef}
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={onClose}
+          >
+            <Icon name="close" size={14} />
+            关闭
+          </button>
+        </div>
+        <div className="preview-dialog-media">
+          <img src={result.thumbnail ?? ""} alt="截图预览" draggable={false} />
+          {showBoxes && <PreviewBoxes result={result} />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ResultPanel({
   result,
   copied,
   busy,
   remote,
+  showBoxes,
   onCopy,
   onOpenHistory,
 }: {
@@ -353,10 +471,15 @@ function ResultPanel({
   copied: boolean;
   busy: boolean;
   remote: boolean;
+  showBoxes: boolean;
   onCopy: (text: string) => void;
   onOpenHistory: () => void;
 }) {
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const closePreview = useCallback(() => setPreviewOpen(false), []);
+
   return (
+    <>
     <section className="panel result-panel">
       <header className="panel-head">
         <div className="panel-heading">
@@ -390,11 +513,21 @@ function ResultPanel({
 
       <div className="result-body">
         {result.thumbnail ? (
-          <img
-            className="result-thumb"
-            src={result.thumbnail}
-            alt="截图预览"
-          />
+          <button
+            type="button"
+            className="result-thumb-wrap"
+            onClick={() => setPreviewOpen(true)}
+            aria-label="放大查看截图预览"
+            title="放大查看"
+          >
+            <img
+              className="result-thumb"
+              src={result.thumbnail}
+              alt="截图预览"
+              draggable={false}
+            />
+            {showBoxes && <PreviewBoxes result={result} />}
+          </button>
         ) : (
           <div className="result-thumb result-thumb-empty" aria-hidden="true">
             <Icon name="image" size={22} />
@@ -446,6 +579,15 @@ function ResultPanel({
         </span>
       </footer>
     </section>
+
+    {previewOpen && result.thumbnail && (
+      <PreviewDialog
+        result={result}
+        showBoxes={showBoxes}
+        onClose={closePreview}
+      />
+    )}
+    </>
   );
 }
 
@@ -516,6 +658,7 @@ export function CaptureView({
   result,
   error,
   copied,
+  showBoxes,
   setupBlocking,
   remote,
   permissionDenied,
@@ -640,6 +783,7 @@ export function CaptureView({
               copied={result.copied || copied}
               busy={busy}
               remote={remote}
+              showBoxes={showBoxes}
               onCopy={onCopy}
               onOpenHistory={onOpenHistory}
             />

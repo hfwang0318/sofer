@@ -23,6 +23,7 @@ const SETTINGS_KEYS: Array<keyof Settings> = [
   "autoCopy",
   "notifyOnResult",
   "fastPreview",
+  "showBoxes",
   "historyLimit",
   "useMirror",
   "proxyUrl",

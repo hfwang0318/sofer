@@ -56,6 +56,7 @@ fn default_server_args_match_the_memory_plan() {
         max_tokens: 3072,
         kv_cache_quant: true,
         idle_sleep_secs: 300,
+        image_max_tokens: None,
     };
     let args = server_args(
         &config,

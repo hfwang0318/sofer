@@ -24,6 +24,7 @@ pub mod geom;
 pub mod lang;
 pub mod pipeline;
 pub mod pool;
+pub mod preprocess;
 pub mod render;
 pub mod repair;
 pub mod text;
@@ -41,6 +42,13 @@ pub struct Line {
     pub conf: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub x0: Option<f32>,
+    /// Ink region this line was matched to, in image pixels.
+    ///
+    /// `None` for a blank line rebuilt from spacing (nothing was recognised
+    /// there) and for rows whose band could not be matched. The desktop app
+    /// uses it to draw the recognised regions back onto the screenshot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bbox: Option<Rect>,
 }
 
 impl Line {

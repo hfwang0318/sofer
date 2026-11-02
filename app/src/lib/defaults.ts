@@ -60,6 +60,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoCopy: true,
   notifyOnResult: true,
   fastPreview: false,
+  showBoxes: false,
   historyLimit: 20,
   useMirror: false,
   proxyUrl: "",
@@ -213,6 +214,15 @@ export const DEMO_RESULT: OcrResult = {
   // `?demo=result` exists to review the truncated-result notice and its
   // chunked retry, so the canned result is the possibly-truncated one.
   truncated: true,
+  // A handful of row boxes so `?demo=result` can show the preview annotation
+  // without a real engine; coordinates are in the 1284×742 result space.
+  previewBoxes: [
+    { line: 0, x0: 119, y0: 119, x1: 469, y1: 158 },
+    { line: 1, x0: 119, y0: 173, x1: 568, y1: 212 },
+    { line: 2, x0: 188, y0: 227, x1: 840, y1: 267 },
+    { line: 3, x0: 188, y0: 282, x1: 790, y1: 321 },
+    { line: 5, x0: 119, y0: 390, x1: 346, y1: 430 },
+  ],
 };
 
 export const DEMO_HISTORY: HistoryEntry[] = [

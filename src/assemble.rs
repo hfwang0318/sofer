@@ -10,7 +10,7 @@
 //! from the pixels, so a bbox-less VLM is enough.
 
 use crate::engine::RawLine;
-use crate::geom::{fit_advance, Geometry};
+use crate::geom::{fit_advance, Geometry, Rect};
 use crate::text::display_width;
 use crate::Line;
 
@@ -85,6 +85,7 @@ pub fn assemble(lines: &[RawLine], geom: &Geometry, opts: &Opts) -> (Vec<Line>, 
                 indent: 0,
                 conf: l.conf,
                 x0: l.bbox.map(|b| b.x0),
+                bbox: l.bbox,
             })
             .collect();
         return (
@@ -191,11 +192,28 @@ fn assemble_with_boxes(
         }
         let first = sorted[0].bbox.unwrap();
         let indent = (((first.x0 - geom.left) / adv).round().max(0.0)) as u32;
+        // One visual row may be several engine boxes (words/fragments); the
+        // preview should outline the union, not the first fragment.
+        let bbox = sorted
+            .iter()
+            .filter_map(|l| l.bbox)
+            .fold(None, |acc: Option<Rect>, b| {
+                Some(match acc {
+                    None => b,
+                    Some(a) => Rect::new(
+                        a.x0.min(b.x0),
+                        a.y0.min(b.y0),
+                        a.x1.max(b.x1),
+                        a.y1.max(b.y1),
+                    ),
+                })
+            });
         out.push(Line {
             text: strip_indent(&s, indent as usize),
             indent,
             conf: confs.first().copied(),
             x0: Some(first.x0),
+            bbox,
         });
     }
 
@@ -411,6 +429,10 @@ fn assemble_with_bands(
                 indent,
                 conf: l.conf,
                 x0,
+                bbox: band.map(|bi| {
+                    let b = geom.bands[bi];
+                    Rect::new(b.x0, b.y0, b.x1, b.y1)
+                }),
             },
             band,
         ));
@@ -501,6 +523,7 @@ fn rebuild_blanks(rows: Vec<(Line, Option<usize>)>, geom: &Geometry) -> (Vec<Lin
                         indent: 0,
                         conf: None,
                         x0: None,
+                        bbox: None,
                     });
                     rebuilt += 1;
                 }
@@ -856,6 +879,16 @@ fn join_soft_wraps(out: &mut Vec<Line>, geom: &Geometry, adv: f32) -> usize {
         let next_left = out[i + 1].indent == 0;
         if reaches_right && next_left && !out[i + 1].text.trim().is_empty() {
             let tail = out[i + 1].text.clone();
+            // The joined line covers both visual rows; keep the union so the
+            // preview outline follows the text that was actually recognised.
+            if let (Some(a), Some(b)) = (out[i].bbox, out[i + 1].bbox) {
+                out[i].bbox = Some(Rect::new(
+                    a.x0.min(b.x0),
+                    a.y0.min(b.y0),
+                    a.x1.max(b.x1),
+                    a.y1.max(b.y1),
+                ));
+            }
             out[i].text.push_str(&tail);
             out.remove(i + 1);
             joined += 1;
@@ -934,6 +967,23 @@ mod tests {
     }
 
     #[test]
+    fn recognised_rows_carry_the_ink_band_for_the_preview() {
+        let geom = geom_with(&[(14.0, 52.0, 14.0, 600.0), (52.0, 90.0, 62.0, 500.0)]);
+        let raw = vec![RawLine::plain("a"), RawLine::plain("b")];
+        let (out, _) = assemble(&raw, &geom, &Opts::default());
+        let first = out[0].bbox.expect("first row owns a band");
+        assert_eq!(
+            (first.x0, first.y0, first.x1, first.y1),
+            (14.0, 14.0, 600.0, 52.0)
+        );
+        let second = out[1].bbox.expect("second row owns a band");
+        assert_eq!(
+            (second.x0, second.y0, second.x1, second.y1),
+            (62.0, 52.0, 500.0, 90.0)
+        );
+    }
+
+    #[test]
     fn gutter_falls_back_to_model_spacing() {
         let geom = geom_with(&[
             (14.0, 52.0, 14.0, 600.0),
@@ -1008,6 +1058,7 @@ mod tests {
             indent: 0,
             conf: None,
             x0: None,
+            bbox: None,
         }
     }
 

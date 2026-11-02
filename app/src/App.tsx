@@ -198,6 +198,7 @@ export default function App() {
                 result={capture.result}
                 error={capture.error}
                 copied={capture.copied}
+                showBoxes={settings.showBoxes}
                 setupBlocking={setupBlocking}
                 remote={remoteEnabled}
                 permissionDenied={permissionDenied}

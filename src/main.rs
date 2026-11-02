@@ -10,6 +10,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use sofer::cli_input::{self, Region};
 use sofer::engine::{llamacpp, tesseract, vision, ImageFormat};
 use sofer::pipeline::{self, Config, EngineMode};
+use sofer::preprocess;
 use sofer::render::{self, Format};
 
 #[derive(Parser)]
@@ -121,6 +122,22 @@ struct OcrArgs {
     #[arg(long, value_enum, default_value_t = TileArg::Auto)]
     tile: TileArg,
 
+    /// do not crop background margins before the model sees the image
+    #[arg(long)]
+    no_trim: bool,
+
+    /// do not upscale screenshots whose text is too small for the encoder
+    #[arg(long)]
+    no_upscale_small: bool,
+
+    /// estimate the ink background once per frame instead of per 64 px block
+    #[arg(long)]
+    no_adaptive_background: bool,
+
+    /// decoded-pixel ceiling; images above it are downscaled first (0 = unlimited)
+    #[arg(long, default_value_t = preprocess::DEFAULT_MAX_PIXELS)]
+    max_pixels: u64,
+
     /// mock engine: text file with the lines the engine "saw"
     #[arg(long)]
     mock_text_file: Option<PathBuf>,
@@ -191,6 +208,10 @@ fn ocr(args: OcrArgs) -> Result<()> {
         image_format: args.image_format,
         language: args.lang.clone(),
         jobs: args.jobs,
+        max_pixels: args.max_pixels,
+        trim: !args.no_trim,
+        upscale_small: !args.no_upscale_small,
+        adaptive_background: !args.no_adaptive_background,
         mock_text: args.mock_text.clone(),
         mock_text_file: args.mock_text_file.clone(),
     };
@@ -412,6 +433,19 @@ fn print_stats(path: &Path, outcome: &pipeline::Outcome) {
         if !r.accepted {
             eprintln!("  retry rejected: {} rows vs {}", r.retry_rows, r.rows);
         }
+    }
+    let pre = &trace.preprocess;
+    if pre.forwarded && pre.crop.is_none() && (pre.scale - 1.0).abs() < f32::EPSILON {
+        eprintln!("  preprocess: forwarded original bytes ({} px)", pre.pixels);
+    } else {
+        let crop = pre
+            .crop
+            .map(|[x, y, w, h]| format!("{w}x{h}+{x}+{y}"))
+            .unwrap_or_else(|| "-".to_string());
+        eprintln!(
+            "  preprocess: re-encoded crop={} scale={:.1} ({} px)",
+            crop, pre.scale, pre.pixels
+        );
     }
     match &trace.tiling {
         Some(p) => eprintln!(

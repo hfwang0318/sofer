@@ -67,25 +67,31 @@ impl Geometry {
 
 /// Build an ink mask that works for dark-on-light and light-on-dark alike:
 /// ink is whatever deviates from the background (median) colour by a margin.
+///
+/// The background is estimated per 64 px block (bilinearly interpolated), not
+/// once for the whole frame: a gradient wallpaper, a translucent terminal, or a
+/// screenshot mixing a light editor pane with a dark terminal makes a global
+/// median land between the two, and the threshold then either eats text or
+/// promotes chrome to ink. A uniform frame still yields the same values because
+/// every block has the same median.
 pub fn ink_mask(img: &GrayImage) -> Vec<bool> {
+    ink_mask_with(img, true)
+}
+
+/// [`ink_mask`] with the background estimator selectable (tests and `--stats`
+/// need the global version to compare against the old numbers).
+pub fn ink_mask_with(img: &GrayImage, adaptive: bool) -> Vec<bool> {
     let (w, h) = img.dimensions();
-    let mut hist = [0u32; 256];
-    for p in img.pixels() {
-        hist[p.0[0] as usize] += 1;
-    }
-    let total: u32 = w * h;
-    let mut acc = 0u32;
-    let mut bg = 0u8;
-    for (v, &c) in hist.iter().enumerate() {
-        acc += c;
-        if acc * 2 >= total {
-            bg = v as u8;
-            break;
-        }
-    }
+    let total: u64 = u64::from(w) * u64::from(h);
+    let background = if adaptive {
+        local_background(img)
+    } else {
+        vec![global_median(img); (w * h) as usize]
+    };
     // threshold from the deviation distribution (p90 * 0.35, clamped)
     let mut dev_hist = [0u32; 256];
-    for p in img.pixels() {
+    for (i, p) in img.pixels().enumerate() {
+        let bg = background[i];
         let d = (p.0[0] as i32 - bg as i32).unsigned_abs() as usize;
         dev_hist[d.min(255)] += 1;
     }
@@ -97,21 +103,102 @@ pub fn ink_mask(img: &GrayImage) -> Vec<bool> {
     let mut p90 = 0usize;
     for (d, &c) in dev_hist.iter().enumerate() {
         acc += c;
-        if (acc as u64) * 10 >= (total as u64) * 9 {
+        if (acc as u64) * 10 >= total * 9 {
             p90 = d;
             break;
         }
     }
     // Keep this low enough for thin strokes (underscores, dashes) to survive;
-    // the window-border case is handled by cropping the chrome away, not by
-    // raising the threshold (raising it lost `_` and `-` in real screenshots).
+    // window chrome is handled by cropping the content box before the model
+    // sees the image, not by raising the threshold (raising it lost `_` and `-`
+    // in real screenshots).
     let thr = ((p90 as f32) * 0.35).clamp(18.0, 200.0) as i32;
 
     let mut mask = vec![false; (w * h) as usize];
     for (i, p) in img.pixels().enumerate() {
-        mask[i] = ((p.0[0] as i32 - bg as i32).abs()) > thr;
+        mask[i] = ((p.0[0] as i32 - background[i] as i32).abs()) > thr;
     }
     mask
+}
+
+/// Median luminance of the whole frame.
+fn global_median(img: &GrayImage) -> u8 {
+    let mut hist = [0u32; 256];
+    for p in img.pixels() {
+        hist[p.0[0] as usize] += 1;
+    }
+    let total = img.width() * img.height();
+    median_from_hist(&hist, total)
+}
+
+fn median_from_hist(hist: &[u32; 256], total: u32) -> u8 {
+    let mut acc = 0u32;
+    for (v, &c) in hist.iter().enumerate() {
+        acc += c;
+        if acc.saturating_mul(2) >= total {
+            return v as u8;
+        }
+    }
+    0
+}
+
+/// Block size for the local background estimate.
+///
+/// 64 px is larger than a glyph and smaller than a typical pane, so a block is
+/// dominated by background even when a line of text crosses it.
+const BG_BLOCK: u32 = 64;
+
+/// Per-pixel background, from a 64 px block grid with bilinear interpolation.
+fn local_background(img: &GrayImage) -> Vec<u8> {
+    let (w, h) = img.dimensions();
+    let bw = w.div_ceil(BG_BLOCK);
+    let bh = h.div_ceil(BG_BLOCK);
+    let mut medians = vec![0u8; (bw * bh) as usize];
+    for by in 0..bh {
+        for bx in 0..bw {
+            let mut hist = [0u32; 256];
+            let x0 = bx * BG_BLOCK;
+            let x1 = ((bx + 1) * BG_BLOCK).min(w);
+            let y0 = by * BG_BLOCK;
+            let y1 = ((by + 1) * BG_BLOCK).min(h);
+            let mut count = 0u32;
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    hist[img.get_pixel(x, y)[0] as usize] += 1;
+                    count += 1;
+                }
+            }
+            medians[(by * bw + bx) as usize] = median_from_hist(&hist, count);
+        }
+    }
+
+    if bw == 1 && bh == 1 {
+        return vec![medians[0]; (w * h) as usize];
+    }
+
+    let mut out = vec![0u8; (w * h) as usize];
+    for y in 0..h {
+        for x in 0..w {
+            out[(y * w + x) as usize] = interpolate_background(&medians, bw, bh, x, y);
+        }
+    }
+    out
+}
+
+fn interpolate_background(medians: &[u8], bw: u32, bh: u32, x: u32, y: u32) -> u8 {
+    // Block centres are at (i + 0.5) * BG_BLOCK.
+    let fx = (x as f32 + 0.5) / BG_BLOCK as f32 - 0.5;
+    let fy = (y as f32 + 0.5) / BG_BLOCK as f32 - 0.5;
+    let x0 = fx.floor().clamp(0.0, (bw - 1) as f32) as u32;
+    let y0 = fy.floor().clamp(0.0, (bh - 1) as f32) as u32;
+    let x1 = (x0 + 1).min(bw - 1);
+    let y1 = (y0 + 1).min(bh - 1);
+    let tx = (fx - x0 as f32).clamp(0.0, 1.0);
+    let ty = (fy - y0 as f32).clamp(0.0, 1.0);
+    let at = |bx: u32, by: u32| medians[(by * bw + bx) as usize] as f32;
+    let top = at(x0, y0) * (1.0 - tx) + at(x1, y0) * tx;
+    let bottom = at(x0, y1) * (1.0 - tx) + at(x1, y1) * tx;
+    (top * (1.0 - ty) + bottom * ty).round().clamp(0.0, 255.0) as u8
 }
 
 /// Row projection: contiguous runs of rows that contain ink.
@@ -176,13 +263,27 @@ fn band_bounds(mask: &[bool], w: u32, y0: u32, y1: u32) -> (u32, u32) {
 }
 
 pub fn analyze(img: &GrayImage) -> Geometry {
+    analyze_with(img, true)
+}
+
+/// [`analyze`] with the adaptive background estimator selectable.
+pub fn analyze_with(img: &GrayImage, adaptive: bool) -> Geometry {
     let (w, h) = img.dimensions();
-    let mask = ink_mask(img);
+    let mask = ink_mask_with(img, adaptive);
     let rows = band_rows(&mask, w, h);
 
-    // Column projection per band, kept until the merge threshold is known.
-    let mut cols: Vec<Vec<bool>> = Vec::new();
-    let mut bands: Vec<Band> = Vec::new();
+    // Median row height first: the column-run merge threshold needs it, and
+    // computing it from the row projection avoids keeping one `Vec<bool>` per
+    // band alive (which used to cost a byte per pixel for the whole frame).
+    let mut hs: Vec<f32> = rows.iter().map(|&(y0, y1)| (y1 - y0) as f32).collect();
+    hs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let line_height = hs.get(hs.len() / 2).copied().unwrap_or(0.0);
+    // Letters within a word leave a gap well under half a cell; a real column
+    // gap is at least one cell (~0.6 line heights). Merge below that.
+    let merge = ((line_height * 0.3) as u32).max(2);
+
+    let mut bands: Vec<Band> = Vec::with_capacity(rows.len());
+    let mut column_runs: Vec<Vec<(u32, u32)>> = Vec::with_capacity(rows.len());
     for &(y0, y1) in &rows {
         let mut col = vec![false; w as usize];
         for y in y0..y1 {
@@ -204,19 +305,13 @@ pub fn analyze(img: &GrayImage) -> Geometry {
             x0: x0 as f32,
             x1: x1 as f32,
         });
-        cols.push(col);
+        // Convert immediately and drop the column vector: at most one band's
+        // worth of columns is resident at a time.
+        column_runs.push(runs_from_columns(&col, merge));
     }
 
     let left = bands.iter().map(|b| b.x0).fold(f32::MAX, f32::min);
     let right = bands.iter().map(|b| b.x1).fold(0.0, f32::max);
-    let mut hs: Vec<f32> = bands.iter().map(|b| b.y1 - b.y0).collect();
-    hs.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let line_height = hs.get(hs.len() / 2).copied().unwrap_or(0.0);
-
-    // Letters within a word leave a gap well under half a cell; a real column
-    // gap is at least one cell (~0.6 line heights). Merge below that.
-    let merge = ((line_height * 0.3) as u32).max(2);
-    let column_runs = cols.iter().map(|c| runs_from_columns(c, merge)).collect();
 
     Geometry {
         width: w,
