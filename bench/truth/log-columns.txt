@@ -1,0 +1,5 @@
+2026-10-30 11:02:13 INFO  api      request path=/api/v1/users status=200 dur=13ms
+2026-10-30 11:02:13 WARN  worker   slow query id=42 dur=842ms
+2026-10-30 11:02:14 ERROR api      unhandled TypeError at handler.ts:44
+2026-10-30 11:02:14 INFO  worker   retry attempt=2 backoff=250ms
+2026-10-30 11:02:15 INFO  api      request path=/api/v1/orders status=201 dur=27ms

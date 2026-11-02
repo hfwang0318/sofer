@@ -1,0 +1,8 @@
+$ tree -L 2 src
+src
+├── api
+│   ├── main.rs
+│   └── routes.rs
+├── core
+│   └── lib.rs
+└── utils.rs

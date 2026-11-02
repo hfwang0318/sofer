@@ -1,0 +1,16 @@
+  1 use std::sync::Arc;
+  2
+  3 #[derive(Debug)]
+  4 pub struct Pool {
+  5     size: usize,
+  6     queue: Arc<Queue>,
+  7 }
+  8
+  9 impl Pool {
+ 10     pub fn new(size: usize) -> Self {
+ 11         Self {
+ 12             size,
+ 13             queue: Arc::new(Queue::new()),
+ 14         }
+ 15     }
+ 16 }

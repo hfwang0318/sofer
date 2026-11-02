@@ -274,7 +274,7 @@ fn assemble_with_bands(
     } else if nonblank.len() == geom.bands.len() {
         Some(nonblank.iter().enumerate().map(|(i, &t)| (t, i)).collect())
     } else {
-        align_by_width(texts, &nonblank, &geom.bands, adv)
+        align_by_width(texts, &nonblank, geom, adv)
             .or_else(|| pair_indices(&nonblank, geom.bands.len()))
     };
 
@@ -351,7 +351,20 @@ fn assemble_with_bands(
             gutter_cols[ti] = Some((((*code_start - code_left) / adv).round().max(0.0)) as usize);
         }
     }
-    let pixel_runs = !gutter && geom.column_runs.len() == geom.bands.len();
+    // The engine may drop the line numbers entirely while the screenshot still
+    // draws them. When every row starts with a fixed narrow run followed by a
+    // gap, and that run is visibly shorter than the row's first text token, it
+    // is the number glyph rather than part of the text; recover the code
+    // column from the second run.
+    let pixel_gutter_left = if !gutter && opts.strip_gutter && texts.len() == geom.bands.len() {
+        detect_pixel_gutter(geom, texts, adv)
+    } else {
+        None
+    };
+    // The runs start with the (untranscribed) line number in pixel-gutter
+    // mode, so they no longer line up with the text tokens one-to-one.
+    let pixel_runs =
+        !gutter && pixel_gutter_left.is_none() && geom.column_runs.len() == geom.bands.len();
 
     // Each row remembers the band it was matched to: that is what lets blank
     // lines be rebuilt from vertical geometry instead of trusting the model's
@@ -393,6 +406,24 @@ fn assemble_with_bands(
                     text.trim_start().to_string(),
                 ),
             }
+        } else if let Some(code_left) = pixel_gutter_left {
+            match band {
+                Some(bi) => {
+                    let code_start = geom
+                        .column_runs
+                        .get(bi)
+                        .and_then(|r| r.get(1))
+                        .map(|r| r.0 as f32)
+                        .unwrap_or(code_left);
+                    let col = (((code_start - code_left) / adv).round().max(0.0)) as u32;
+                    (col, Some(code_start), text.trim_start().to_string())
+                }
+                None => (
+                    leading_spaces(&text) as u32,
+                    None,
+                    text.trim_start().to_string(),
+                ),
+            }
         } else {
             match band {
                 Some(bi) => {
@@ -409,7 +440,11 @@ fn assemble_with_bands(
                     let mut body = text.trim_start().to_string();
                     if pixel_runs {
                         if let Some(runs) = geom.column_runs.get(bi) {
-                            if let Some(respaced) = respace_with_pixels(&body, runs, adv) {
+                            // Decoration first: a rule is one long run, and its
+                            // length is the only thing the pixels can correct.
+                            if let Some(resized) = resize_decoration_tokens(&body, runs, adv) {
+                                body = resized;
+                            } else if let Some(respaced) = respace_with_pixels(&body, runs, adv) {
                                 body = respaced;
                             }
                         }
@@ -682,9 +717,10 @@ fn ratios_for(
 fn align_by_width(
     texts: &[&crate::engine::RawLine],
     nonblank: &[usize],
-    bands: &[crate::geom::Band],
+    geom: &crate::geom::Geometry,
     adv: f32,
 ) -> Option<Vec<(usize, usize)>> {
+    let bands = &geom.bands;
     let m = nonblank.len();
     let n = bands.len();
     if m == 0 || n == 0 {
@@ -696,6 +732,20 @@ fn align_by_width(
     const SKIP: f32 = 0.05; // tiny penalty so 1:1 wins when widths are ambiguous
     let exp = |i: usize| display_width(texts[nonblank[i]].text.trim()) as f32 * adv;
     let bw = |j: usize| (bands[j].x1 - bands[j].x0).max(1.0);
+    // A framed table draws a full-width rule row that the engine never emits
+    // as text. Without a "skip this band" move the DP pairs every following
+    // line one band too early, which is how `ascii-table` lost its frame and
+    // every row after the rule. A rule band's ink is one continuous stroke
+    // across the frame, so its
+    // column runs collapse to a single full-width run; every text row has
+    // several. Height alone is not enough: the rule often picks up a sliver of
+    // the row above it and ends up half a line tall.
+    let rule_like = |j: usize| {
+        geom.column_runs
+            .get(j)
+            .is_some_and(|runs| runs.len() == 1 && (runs[0].1 - runs[0].0) as f32 > bw(j) * 0.9)
+    };
+    let match_penalty = |j: usize| if rule_like(j) { 0.5 } else { 0.0 };
     let mut cost = vec![f32::MAX; (m + 1) * (n + 1)];
     let mut from = vec![(0u8, 0u8); (m + 1) * (n + 1)];
     cost[0] = 0.0;
@@ -715,17 +765,28 @@ fn align_by_width(
             };
             if i < m && j < n {
                 let e = (exp(i) - bw(j)).abs() / bw(j);
-                relax(i + 1, j + 1, e.min(1.0), (1, 1));
+                relax(i + 1, j + 1, e.min(1.0) + match_penalty(j), (1, 1));
             }
             if i + 1 < m && j < n {
                 // model split one row into two lines
                 let e = ((exp(i) + exp(i + 1)) - bw(j)).abs() / bw(j);
-                relax(i + 2, j + 1, e.min(1.0) + SKIP, (2, 1));
+                relax(i + 2, j + 1, e.min(1.0) + SKIP + match_penalty(j), (2, 1));
             }
             if i < m && j + 1 < n {
                 // model merged two rows into one line
-                let e = (exp(i) - (bw(j) + bw(j + 1))).abs() / (bw(j) + bw(j + 1));
-                relax(i + 1, j + 2, e.min(1.0) + SKIP, (1, 2));
+                let e = (exp(i) - (bw(j) + bw(j + 1))) / (bw(j) + bw(j + 1));
+                relax(
+                    i + 1,
+                    j + 2,
+                    e.abs().min(1.0) + SKIP + match_penalty(j) + match_penalty(j + 1),
+                    (1, 2),
+                );
+            }
+            if j < n {
+                // no text on this band: nearly free for a rule row, expensive
+                // for a real text row the model dropped
+                let add = if rule_like(j) { 0.02 } else { 0.8 };
+                relax(i, j + 1, add, (0, 1));
             }
         }
     }
@@ -737,9 +798,9 @@ fn align_by_width(
     let mut pairs: Vec<(usize, usize)> = Vec::new();
     let mut i = m;
     let mut j = (0..=n).find(|&j| cost[idx(m, j)] == best_end).unwrap_or(n);
-    while i > 0 && j > 0 {
+    while i > 0 || j > 0 {
         let (di, dj) = from[idx(i, j)];
-        if di == 0 {
+        if di == 0 && dj == 0 {
             break;
         }
         match (di, dj) {
@@ -749,6 +810,7 @@ fn align_by_width(
                 pairs.push((nonblank[i - 2], j - 1));
             }
             (1, 2) => pairs.push((nonblank[i - 1], j - 2)),
+            (0, 1) => {} // a band with no text (a rule row)
             _ => break,
         }
         i -= di as usize;
@@ -838,6 +900,69 @@ fn respace_with_pixels(text: &str, runs: &[(u32, u32)], adv: f32) -> Option<Stri
     Some(out)
 }
 
+/// Rebuild runs of a single decoration character from their ink width.
+///
+/// The model transcribes the *shape* of a `====` / `____` / `----` rule but
+/// rarely its length; the length is the one thing the image states exactly.
+/// Only a token that is four or more copies of the same decoration character is
+/// touched, so `--- a/file` (three hyphens, a diff header) and mixed runs such
+/// as `++++----` stay as the model wrote them.
+fn resize_decoration_tokens(text: &str, runs: &[(u32, u32)], adv: f32) -> Option<String> {
+    if adv <= 0.0 || text.is_empty() {
+        return None;
+    }
+    let mut tokens: Vec<&str> = Vec::new();
+    let mut gaps: Vec<usize> = Vec::new();
+    let mut spaces = 0usize;
+    for part in text.split(' ') {
+        if part.is_empty() {
+            spaces += 1;
+            continue;
+        }
+        if !tokens.is_empty() {
+            gaps.push(spaces + 1);
+        }
+        tokens.push(part);
+        spaces = 0;
+    }
+    if tokens.is_empty() || tokens.len() != runs.len() {
+        return None;
+    }
+    let mut changed = false;
+    let mut out = String::with_capacity(text.len() + 8);
+    for (i, (tok, run)) in tokens.iter().zip(runs).enumerate() {
+        if i > 0 {
+            let gap = (run.0 as f32 - runs[i - 1].1 as f32).max(0.0);
+            let cols = (gap / adv).floor().max(1.0) as usize;
+            out.push_str(&" ".repeat(cols.max(gaps[i - 1])));
+        }
+        let rendered = match decoration_run(tok) {
+            Some(c) => {
+                let want = (((run.1 - run.0) as f32) / adv).round().max(1.0) as usize;
+                let have = tok.chars().count();
+                if want != have && (want as i64 - have as i64).abs() >= 2 {
+                    changed = true;
+                    c.to_string().repeat(want)
+                } else {
+                    (*tok).to_string()
+                }
+            }
+            None => (*tok).to_string(),
+        };
+        out.push_str(&rendered);
+    }
+    changed.then_some(out)
+}
+
+fn decoration_run(tok: &str) -> Option<char> {
+    let mut chars = tok.chars();
+    let c = chars.next()?;
+    if !matches!(c, '-' | '=' | '_' | '~') || tok.chars().count() < 4 {
+        return None;
+    }
+    tok.chars().all(|x| x == c).then_some(c)
+}
+
 /// Line-number gutters make x0 identical on every row, so geometry stops telling
 /// us anything about indentation. Detect them and fall back to the model's own
 /// spacing (see docs §4.6, the single failing case).
@@ -859,6 +984,59 @@ fn looks_like_gutter(texts: &[&RawLine]) -> bool {
         }
     }
     total >= 3 && hits as f32 / total as f32 >= 0.4
+}
+
+/// Detect a line-number gutter that only exists in the pixels.
+///
+/// Returns the x of code column 0, or `None`. A table's `│` border and a tree's
+/// `├──` stroke also start at a fixed x, so the first run must additionally be
+/// glyph-sized and much narrower than the row's first text token: a border is
+/// a couple of pixels, and a tree stroke is followed immediately by its label.
+fn detect_pixel_gutter(
+    geom: &Geometry,
+    texts: &[&crate::engine::RawLine],
+    adv: f32,
+) -> Option<f32> {
+    if adv <= 0.0 || geom.column_runs.len() != geom.bands.len() {
+        return None;
+    }
+    let unit = geom.line_height.max(1.0);
+    let mut anchors = Vec::new();
+    let mut starts = Vec::new();
+    for (pos, runs) in geom.column_runs.iter().enumerate() {
+        let Some(&(a, b)) = runs.first() else {
+            continue;
+        };
+        let Some(&(c, _)) = runs.get(1) else { continue };
+        let Some(line) = texts.get(pos) else { continue };
+        let token = line.text.split_whitespace().next().unwrap_or("");
+        let token_w = display_width(token) as f32;
+        let run_cells = (b - a) as f32 / adv;
+        let gutter_gap = c.saturating_sub(b) as f32;
+        if token_w >= 1.0
+            && (0.4..=3.0).contains(&run_cells)
+            && run_cells < token_w * 0.85
+            && gutter_gap >= adv * 0.6
+        {
+            // Editor gutters are right-aligned: the right edge is fixed while
+            // the left edge moves from `9` to `10`.
+            anchors.push(b as f32);
+            starts.push(c as f32);
+        }
+    }
+    if anchors.len() * 100 < geom.bands.len() * 70 {
+        return None;
+    }
+    let x0 = median(&anchors)?;
+    let consistent = anchors
+        .iter()
+        .filter(|x| (*x - x0).abs() <= unit * 0.35)
+        .count();
+    if consistent * 100 < anchors.len() * 80 {
+        return None;
+    }
+    starts.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    Some(starts[0])
 }
 
 fn join_soft_wraps(out: &mut Vec<Line>, geom: &Geometry, adv: f32) -> usize {
@@ -1129,6 +1307,79 @@ mod tests {
         );
         // a token/run mismatch is left exactly as the model wrote it
         assert!(respace_with_pixels("a b c", &runs, 16.0).is_none());
+    }
+
+    #[test]
+    fn pixel_gutter_recovers_the_code_column_when_numbers_are_missing() {
+        let mut g = geom_with(&[
+            (0.0, 10.0, 0.0, 300.0),
+            (20.0, 30.0, 0.0, 300.0),
+            (40.0, 50.0, 0.0, 300.0),
+        ]);
+        g.line_height = 20.0;
+        g.column_runs = vec![
+            vec![(4, 14), (60, 120)],
+            vec![(4, 14), (60, 120)],
+            vec![(4, 14), (90, 150)],
+        ];
+        let texts = [
+            RawLine::plain("use std".to_string()),
+            RawLine::plain("map value".to_string()),
+            RawLine::plain("let x".to_string()),
+        ];
+        let refs: Vec<&RawLine> = texts.iter().collect();
+        assert_eq!(
+            detect_pixel_gutter(&g, &refs, 20.0),
+            Some(60.0),
+            "column 0 is the leftmost code run"
+        );
+    }
+
+    #[test]
+    fn a_table_border_is_not_a_line_number_gutter() {
+        let mut g = geom_with(&[
+            (0.0, 10.0, 0.0, 300.0),
+            (20.0, 30.0, 0.0, 300.0),
+            (40.0, 50.0, 0.0, 300.0),
+        ]);
+        g.line_height = 20.0;
+        // a 2 px border, then the cell text: no gutter here
+        g.column_runs = vec![
+            vec![(0, 2), (20, 100)],
+            vec![(0, 2), (20, 100)],
+            vec![(0, 2), (20, 100)],
+        ];
+        let texts = [
+            RawLine::plain("bob 42".to_string()),
+            RawLine::plain("ann 38".to_string()),
+            RawLine::plain("joe 51".to_string()),
+        ];
+        let refs: Vec<&RawLine> = texts.iter().collect();
+        assert_eq!(detect_pixel_gutter(&g, &refs, 20.0), None);
+    }
+
+    #[test]
+    fn decoration_runs_take_their_length_from_the_pixels() {
+        // 120 px at 12 px/cell is ten characters, not the six the model wrote
+        let runs = vec![(0u32, 120u32)];
+        assert_eq!(
+            resize_decoration_tokens("======", &runs, 12.0).as_deref(),
+            Some("==========")
+        );
+        // a diff header (`--- a/file`) is three hyphens by definition
+        assert!(resize_decoration_tokens("--- a/file", &[(0, 36), (48, 96)], 12.0).is_none());
+        // mixed runs are a diff-stat bar, not a rule; the pixels cannot split them
+        assert!(resize_decoration_tokens("++++----", &[(0, 96)], 12.0).is_none());
+    }
+
+    #[test]
+    fn decoration_prefixes_are_resized_on_both_sides_of_a_title() {
+        let text = "_____ title _____";
+        let runs = vec![(0, 240), (252, 312), (324, 564)]; // 20 / 5 / 20 cells at 12 px
+        assert_eq!(
+            resize_decoration_tokens(text, &runs, 12.0).as_deref(),
+            Some("____________________ title ____________________")
+        );
     }
 
     #[test]

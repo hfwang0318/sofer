@@ -67,7 +67,9 @@ pub struct Config {
     /// trust the model's spacing instead of stripping a detected line-number gutter
     pub keep_gutter: bool,
     /// rebuild box-drawing characters (trees, tables) from detected straight
-    /// lines; off by default because it only helps when the engine dropped them
+    /// lines. On by default: the model reliably keeps the cell text and drops
+    /// the drawing, and the pass is already conservative (it only rewrites a
+    /// prefix that is confirmed by a stroke).
     pub box_art: bool,
     /// output shape; applied by the caller through [`crate::render::render`]
     pub format: Format,
@@ -107,7 +109,7 @@ impl Default for Config {
             no_geometry: false,
             join_wrap: false,
             keep_gutter: false,
-            box_art: false,
+            box_art: true,
             format: Format::Text,
             image_format: ImageFormat::Png,
             language: None,
@@ -193,6 +195,7 @@ pub struct Trace {
     pub retry: Option<RetryTrace>,
     pub geometry: GeometryTrace,
     pub clean: CleanTrace,
+    pub box_art: boxdraw::BoxArtStats,
     /// output rows vs. row bands; `false` means the reply looked truncated
     pub consistent: bool,
     pub rows: usize,
@@ -614,9 +617,15 @@ fn finish(
     // terminal output decorates with arbitrary offsets instead.
     opts.snap_indent = kind == repair::Kind::Code;
     let (mut lines, stats) = assemble(&out.lines, geom, &opts);
-    if cfg.box_art {
-        boxdraw::apply(luma, geom, stats.advance, &mut lines);
-    }
+    // Only at native resolution: when a 1× screenshot was upscaled for the
+    // model, geometry still works in the original pixels, where a `|` in code
+    // is as wide as a `│` branch and the stroke detector misfires (measured:
+    // `real-editor-code@1x` 0.996 -> 0.643).
+    let box_art = if cfg.box_art && prep.transform.scale == 1.0 {
+        boxdraw::apply(luma, geom, stats.advance, &mut lines)
+    } else {
+        boxdraw::BoxArtStats::default()
+    };
     let text = lines
         .iter()
         .map(|l| l.rendered())
@@ -655,6 +664,7 @@ fn finish(
                 fence: fence_lang,
                 deduped_rows: deduped,
             },
+            box_art,
             tiling,
             retry_trace,
             consistent,
@@ -672,6 +682,7 @@ fn trace(
     stats: &AssembleStats,
     preprocess: PreprocessTrace,
     clean: CleanTrace,
+    box_art: boxdraw::BoxArtStats,
     tiling: Option<TilingTrace>,
     retry: Option<RetryTrace>,
     consistent: bool,
@@ -692,6 +703,7 @@ fn trace(
             suspicious_rows: stats.suspicious_rows,
         },
         clean,
+        box_art,
         consistent,
         rows,
         bands: geom.bands.len(),

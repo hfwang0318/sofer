@@ -1,0 +1,7 @@
+$ psql -c "select * from users limit 3"
+ id | email              | plan
+----+--------------------+------
+  1 | alice@example.com  | team
+  2 | bob@example.com    | free
+  3 | carol@example.com  | pro
+(3 rows)

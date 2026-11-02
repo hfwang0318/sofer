@@ -263,13 +263,13 @@ fn table_columns_and_separators_are_restored() {
 }
 
 #[test]
-fn default_config_keeps_box_art_off() {
+fn default_config_enables_box_art() {
     let cfg = Config::default();
-    assert!(!cfg.box_art, "box art must be opt-in");
+    assert!(cfg.box_art, "box-art reconstruction is on by default");
 }
 
 #[test]
-fn pipeline_reconstructs_a_tree_only_with_box_art() {
+fn pipeline_reconstructs_a_tree_by_default_and_can_be_disabled() {
     let img = tree_scene();
     let path = std::env::temp_dir().join(format!("sofer-boxdraw-tree-{}.png", std::process::id()));
     img.save(&path).expect("write synthetic tree");
@@ -280,24 +280,27 @@ fn pipeline_reconstructs_a_tree_only_with_box_art() {
         ..Config::default()
     };
     cfg.mock_text = Some("src\ncli\nmain.rs\nargs.rs\nlib.rs\n".to_string());
+    // The synthetic glyphs are shorter than the small-text threshold; without
+    // this the pipeline would upscale and (correctly) skip box art at 1×.
+    cfg.upscale_small = false;
     let engine = cfg.engine().expect("mock engine");
     let limiter = pipeline::limiter(1);
 
-    // default: the pass must not run
-    let plain = pipeline::recognize(engine.as_ref(), &path, &cfg, &limiter)
-        .expect("recognize without box art");
-    let plain_lines: Vec<String> = plain.document.lines.iter().map(|l| l.rendered()).collect();
-    assert_eq!(plain_lines, ["src", "cli", "main.rs", "args.rs", "lib.rs"]);
-    assert!(!plain.document.text().contains('├'));
-
-    // opt-in: the pixels put the drawing back
-    cfg.box_art = true;
+    // default: the pixels put the drawing back
     let drawn = pipeline::recognize(engine.as_ref(), &path, &cfg, &limiter)
         .expect("recognize with box art");
     assert_eq!(
         drawn.document.text(),
         "src\n├── cli\n│   ├── main.rs\n│   └── args.rs\n└── lib.rs"
     );
+
+    // `--no-box-art` still gives the engine's text untouched
+    cfg.box_art = false;
+    let plain = pipeline::recognize(engine.as_ref(), &path, &cfg, &limiter)
+        .expect("recognize without box art");
+    let plain_lines: Vec<String> = plain.document.lines.iter().map(|l| l.rendered()).collect();
+    assert_eq!(plain_lines, ["src", "cli", "main.rs", "args.rs", "lib.rs"]);
+    assert!(!plain.document.text().contains('├'));
 
     let _ = std::fs::remove_file(&path);
 }

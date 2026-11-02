@@ -1,0 +1,19 @@
+# Deployment Guide
+
+## Prerequisites
+
+- Docker 24+
+- kubectl 1.29+
+
+## Steps
+
+1. Build the image:
+   ```bash
+   docker build -t api:latest .
+   ```
+2. Apply the manifest:
+
+| Resource | Replicas |
+|----------|----------|
+| api      | 3        |
+| worker   | 2        |

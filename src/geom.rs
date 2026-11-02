@@ -203,18 +203,13 @@ fn interpolate_background(medians: &[u8], bw: u32, bh: u32, x: u32, y: u32) -> u
 
 /// Row projection: contiguous runs of rows that contain ink.
 pub fn band_rows(mask: &[bool], w: u32, h: u32) -> Vec<(u32, u32)> {
-    let rows: Vec<u32> = (0..h)
-        .map(|y| {
-            let base = (y * w) as usize;
-            mask[base..base + w as usize].iter().filter(|&&b| b).count() as u32
-        })
-        .collect();
+    let rows = row_ink(mask, w, h);
     // A row counts as text if it carries a meaningful amount of ink. This must be
     // well above "a few pixels", because box-drawing vertical rules are designed to
     // connect between lines: with a low threshold every row inside a `tree` block
     // counts as ink and the whole block collapses into one band (measured on a real
     // screenshot: 16 lines -> 8 bands).
-    let min_ink = ((w as f32 * 0.002) as u32).max(3);
+    let min_ink = min_ink_for(w);
     let mut out = Vec::new();
     let mut start: Option<u32> = None;
     for (y, &c) in rows.iter().enumerate() {
@@ -233,6 +228,89 @@ pub fn band_rows(mask: &[bool], w: u32, h: u32) -> Vec<(u32, u32)> {
     if let Some(s) = start {
         if h - s >= 3 {
             out.push((s, h));
+        }
+    }
+    out
+}
+
+fn row_ink(mask: &[bool], w: u32, h: u32) -> Vec<u32> {
+    (0..h)
+        .map(|y| {
+            let base = (y * w) as usize;
+            mask[base..base + w as usize].iter().filter(|&&b| b).count() as u32
+        })
+        .collect()
+}
+
+fn min_ink_for(w: u32) -> u32 {
+    ((w as f32 * 0.002) as u32).max(3)
+}
+
+/// Row projection with tall bands split at their own valleys.
+///
+/// A tree that has two levels of `│` prefix puts enough ink on the gap rows to
+/// keep them above `min_ink`, so several text rows collapse into one band
+/// (measured on `real-editor-term`: 16 lines -> 8 bands). A band more than
+/// 1.5× the median height is therefore split at runs of rows whose ink is
+/// below a quarter of that band's peak. Only abnormally tall bands are
+/// touched, so ordinary text keeps the exact old geometry.
+fn band_rows_split(mask: &[bool], w: u32, h: u32) -> Vec<(u32, u32)> {
+    let coarse = band_rows(mask, w, h);
+    if coarse.len() < 2 {
+        return coarse;
+    }
+    let mut heights: Vec<u32> = coarse.iter().map(|&(a, b)| b - a).collect();
+    heights.sort_unstable();
+    let median = heights[heights.len() / 2].max(1);
+    if median < 6 {
+        // 1× text: a glyph row is too short for valley splitting to be safe.
+        return coarse;
+    }
+    let rows = row_ink(mask, w, h);
+    let mut out = Vec::with_capacity(coarse.len() + 4);
+    for (y0, y1) in coarse {
+        if y1 - y0 <= median * 3 / 2 {
+            out.push((y0, y1));
+            continue;
+        }
+        let peak = rows[y0 as usize..y1 as usize]
+            .iter()
+            .copied()
+            .max()
+            .unwrap_or(0);
+        let low = ((peak as f32) * 0.25) as u32;
+        // Collect valley centres: runs of >= 2 low rows. A single low row is
+        // normal inside a glyph (the gap between an ascender and a descender).
+        let mut cuts = Vec::new();
+        let mut run_start: Option<u32> = None;
+        for y in y0..y1 {
+            if rows[y as usize] <= low {
+                if run_start.is_none() {
+                    run_start = Some(y);
+                }
+            } else if let Some(s) = run_start.take() {
+                if y - s >= 2 {
+                    cuts.push((s + y) / 2);
+                }
+            }
+        }
+        let mut start = y0;
+        for cut in cuts {
+            if cut > start
+                && cut - start >= 3
+                && rows[start as usize..cut as usize]
+                    .iter()
+                    .copied()
+                    .max()
+                    .unwrap_or(0)
+                    > low
+            {
+                out.push((start, cut));
+                start = cut;
+            }
+        }
+        if y1 > start && y1 - start >= 3 {
+            out.push((start, y1));
         }
     }
     out
@@ -270,7 +348,13 @@ pub fn analyze(img: &GrayImage) -> Geometry {
 pub fn analyze_with(img: &GrayImage, adaptive: bool) -> Geometry {
     let (w, h) = img.dimensions();
     let mask = ink_mask_with(img, adaptive);
-    let rows = band_rows(&mask, w, h);
+    // A 3 px speck (a stray anti-aliased dot between two rows) is not a text
+    // row. Keeping it made the YAML scene report 14 bands for 13 lines and
+    // shifted every following row by one.
+    let rows: Vec<(u32, u32)> = band_rows_split(&mask, w, h)
+        .into_iter()
+        .filter(|&(y0, y1)| y1 - y0 >= 4)
+        .collect();
 
     // Median row height first: the column-run merge threshold needs it, and
     // computing it from the row projection avoids keeping one `Vec<bool>` per

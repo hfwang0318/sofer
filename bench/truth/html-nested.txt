@@ -1,0 +1,12 @@
+<ul class="nav">
+  <li>
+    <a href="/home">Home</a>
+  </li>
+  <li>
+    <a href="/docs">Docs</a>
+    <ul>
+      <li><a href="/docs/api">API</a></li>
+      <li><a href="/docs/faq">FAQ</a></li>
+    </ul>
+  </li>
+</ul>

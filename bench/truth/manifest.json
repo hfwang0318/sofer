@@ -182,5 +182,141 @@
     ],
     "lines": 5,
     "chars": 113
+  },
+  "nested-table": {
+    "size2x": [
+      564,
+      406
+    ],
+    "lines": 9,
+    "chars": 259
+  },
+  "psql-table": {
+    "size2x": [
+      692,
+      332
+    ],
+    "lines": 7,
+    "chars": 208
+  },
+  "log-columns": {
+    "size2x": [
+      1380,
+      258
+    ],
+    "lines": 5,
+    "chars": 363
+  },
+  "photo-table": {
+    "size2x": [
+      724,
+      332
+    ],
+    "lines": 7,
+    "chars": 258
+  },
+  "deep-tree": {
+    "size2x": [
+      500,
+      554
+    ],
+    "lines": 13,
+    "chars": 207
+  },
+  "tree-gutter": {
+    "size2x": [
+      500,
+      406
+    ],
+    "lines": 9,
+    "chars": 162
+  },
+  "html-nested": {
+    "size2x": [
+      740,
+      517
+    ],
+    "lines": 12,
+    "chars": 215
+  },
+  "rules-mixed": {
+    "size2x": [
+      820,
+      480
+    ],
+    "lines": 11,
+    "chars": 326
+  },
+  "diff-stat-mixed": {
+    "size2x": [
+      1108,
+      295
+    ],
+    "lines": 6,
+    "chars": 277
+  },
+  "yaml-config": {
+    "size2x": [
+      500,
+      554
+    ],
+    "lines": 13,
+    "chars": 187
+  },
+  "md-doc": {
+    "size2x": [
+      564,
+      776
+    ],
+    "lines": 19,
+    "chars": 267
+  },
+  "light-editor": {
+    "size2x": [
+      804,
+      665
+    ],
+    "lines": 16,
+    "chars": 304
+  },
+  "light-tree": {
+    "size2x": [
+      340,
+      369
+    ],
+    "lines": 8,
+    "chars": 98
+  },
+  "tiling-table": {
+    "size2x": [
+      580,
+      1701
+    ],
+    "lines": 44,
+    "chars": 1432
+  },
+  "cjk-mixed": {
+    "size2x": [
+      1180,
+      440
+    ],
+    "lines": 6,
+    "chars": 184
+  },
+  "real-editor-code": {
+    "size2x": [
+      1138,
+      773
+    ],
+    "lines": 10,
+    "chars": 333
+  },
+  "real-editor-term": {
+    "size2x": [
+      1138,
+      773
+    ],
+    "lines": 16,
+    "chars": 306
   }
 }

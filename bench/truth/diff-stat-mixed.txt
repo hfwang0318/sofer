@@ -1,0 +1,6 @@
+$ git diff --stat HEAD~3
+ src/auth/session.ts      | 42 ++++++++++++++++++++++------------
+ src/core/engine.rs       | 18 ++++++++++----
+ docs/api.md              |  6 ++--
+ assets/logo.png          | Bin 18432 -> 19001 bytes
+ 4 files changed, 49 insertions(+), 27 deletions(-)

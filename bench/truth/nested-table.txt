@@ -1,0 +1,9 @@
+$ kubectl get pods
+NAME        READY   STATUS
+┌───────────┬───────┬─────────┐
+│ api-1     │ 1/1   │ Running │
+│ api-2     │ 1/1   │ Running │
+├───────────┼───────┼─────────┤
+│ worker-1  │ 2/2   │ Running │
+└───────────┴───────┴─────────┘
+3 pods, 2 deployments

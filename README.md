@@ -326,6 +326,7 @@ cargo test                        # 71 单元 + 25 集成
 python3 bench/scenes.py           # 20 个合成场景
 python3 bench/scenes2.py          # 复杂场景（双栏、图标、嵌套 diff…）
 python3 bench/scenes3.py          # 极端几何（小图 / 4K / 19:1 / 1:11）
+python3 bench/scenes4.py          # 定向回归（表格 / 树 / 装饰线 / 行号槽）
 .venv/bin/python bench/baseline.py --variant 2x    # 走 CLI 出基线表
 ```
 

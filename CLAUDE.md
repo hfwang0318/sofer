@@ -75,6 +75,7 @@ Baseline work needs the Python venv and generated scenes; see
 python3 bench/scenes.py
 python3 bench/scenes2.py
 python3 bench/scenes3.py
+python3 bench/scenes4.py
 .venv/bin/python bench/baseline.py --engines mock,tesseract,llamacpp --variant 2x
 ```
 
@@ -205,8 +206,11 @@ indentation responsibility into an engine.
   terminal column width (CJK = 2, zero-width = 0), `/src/render.rs` formats.
 - `src/engine/` — `llamacpp` (primary), `vision` (macOS fast tier, Swift shim
   compiled by `build.rs`), `tesseract` (fallback), `mock` (tests).
-- `src/boxdraw.rs` — opt-in `--box-art`: reconstructs tree/table rules from the
-  ink mask. Default off; it only rewrites leading decoration.
+- `src/boxdraw.rs` — reconstructs tree/table rules and missing table frames
+  from the ink mask. **On by default** (`--no-box-art` disables). It only
+  rewrites decoration confirmed by a stroke, skips text that already carries
+  Unicode box glyphs, and can insert the horizontal rule rows the engine
+  dropped.
 - `src/cli_input.rs` — stdin, `--region` crops and directory expansion.
 
 Kernel change guardrails (details in [docs/maintenance.md](docs/maintenance.md)):

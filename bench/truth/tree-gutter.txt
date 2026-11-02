@@ -1,0 +1,9 @@
+  1 // rendered file layout
+  2 src/
+  3 ├── cli/
+  4 │   ├── main.rs
+  5 │   └── serve.rs
+  6 ├── core/
+  7 │   ├── pool.rs
+  8 │   └── queue.rs
+  9 └── utils.rs

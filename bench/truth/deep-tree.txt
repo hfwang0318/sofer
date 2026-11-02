@@ -1,0 +1,13 @@
+$ tree -L 5 --dirsfirst src
+src
+├── cli
+│   ├── commands
+│   │   ├── build.rs
+│   │   └── serve.rs
+│   └── main.rs
+├── core
+│   ├── engine
+│   │   ├── pool.rs
+│   │   └── queue.rs
+│   └── lib.rs
+└── utils.rs

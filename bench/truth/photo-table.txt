@@ -1,0 +1,7 @@
+$ docker ps
+CONTAINER ID   IMAGE          STATUS
+┌──────────────┬──────────────┬─────────┐
+│ 8f2c1a9e4b7d │ api:1.4      │ Up 3h   │
+│ 1d7e0c3b5a92 │ postgres:16  │ Up 3h   │
+│ c93b6f0d2e18 │ redis:7.2    │ Up 1h   │
+└──────────────┴──────────────┴─────────┘

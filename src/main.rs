@@ -82,8 +82,13 @@ struct OcrArgs {
     keep_gutter: bool,
 
     /// rebuild tree / table box-drawing from the screenshot's straight lines
+    /// (on by default; kept so older scripts keep working)
     #[arg(long)]
     box_art: bool,
+
+    /// leave the engine's drawing exactly as it came back
+    #[arg(long)]
+    no_box_art: bool,
 
     /// print layout statistics to stderr
     #[arg(long)]
@@ -203,7 +208,7 @@ fn ocr(args: OcrArgs) -> Result<()> {
         no_geometry: args.no_geometry,
         join_wrap: args.join_wrap,
         keep_gutter: args.keep_gutter,
-        box_art: args.box_art,
+        box_art: args.box_art || !args.no_box_art,
         format: args.format,
         image_format: args.image_format,
         language: args.lang.clone(),
@@ -479,6 +484,13 @@ fn print_stats(path: &Path, outcome: &pipeline::Outcome) {
         g.snapped_indents,
         g.suspicious_rows
     );
+    let b = &trace.box_art;
+    if b != &sofer::boxdraw::BoxArtStats::default() {
+        eprintln!(
+            "  box-art: tree_lines={} table_rows={} separators={}",
+            b.tree_lines, b.table_rows, b.separators
+        );
+    }
 }
 
 fn doctor() -> Result<()> {

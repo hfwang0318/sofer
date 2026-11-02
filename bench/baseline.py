@@ -25,7 +25,12 @@ sys.path.insert(0, os.path.join(HERE, "tools"))
 import cer_eval  # noqa: E402
 
 
+CLI_OVERRIDE = None
+
+
 def cli_bin():
+    if CLI_OVERRIDE:
+        return CLI_OVERRIDE
     if os.path.exists(CLI):
         return CLI
     if os.path.exists(CLI_DEBUG):
@@ -109,7 +114,10 @@ def main():
     ap.add_argument("--prompt", default=None, help="prompt for the llamacpp engine")
     ap.add_argument("--scenes", default=None, help="comma separated subset of scenes")
     ap.add_argument("--extra", default=None, help="extra CLI arguments, e.g. --no-trim")
+    ap.add_argument("--cli", default=None, help="override the sofer binary (for before/after runs)")
     args = ap.parse_args()
+    global CLI_OVERRIDE
+    CLI_OVERRIDE = args.cli
     extra = args.extra.split() if args.extra else None
 
     engines = [e.strip() for e in args.engines.split(",") if e.strip()]

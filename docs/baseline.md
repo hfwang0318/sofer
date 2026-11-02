@@ -3,21 +3,22 @@
 > 环境：macOS 27 / Apple M5 / 16GB，`cargo build --release`。
 > 全部数字由 `bench/baseline.py` **调用 CLI** 产生（不是直接调库），命令见文末。
 
-## 1. 语料：26 个场景 / 82 张图
+## 1. 语料：40 个场景 / 125 张图
 
 | 类别 | 场景数 | 说明 |
 |---|---|---|
 | 合成场景（`scenes.py` + `scenes2.py`） | 20 | Menlo 13pt @2x 渲染，逐字符真值 |
 | 极端几何（`scenes3.py`） | 4 | 小图 / 4K / 超宽 / 超窄 |
 | **真机截图**（TextEdit + `screencapture`） | 2 | 非合成，带窗口边框与拼写检查波浪线 |
+| 定向回归（`scenes4.py`） | 14 | 表格 / 树 / 装饰线 / 行号槽。**这是按实现规则写的定向回归集，不是 hold-out** |
 
-真值合计 **367 行 / 23,971 字符**。变体：
+真值合计 **546 行 / 26,935 字符**。变体：
 
 | 变体 | 后缀 | 数量 | 用途 |
 |---|---|---|---|
-| Retina | `@2x.png` | 26 | 主力 |
-| 非 Retina | `@1x.png` | 26 | 缩放 / 非 Retina |
-| JPEG | `@2x.jpg` | 26 | 聊天软件二次压缩（q70） |
+| Retina | `@2x.png` | 40 | 主力 |
+| 非 Retina | `@1x.png` | 40 | 缩放 / 非 Retina |
+| JPEG | `@2x.jpg` | 40 | 聊天软件二次压缩（q70） |
 | 手机拍屏 | `@photo.jpg` | 4 | 缩 82% + 高斯模糊 + 噪声 + q62 |
 
 极端几何场景：
@@ -247,11 +248,166 @@ OvisOCR2 在 26 场景上平均多吐 47% 的行，几乎全是空行（§3.4）
 `MAX_TILE_AREA_PX`，编码器会在内部再降采样一次。当前语料没有触发这个组合，
 加入更大的 1× 4K 场景时需要重新量。
 
-## 6. 复现
+## 6. 版面重建（模型不变，唯像素计算）
+
+这一轮没有换模型、没有改 prompt、没有增加请求次数；提升全部来自"模型给文字、
+像素给结构"的边界内处理。
+
+| 场景 | 改进前 `content_acc` | 改进后 | 主因 |
+|---|---:|---:|---|
+| `ascii-table` | 0.581 | **0.966** | 模型丢掉整行 `┌──┬──┐`，185/441 个字符是框线 |
+| `tree` | 0.767 | **1.000** | `├──` 被写成 `|` 或直接省略 |
+| `real-editor-term` | 0.894 | **0.953** | 10 行 tree 被合并成少数行带 + 树形丢失 |
+| `pytest-traceback` | 0.911 | **0.951** | `====`/`____`/`----` 长度被截短 |
+| 其余 22 个场景 | — | 不变 | — |
+| **26 场景均值** | **0.957** | **0.984** | `text_acc` 0.983→0.987，`box_recall` 0.88→0.99，`rows_ratio` 0.98→1.00 |
+
+五项机制：
+
+1. **规则行带跳过**（`assemble::align_by_width`）：文本行数少于行带数时，
+   `column_runs` 只有一个贯穿全宽 run 的行带视为横线，允许 DP 以近乎零代价
+   跳过。此前规则行会把后面所有行整体错位一行。
+2. **表格框线重建**（`boxdraw::rebuild_rule_rows`）：从检测到的水平/垂直笔画
+   生成 Unicode `┌┬┐├┼┤└┴┘`，只在数据行带与文本行一一对应且连续时插入；
+   规则行带已有文本（引擎/真值自己画了框线）时不动，保证幂等。
+3. **树形重建默认开启**（`boxdraw::rewrite_tree_line`）：分支笔画经 band 中部
+   约束确认后生成 `├──`/`└──`/`│`；已经是正确 Unicode 前缀的行不改写。
+4. **合并行带再分割**（`geom::band_rows_split`）：高度超过中位数 1.5 倍的行带，
+   在其自身墨迹谷值（低于峰值 25% 且连续 ≥2 行）处切分。
+5. **装饰线长度重建**（`assemble::resize_decoration_tokens`）：四个以上同一
+   装饰字符的 token，长度按 `墨迹宽度 / advance` 重算；`--- a/file`（3 个连字符
+   的 diff 头）和 `++++----`（diff stat 混合条）不处理。
+6. **像素行号槽**（`assemble::detect_pixel_gutter`）：模型省略行号时，用固定的
+   窄墨迹 run + 间隔识别行号列，从第二个 run 恢复代码缩进。行号字符本身没有
+   可靠的纯计算来源，仍保持缺失。
+
+边界与风险：
+
+- `--box-art` 默认开启，`--no-box-art` 可关闭。所有重建都以"笔画确认"为前提；
+  mock（输入真值文本）在 26 场景上仍为 1.000，说明幂等。
+- **只在原生分辨率重建**：1× 截图被 2× 放大送模型时，几何仍在原图坐标，代码里的
+  `|` 与分支笔画同宽，笔画检测会误判（`real-editor-code@1x` 0.996 → 0.643）。
+  pipeline 因此在 `transform.scale != 1.0` 时跳过 `boxdraw`。
+- **照片上跳过**：背景噪声（无关像素在众数灰度附近的 σ）> 1.8 视为拍屏，不重建。
+  实测 PNG 截图 0.2、JPEG 重编码 1.1、`@photo` 2.1；跳过前 `git-diff@photo`
+  0.997 → 0.965。
+- 合并行带分割只作用于异常高的行带，普通几何逐项不变。
+- 变体结果：2× 0.957 → **0.984**；1× 0.955 → **0.963**；`@photo` 0.946 → **0.951**。
+- `powerline`（0.915）的私用区分隔符、`editor-rust`（0.934）的行号字符、
+  `ascii-table` 数据行缺失的 15 个 `│`（0.966 的剩余差）属于当前方法不处理的
+  硬缺口，不在本轮目标内。
+
+复现：
 
 ```bash
 cargo build --release
-.venv/bin/python bench/scenes.py && .venv/bin/python bench/scenes2.py && .venv/bin/python bench/scenes3.py
+.venv/bin/python bench/baseline.py --engines mock,llamacpp --variant 2x \
+  --md bench/results/improve-final-2x.md
+```
+
+## 7. 扩展评测与稳定性（v1.3）
+
+2026-11 把语料从 26 个场景扩到 40 个，并新增 `bench/compare.py` 做配对比较。
+新增的 14 个场景（`scenes4.py`）是**定向回归集**：它们按本轮实现支持的形态编写，
+与 Dev-26 共享渲染器和字体，**不是 hold-out**。
+
+### 7.1 分层结果（2× PNG，Q8_0，`temperature=0`）
+
+| 集合 | 场景数 | before | after | Δ | 配对 bootstrap 95% CI | 改善 / 持平 / 回退 | 符号检验 |
+|---|---:|---:|---:|---:|---|---|---:|
+| Dev-26 | 26 | 0.9569 | 0.9845 | **+2.76 pp** | [+0.15, +6.46] pp | 4 / 22 / 0 | p=0.125 |
+| Targeted-14 | 14 | 0.8024 | 0.9031 | **+10.06 pp** | [+3.20, +17.69] pp | 6 / 8 / 0 | p=0.031 |
+| All-40（描述性） | 40 | 0.9028 | 0.9560 | **+5.31 pp** | [+2.15, +9.04] pp | 10 / 30 / 0 | p=0.002 |
+
+Targeted-14 的提升集中在结构场景：`photo-table` +41.0、`deep-tree` +31.5、
+`light-tree` +29.2、`tree-gutter` +23.8、`rules-mixed` +9.8、`tiling-table` +5.6。
+`nested-table`（模型把 9 行表格压成 6 行）、`light-editor`（模型省略行号）、
+`md-doc`（模型把 Markdown 分隔行改成语义写法）与 before 完全相同，属于模型
+能力上限，不是本轮规则能修复的范围。
+
+### 7.2 1× 与 mock
+
+| 检查 | 结果 |
+|---|---|
+| 1× Targeted-14 | 0.8014 → 0.8084（+0.70 pp），1 改善 / 13 持平 / 0 回退。只有不依赖 `boxdraw` 的装饰线重建生效；1× 放大路径按设计跳过笔画重建 |
+| mock 40 场景（喂真值文本） | `content_acc` 1.000，`indent_exact` 1.00，`box_recall` 1.00，说明重建对已正确的文本幂等 |
+| 确定性 | `ascii-table` / `tree` / `yaml-config` / `tiling-table` 各重复 3 次，输出 SHA-256 完全相同 |
+
+### 7.3 模型精度：Q8 vs 桌面默认 Q4_K_M
+
+上面的主结果是 Q8_0。桌面端默认发布的是 Q4_K_M（共用同一个 Q8 mmproj），
+所以又用 Q4 服务（端口 18100）对 8 个关键场景做了 before/after：
+
+| 场景 | before | after | Δ |
+|---|---:|---:|---:|
+| `photo-table` | 0.5300 | 0.9400 | +0.4100 |
+| `ascii-table` | 0.5810 | 0.9660 | +0.3850 |
+| `deep-tree` | 0.6640 | 1.0000 | +0.3360 |
+| `rules-mixed` | 0.7140 | 0.8010 | +0.0870 |
+| `tree` | 0.8690 | 0.9490 | +0.0800 |
+| `real-editor-term` | 0.8940 | 0.9530 | +0.0590 |
+| `tiling-table` | 0.7520 | 0.8080 | +0.0560 |
+| `nested-table` | 0.4780 | 0.4780 | 0 |
+| **均值** | **0.6853** | **0.8619** | **+17.66 pp**（CI [+7.56, +29.40] pp，7 改善 / 0 回退） |
+
+Q4 的起点更低（`tree` 0.869 vs Q8 0.767 的两端都不同），重建后的绝对分也略低
+（`tree` 0.949 vs Q8 1.000），但 **8 个场景 0 回退**。因此 `box-art` 不需要按
+模型精度分别开关；两档默认都开启。
+
+又用桌面端的实际服务参数复跑了一遍：
+`-c 33024 -np 3 -ctk q8_0 -ctv q8_0 -cram 0 --sleep-idle-seconds 300`
+（`jobs=3`、`max_tokens=3072`，即 `total_ctx = 3 × 11008`）。8 个场景的
+`content_acc` 与未开 KV 量化的 Q4 **逐项完全相同**，0 回退。也就是说这批场景
+上 KV q8 没有翻转任何 token；结论不需要限定为“未量化的 Q4”。
+
+### 7.4 本轮发现并修复的两个回归
+
+- `tree-gutter`：行号 + 树形组合时，`rewrite_tree_line` 只检查行首是否有
+  `├──`，没有先把行号拆出来，输出 `├── 3 ├── cli` 的双重前缀。改为先分离
+  行号、右对齐到树列，再生成前缀。mock 从 0.762 回到 1.000。
+- `yaml-config`：行间一个 3×3 px 的孤立墨点被当成行带，导致 13 行文本对应
+  14 个行带，后续所有行整体错位一行。`geom` 现在丢弃高度 <4 px 的行带。
+  mock 从 `indent_exact=0.54` 回到 1.000。
+
+### 7.5 结论边界
+
+- Dev-26 与 Targeted-14 上均**未观察到回退**；定向修复成立。
+- Targeted-14 是定向回归集，**不能**用它声称“对未见文档泛化稳定”。
+- 仍未覆盖的分布外形态：真实拍屏（透视、摩尔纹、反光；现有 `@photo` 是同
+  一张平面渲染的合成退化）、比例字体（HTML/PDF/Office；语料全部是 Menlo
+  等宽）、CJK 表格/树布局、表格拒绝路径（合并单元格、缺行、被裁断）、
+  字体/字号/DPI 变化。
+- 要声称泛化稳定，需冻结 after 二进制后，用独立新场景或新的真机截图再跑
+  一轮，并保持场景与阈值不再改动。
+
+### 7.6 复现
+
+```bash
+# 生成 40 个场景
+.venv/bin/python bench/scenes.py && .venv/bin/python bench/scenes2.py \
+  && .venv/bin/python bench/scenes3.py && .venv/bin/python bench/scenes4.py
+
+# after（当前工作树）与 before（干净 worktree）
+cargo build --release
+git worktree add /tmp/sofer-before 4c1c83e
+cargo build --release --manifest-path /tmp/sofer-before/Cargo.toml
+
+.venv/bin/python bench/baseline.py --engines llamacpp --variant 2x --md /tmp/all-after.md
+.venv/bin/python bench/baseline.py --engines llamacpp --variant 2x \
+  --cli /tmp/sofer-before/target/release/sofer --md /tmp/all-before.md
+
+# 配对比较：分层跑三次
+.venv/bin/python bench/compare.py /tmp/all-before.log /tmp/all-after.log
+```
+
+`baseline.py` 的每行输出是 `scene acc=... indent=... rows=...`，
+`compare.py` 解析两份日志，输出逐场景 Δ、均值差、bootstrap CI 和符号检验。
+
+## 8. 复现
+
+```bash
+cargo build --release
+.venv/bin/python bench/scenes.py && .venv/bin/python bench/scenes2.py && .venv/bin/python bench/scenes3.py && .venv/bin/python bench/scenes4.py
 .venv/bin/python bench/baseline.py --engines mock,tesseract,llamacpp --variant 2x
 .venv/bin/python bench/baseline.py --engines mock,tesseract,llamacpp --variant 1x
 .venv/bin/python bench/baseline.py --engines mock,tesseract,llamacpp --variant 2xjpg
