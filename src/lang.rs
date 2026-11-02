@@ -9,6 +9,13 @@ pub enum Lang {
     Shell,
     Json,
     Go,
+    C,
+    Cpp,
+    Java,
+    Kotlin,
+    Swift,
+    CSharp,
+    Ruby,
     Sql,
     Diff,
     Text,
@@ -24,6 +31,13 @@ impl Lang {
             Lang::Shell => "bash",
             Lang::Json => "json",
             Lang::Go => "go",
+            Lang::C => "c",
+            Lang::Cpp => "cpp",
+            Lang::Java => "java",
+            Lang::Kotlin => "kotlin",
+            Lang::Swift => "swift",
+            Lang::CSharp => "csharp",
+            Lang::Ruby => "ruby",
             Lang::Sql => "sql",
             Lang::Diff => "diff",
             Lang::Text => "text",
@@ -31,6 +45,8 @@ impl Lang {
     }
 }
 
+/// Keywords are already lower-case: `guess` lower-cases the whole capture once,
+/// so re-lower-casing every key on every comparison is wasted work.
 const FN_KEYWORDS: &[(Lang, &[&str])] = &[
     (
         Lang::Rust,
@@ -40,7 +56,7 @@ const FN_KEYWORDS: &[(Lang, &[&str])] = &[
             "impl ",
             "pub fn",
             "use std",
-            "-> Result",
+            "-> result",
             "#[derive",
             "match ",
         ],
@@ -72,11 +88,41 @@ const FN_KEYWORDS: &[(Lang, &[&str])] = &[
             "$ ", "sudo ", "apt ", "brew ", "export ", "#!/bin/", "| grep", "chmod ",
         ],
     ),
-    (Lang::Json, &["\"key\"", "\"name\":", "{ \"", "},\n"]),
+    (Lang::Json, &["\"name\":", "\"version\":", "},\n{", "[\n{"]),
     (Lang::Go, &["func ", "package ", ":=", "fmt.", "goroutine"]),
     (
+        Lang::C,
+        &["#include <", "#include \"", "printf(", "int main("],
+    ),
+    (
+        Lang::Cpp,
+        &["#include <iostream>", "std::", "nullptr", "template<"],
+    ),
+    (
+        Lang::Java,
+        &["public class ", "system.out.", "private ", "@override"],
+    ),
+    (
+        Lang::Kotlin,
+        &["fun main", "val ", "var ", "println(", "data class "],
+    ),
+    (
+        Lang::Swift,
+        &["func ", "guard let", "import foundation", "struct "],
+    ),
+    (
+        Lang::CSharp,
+        &[
+            "namespace ",
+            "public void",
+            "console.writeline",
+            "using system",
+        ],
+    ),
+    (Lang::Ruby, &["def ", "require ", "puts ", "end\n"]),
+    (
         Lang::Sql,
-        &["SELECT ", "FROM ", "WHERE ", "INSERT INTO", "GROUP BY"],
+        &["select ", "from ", "where ", "insert into", "group by"],
     ),
 ];
 
@@ -87,6 +133,27 @@ pub fn guess(text: &str) -> Lang {
         .any(|l| l.starts_with("diff --git ") || l.starts_with("@@ "))
     {
         return Lang::Diff;
+    }
+    // A shebang names its interpreter outright; no keyword counting needed.
+    if let Some(first) = text.lines().next() {
+        if let Some(rest) = first.trim_start().strip_prefix("#!") {
+            let rest = rest.to_lowercase();
+            if rest.contains("python") {
+                return Lang::Python;
+            }
+            if rest.contains("node") {
+                return Lang::JavaScript;
+            }
+            if rest.contains("ruby") {
+                return Lang::Ruby;
+            }
+            if ["sh", "bash", "zsh", "fish"]
+                .iter()
+                .any(|s| rest.contains(s))
+            {
+                return Lang::Shell;
+            }
+        }
     }
     // A captured *terminal session* is shell output even if it happens to contain
     // python keywords (tracebacks, `def` in a stack frame, ...).
@@ -99,7 +166,7 @@ pub fn guess(text: &str) -> Lang {
     for (lang, keys) in FN_KEYWORDS {
         let mut score = 0;
         for k in *keys {
-            score += lower.matches(&k.to_lowercase()).count();
+            score += lower.matches(k).count();
         }
         if score > best.1 {
             best = (*lang, score);
@@ -132,6 +199,21 @@ mod tests {
         assert_eq!(
             guess("~/proj $ pytest -q\n    def test_x():\n"),
             Lang::Shell
+        );
+    }
+
+    #[test]
+    fn a_shebang_names_the_interpreter() {
+        assert_eq!(guess("#!/usr/bin/env python3\nprint(1)"), Lang::Python);
+        assert_eq!(guess("#!/bin/bash\nset -e"), Lang::Shell);
+    }
+
+    #[test]
+    fn detects_c_and_cpp() {
+        assert_eq!(guess("#include <stdio.h>\nint main(void) {"), Lang::C);
+        assert_eq!(
+            guess("#include <iostream>\nstd::string s = nullptr;"),
+            Lang::Cpp
         );
     }
 

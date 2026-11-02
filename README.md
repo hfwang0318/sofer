@@ -54,7 +54,7 @@
 
 ```bash
 cargo build --release        # 产物 target/release/sofer（约 4 MB）
-cargo test                   # 53 单元 + 24 集成（golden / boxdraw / CLI 输入）
+cargo test                   # 71 单元 + 25 集成（golden / boxdraw / CLI 输入）
 ```
 
 ### 2.2 启动主力引擎（llama.cpp + GLM-OCR）
@@ -145,7 +145,7 @@ sofer ocr <IMAGES>... [OPTIONS]
 |---|---|---|
 | `--no-geometry` | 关 | 关掉缩进重建（调试用：看引擎原样输出） |
 | `--join-wrap` | 关 | 合并终端软换行（启发式，像素上无法可靠区分，误合并会毁行结构） |
-| `--keep-gutter` | 关 | 不自动识别行号槽（默认识别到就改用模型自己的空格） |
+| `--keep-gutter` | 关 | 不自动识别行号槽（默认识别到就用像素定位行号后的代码列） |
 | `--box-art` | 关 | 从像素重建 `├──`/`└──`/`│` 与表格框线；只替换行首装饰，行数不变 |
 
 **输出**
@@ -220,16 +220,19 @@ src
                                    │
                    切块（超预算时）─┤
                                    ▼
-              组装（配对 / 行号槽 / 软换行）─► 修复（破折号 / 引号 / 全角）─► 输出（text / md / json）
+              清洗（围栏剥离 / 复读折叠 / 破折号 / 引号 / 全角）
+                                   │
+              组装（配对 / 行号槽 / 空行重建 / 像素列距 / 缩进吸附 / 软换行）─► 输出（text / md / json）
 ```
 
 | 模块 | 职责 |
 |---|---|
-| `src/geom.rs` | 极性无关 ink mask、行投影切带、每带 x0/x1、格点拟合 advance |
+| `src/geom.rs` | 极性无关 ink mask、行投影切带、每带 x0/x1、格点拟合 advance、每带列段 |
 | `src/tile.rs` | 按输出预算切块、按行带序号拼接、自适应重试的判定 |
-| `src/assemble.rs` | 文本行 ↔ 行带配对（空白行不占带）、宽度对齐（DP）、行号槽、bbox 列距、软换行 |
-| `src/repair.rs` | `—`→`-`、智能引号、**上下文感知**的全角折叠（代码里折、中文里不折） |
-| `src/lang.rs` | 围栏语言猜测（终端会话优先判为 shell） |
+| `src/assemble.rs` | 文本行 ↔ 行带配对（空白行不占带）、宽度对齐（DP）、行号槽（用像素定位代码列）、按行距重建空行、像素列距、缩进吸附、bbox 列距、软换行 |
+| `src/repair.rs` | 文档分类（代码/diff/终端/表格/散文）、围栏剥离、复读折叠、`—`→`-`（diff 中还原 `--`）、智能引号、**上下文感知**的全角折叠（代码里折、中文里不折） |
+| `src/text.rs` | 终端列宽：CJK/全角记 2、零宽记 0，几何与文本宽度比较共用同一单位 |
+| `src/lang.rs` | 围栏语言猜测（shebang、终端会话优先判为 shell） |
 | `src/render.rs` | text / markdown / json |
 | `src/pipeline.rs` | 可复用管线（配置 → 引擎 → 切块/重试 → 组装），CLI 与桌面壳共用 |
 | `src/engine/` | `llamacpp`（主力）、`tesseract`（兜底）、`mock`（测试） |
@@ -305,7 +308,7 @@ tesseract 是纯 CPU，可以直接开到核数。4K 那张只有 1.5× 提升�
 ## 6. 测试与基线
 
 ```bash
-cargo test                        # 53 单元 + 24 集成
+cargo test                        # 71 单元 + 25 集成
 python3 bench/scenes.py           # 20 个合成场景
 python3 bench/scenes2.py          # 复杂场景（双栏、图标、嵌套 diff…）
 python3 bench/scenes3.py          # 极端几何（小图 / 4K / 19:1 / 1:11）
@@ -352,7 +355,7 @@ standby list，和 macOS 的 mapped file 等价。结论一致：**不要指望�
 
 1. **框线字符**：GLM 不输出 box-drawing（`box_recall = 0`），但 `text_acc` 仍在 0.92–1.00——字全对，框线全丢。`--box-art` 能从像素恢复 `tree`/表格线，但它依赖直线检测，默认关闭；合并单元格和模型丢失左偏移时只能部分恢复。
 2. **软换行默认关闭**：像素层面无法区分"长命令恰好顶到右边距"和"真的被换行"（`tree` 是反例）。
-3. **行号槽场景放弃几何**：`editor-rust` 每行 x0 都在第 0 列，几何无效，改用模型自己的空格。
+3. **行号槽场景仍依赖模型识别行号**：行号列会把每行 x0 拉到同一位置，几何改为在行带内部找第二个墨迹段来定位代码列；行号本身的文本仍来自模型。
 4. **Windows 覆盖面**：桌面端已在实际 Windows 机器上验证安装、模型下载/启动和自动更新；CLI、多显示器/高 DPI 和不同 GPU 驱动仍需更多覆盖。
 5. **评测集以合成图为主**：26 个场景里只有 2 张是真的截图（TextEdit + `screencapture`）。
 6. **Windows 自绘选区**：一次只抓鼠标所在显示器，不支持跨屏拖选；GDI 对受保护内容/HDR/部分硬件加速窗口可能拿到黑帧。

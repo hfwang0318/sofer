@@ -162,6 +162,7 @@ impl Config {
             join_wrap: self.join_wrap,
             strip_gutter: !self.keep_gutter,
             no_geometry: self.no_geometry,
+            snap_indent: false,
         }
     }
 }
@@ -178,10 +179,22 @@ pub struct Trace {
     pub tiling: Option<TilingTrace>,
     pub retry: Option<RetryTrace>,
     pub geometry: GeometryTrace,
+    pub clean: CleanTrace,
     /// output rows vs. row bands; `false` means the reply looked truncated
     pub consistent: bool,
     pub rows: usize,
     pub bands: usize,
+}
+
+/// What the engine-boundary cleanup changed before assembly.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanTrace {
+    /// language tag of a Markdown fence the whole reply was wrapped in
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fence: Option<String>,
+    /// identical lines collapsed from a runaway reply
+    pub deduped_rows: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -212,6 +225,9 @@ pub struct GeometryTrace {
     pub advance: f32,
     pub gutter: bool,
     pub joined_wraps: usize,
+    pub rebuilt_blanks: usize,
+    pub snapped_indents: usize,
+    pub suspicious_rows: usize,
 }
 
 /// A recognised document plus the decisions that produced it.
@@ -352,7 +368,7 @@ fn retry_if_truncated(
 /// one-shot and streaming paths so both produce identical output for the same
 /// text.
 fn finish(
-    out: EngineOutput,
+    mut out: EngineOutput,
     used: Option<tile::Plan>,
     retry_trace: Option<RetryTrace>,
     luma: &image::GrayImage,
@@ -367,9 +383,35 @@ fn finish(
         reason: p.reason.to_string(),
     });
 
+    // Clean at the engine boundary, before geometry sees the text:
+    //  * a Markdown fence the model wrapped the reply in would otherwise become
+    //    two content lines (and a second fence when rendering Markdown);
+    //  * zero-width marks and full-width twins change the text width per
+    //    character while the ink stays the same, which biases every width
+    //    comparison in `assemble`.
+    let fence_lang = repair::strip_fence(&mut out.lines);
+    // Only a reply that overshoots the image's row count is checked for
+    // repetition: two identical log lines are content, a runaway is not.
+    let deduped =
+        if geom.bands.is_empty() || (out.lines.len() as f32) <= geom.bands.len() as f32 * 1.5 {
+            0
+        } else {
+            repair::dedup_repeated(&mut out.lines)
+        };
+    repair::normalize_raw(&mut out.lines);
+
     let consistent = tile::looks_consistent(out.lines.len(), &geom.bands);
-    let (mut lines, stats) = assemble(&out.lines, geom, &cfg.opts());
-    repair::normalize(&mut lines);
+    let kind = repair::Kind::of(
+        &out.lines
+            .iter()
+            .map(|l| l.text.as_str())
+            .collect::<Vec<_>>(),
+    );
+    let mut opts = cfg.opts();
+    // Indent snapping assumes the document *has* an indent unit; compiler and
+    // terminal output decorates with arbitrary offsets instead.
+    opts.snap_indent = kind == repair::Kind::Code;
+    let (mut lines, stats) = assemble(&out.lines, geom, &opts);
     if cfg.box_art {
         boxdraw::apply(luma, geom, stats.advance, &mut lines);
     }
@@ -380,7 +422,11 @@ fn finish(
         .join("\n");
     let language = match cfg.language.as_deref() {
         Some(l) => Some(l.to_string()),
-        None => Some(lang::guess(&text).fence().to_string()),
+        // The model's own fence tag is a stronger signal than keyword counting.
+        None => fence_lang
+            .clone()
+            .filter(|l| !l.is_empty())
+            .or_else(|| Some(lang::guess(&text).fence().to_string())),
     };
     let document = Document {
         engine: out.engine,
@@ -397,6 +443,10 @@ fn finish(
             out.lines.len(),
             geom,
             &stats,
+            CleanTrace {
+                fence: fence_lang,
+                deduped_rows: deduped,
+            },
             tiling,
             retry_trace,
             consistent,
@@ -409,6 +459,7 @@ fn trace(
     rows: usize,
     geom: &geom::Geometry,
     stats: &AssembleStats,
+    clean: CleanTrace,
     tiling: Option<TilingTrace>,
     retry: Option<RetryTrace>,
     consistent: bool,
@@ -423,7 +474,11 @@ fn trace(
             advance: stats.advance,
             gutter: stats.gutter,
             joined_wraps: stats.joined_wraps,
+            rebuilt_blanks: stats.rebuilt_blanks,
+            snapped_indents: stats.snapped_indents,
+            suspicious_rows: stats.suspicious_rows,
         },
+        clean,
         consistent,
         rows,
         bands: geom.bands.len(),

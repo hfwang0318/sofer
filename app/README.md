@@ -475,7 +475,7 @@ Windows 自绘浮层和 GDI 抓屏已发布，并在实际 Windows 机器上验�
 ## 8. 验证状态（2026-10-31）
 
 ```bash
-cargo test                       # 根 crate: 53 unit + 24 integration（golden / boxdraw / CLI 输入）
+cargo test                       # 根 crate: 71 unit + 25 integration（golden / boxdraw / CLI 输入）
 cd app/src-tauri && cargo test   # 桌面层: 75 tests（manifest/校验/断点续传/设置/快捷键/截图判空/远程部署/历史/快速预览/弹窗定位/原生圆角）
 cd app && pnpm test:run          # 前端: 81 tests
 cd app && pnpm e2e               # 浏览器预览: 8 cases

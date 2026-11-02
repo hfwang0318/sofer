@@ -11,6 +11,7 @@
 
 use crate::engine::RawLine;
 use crate::geom::{fit_advance, Geometry};
+use crate::text::display_width;
 use crate::Line;
 
 #[derive(Debug, Clone)]
@@ -21,6 +22,10 @@ pub struct Opts {
     pub strip_gutter: bool,
     /// disable geometry entirely (debug: what the engine actually said)
     pub no_geometry: bool,
+    /// snap indentation to the document's indent unit. Only safe for code: a
+    /// compiler's or a terminal's decoration uses arbitrary offsets, and
+    /// "2 is one column off 3" is not evidence that it meant 3.
+    pub snap_indent: bool,
 }
 
 impl Default for Opts {
@@ -32,6 +37,7 @@ impl Default for Opts {
             join_wrap: false,
             strip_gutter: true,
             no_geometry: false,
+            snap_indent: false,
         }
     }
 }
@@ -44,6 +50,13 @@ pub struct AssembleStats {
     pub advance: f32,
     pub gutter: bool,
     pub joined_wraps: usize,
+    /// blank lines inserted from band spacing (model newlines are discarded)
+    pub rebuilt_blanks: usize,
+    /// indentation values snapped to the document's indent unit
+    pub snapped_indents: usize,
+    /// rows whose text width disagrees with their ink width by more than half
+    /// a row: a dropped or duplicated token, not a spacing estimate
+    pub suspicious_rows: usize,
 }
 
 pub fn assemble(lines: &[RawLine], geom: &Geometry, opts: &Opts) -> (Vec<Line>, AssembleStats) {
@@ -83,6 +96,9 @@ pub fn assemble(lines: &[RawLine], geom: &Geometry, opts: &Opts) -> (Vec<Line>, 
                 advance: 0.0,
                 gutter: false,
                 joined_wraps: 0,
+                rebuilt_blanks: 0,
+                snapped_indents: 0,
+                suspicious_rows: 0,
             },
         );
     }
@@ -142,7 +158,7 @@ fn assemble_with_boxes(
     let ratios: Vec<f32> = texts
         .iter()
         .filter(|l| l.text.trim().len() >= 10)
-        .map(|l| l.bbox.unwrap().width() / l.text.trim().chars().count() as f32)
+        .map(|l| l.bbox.unwrap().width() / display_width(l.text.trim()).max(1) as f32)
         .filter(|r| *r > 0.5)
         .collect();
     let typo = geom.advance_prior();
@@ -162,8 +178,8 @@ fn assemble_with_boxes(
         for l in &sorted {
             let b = l.bbox.unwrap();
             let col = (((b.x0 - geom.left) / adv).round().max(0.0)) as usize;
-            if s.chars().count() < col {
-                let pad = col - s.chars().count();
+            if display_width(&s) < col {
+                let pad = col - display_width(&s);
                 s.push_str(&" ".repeat(pad));
             } else if !s.is_empty() && !s.ends_with(' ') {
                 s.push(' ');
@@ -197,6 +213,9 @@ fn assemble_with_boxes(
             advance: adv,
             gutter: false,
             joined_wraps: joined,
+            rebuilt_blanks: 0,
+            snapped_indents: 0,
+            suspicious_rows: 0,
         },
     )
 }
@@ -254,36 +273,155 @@ fn assemble_with_bands(
         }
     }
 
-    let pairs: Vec<(&RawLine, f32)> = texts
-        .iter()
-        .map(|l| {
-            let n = l.text.trim().chars().count();
-            (*l, n as f32)
-        })
-        .collect();
-
-    let mut out: Vec<Line> = Vec::new();
-    for (ti, l) in pairs.iter().enumerate() {
-        let text = l.0.text.trim_end().to_string();
-        let (indent, x0) = if gutter {
-            (leading_spaces(&text) as u32, None)
-        } else {
-            match map.as_ref().and_then(|m| m.iter().find(|(t, _)| *t == ti)) {
-                Some((_, bi)) => {
-                    let b = geom.bands[*bi];
-                    let col = (((b.x0 - geom.left) / adv).round().max(0.0)) as u32;
-                    (col, Some(b.x0))
+    // A gutter pushes every row's left edge to the same x, so `band.x0` stops
+    // saying anything about indentation. The code column is still in the pixels
+    // though: it is the second ink run inside the band, after the line number.
+    // Measure the advance from the code area itself — the lattice fit above saw
+    // only the gutter column, which would bias every indent by its error.
+    let gutter_measure: Vec<Option<(f32, usize, usize)>> = if gutter
+        && nonblank.len() == geom.bands.len()
+        && geom.column_runs.len() == geom.bands.len()
+    {
+        nonblank
+            .iter()
+            .enumerate()
+            .map(|(pos, &ti)| {
+                let runs = geom.column_runs.get(pos)?;
+                let code_start = runs.get(1)?.0 as f32;
+                let (_, _, raw) = split_gutter_row(&texts[ti].text)?;
+                Some((code_start, display_width(raw.trim()), leading_spaces(raw)))
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    if !gutter_measure.is_empty() {
+        let r: Vec<f32> = gutter_measure
+            .iter()
+            .enumerate()
+            .filter_map(|(pos, m)| {
+                let (code_start, chars, _) = m.as_ref()?;
+                if *chars < 10 {
+                    return None;
                 }
-                None => (leading_spaces(&text) as u32, None),
+                let w = geom.bands[pos].x1 - code_start;
+                (w > 0.0).then_some(w / *chars as f32)
+            })
+            .collect();
+        if !r.is_empty() {
+            adv = estimate_advance(&r, &offsets, typo);
+        }
+    }
+    // Where indentation 0 lives: the median of `code_start - model_indent *
+    // advance`, so one badly-indented row cannot move the origin, and the
+    // origin still exists when no row happens to sit at column 0. Note this is
+    // measured from the first *code* glyph, not from `geom.left`: a sidebar or
+    // selection border can be the leftmost ink in the image.
+    let code_left = {
+        let cands: Vec<f32> = gutter_measure
+            .iter()
+            .filter_map(|m| {
+                let (start, _, model_indent) = m.as_ref()?;
+                Some(*start - *model_indent as f32 * adv)
+            })
+            .collect();
+        median(&cands).unwrap_or(0.0)
+    };
+    let mut gutter_cols = vec![None; texts.len()];
+    for (pos, &ti) in nonblank.iter().enumerate() {
+        if let Some((code_start, _, _)) = gutter_measure.get(pos).and_then(|m| m.as_ref()) {
+            gutter_cols[ti] = Some((((*code_start - code_left) / adv).round().max(0.0)) as usize);
+        }
+    }
+    let pixel_runs = !gutter && geom.column_runs.len() == geom.bands.len();
+
+    // Each row remembers the band it was matched to: that is what lets blank
+    // lines be rebuilt from vertical geometry instead of trusting the model's
+    // newlines (models both invent and drop them).
+    let mut rows: Vec<(Line, Option<usize>)> = Vec::new();
+    let mut suspicious_rows = 0usize;
+    // When the reply and the image agree on row count, a blank text row owns
+    // the band at its own position. That matters for editors: an empty line
+    // still draws its line number, so it *has* ink and a band, and dropping it
+    // would delete a row the image clearly shows.
+    let positional = texts.len() == geom.bands.len();
+    for (ti, l) in texts.iter().enumerate() {
+        let text = l.text.trim_end().to_string();
+        let mapped = map
+            .as_ref()
+            .and_then(|m| m.iter().find(|(t, _)| *t == ti))
+            .map(|(_, bi)| *bi);
+        let band = if positional {
+            // One reply row per image row: position is the strongest match.
+            Some(ti)
+        } else if let Some(bi) = mapped {
+            Some(bi)
+        } else if gutter && nonblank.len() == geom.bands.len() {
+            // Every non-blank row still owns one band, in order.
+            nonblank.binary_search(&ti).ok()
+        } else {
+            None
+        };
+        let (indent, x0, body) = if gutter {
+            match gutter_cols.get(ti).copied().flatten() {
+                Some(col) => (
+                    leading_spaces(&text) as u32,
+                    None,
+                    rebuild_gutter_text(&text, col),
+                ),
+                None => (
+                    leading_spaces(&text) as u32,
+                    None,
+                    text.trim_start().to_string(),
+                ),
+            }
+        } else {
+            match band {
+                Some(bi) => {
+                    let b = geom.bands[bi];
+                    let col = (((b.x0 - geom.left) / adv).round().max(0.0)) as u32;
+                    // A row whose glyph count implies a very different width
+                    // from its ink is a dropped or duplicated token, not a
+                    // spacing estimate. Only a signal; the text is left alone.
+                    let actual = (b.x1 - b.x0).max(1.0);
+                    let expected = display_width(text.trim()) as f32 * adv;
+                    if actual > adv * 2.0 && (expected - actual).abs() > actual * 0.5 {
+                        suspicious_rows += 1;
+                    }
+                    let mut body = text.trim_start().to_string();
+                    if pixel_runs {
+                        if let Some(runs) = geom.column_runs.get(bi) {
+                            if let Some(respaced) = respace_with_pixels(&body, runs, adv) {
+                                body = respaced;
+                            }
+                        }
+                    }
+                    (col, Some(b.x0), body)
+                }
+                None => (
+                    leading_spaces(&text) as u32,
+                    None,
+                    text.trim_start().to_string(),
+                ),
             }
         };
-        out.push(Line {
-            text: text.trim_start().to_string(),
-            indent,
-            conf: l.0.conf,
-            x0,
-        });
+        rows.push((
+            Line {
+                text: body,
+                indent,
+                conf: l.conf,
+                x0,
+            },
+            band,
+        ));
     }
+
+    let (mut out, rebuilt_blanks) = rebuild_blanks(rows, geom);
+    let snapped = if opts.snap_indent {
+        snap_indents(&mut out)
+    } else {
+        0
+    };
 
     let joined = if opts.join_wrap && !gutter {
         join_soft_wraps(&mut out, geom, adv)
@@ -299,8 +437,161 @@ fn assemble_with_bands(
             advance: adv,
             gutter,
             joined_wraps: joined,
+            rebuilt_blanks,
+            snapped_indents: snapped,
+            suspicious_rows,
         },
     )
+}
+
+/// Rebuild blank lines from vertical band spacing.
+///
+/// The model's own blank lines are discarded when every row carries a band:
+/// they are a guess about structure the image already states exactly. A pair of
+/// rows one line-pitch apart is contiguous; a larger gap contributes
+/// `round(gap / pitch) - 1` blanks. When the text/band pairing is incomplete
+/// (a tiled or heavily edited reply), the model's newlines are the only
+/// evidence left, so they are kept untouched.
+fn rebuild_blanks(rows: Vec<(Line, Option<usize>)>, geom: &Geometry) -> (Vec<Line>, usize) {
+    let complete = rows
+        .iter()
+        .all(|(l, b)| l.text.trim().is_empty() || b.is_some());
+    // If the image has fewer bands than the reply has non-blank rows, the band
+    // detector missed rows (a sparse marker line, a merged pair). Vertical
+    // spacing then says nothing about where blanks belong, so the model's own
+    // newlines are the better evidence.
+    let text_rows = rows
+        .iter()
+        .filter(|(l, _)| !l.text.trim().is_empty())
+        .count();
+    if !complete || geom.bands.len() < text_rows {
+        return (rows.into_iter().map(|(l, _)| l).collect(), 0);
+    }
+    let pitch = band_pitch(geom);
+    if pitch <= 0.0 {
+        return (rows.into_iter().map(|(l, _)| l).collect(), 0);
+    }
+
+    let mut out: Vec<Line> = Vec::with_capacity(rows.len());
+    let mut prev: Option<usize> = None;
+    let mut rebuilt = 0;
+    for (line, band) in rows {
+        let is_blank = line.text.trim().is_empty();
+        // A blank with no band is one the model invented.
+        let Some(b) = band else { continue };
+        if let Some(p) = prev {
+            if b > p && b < geom.bands.len() && p < geom.bands.len() {
+                // Band centres, not tops: a row with a descender or a bracket
+                // reaches higher than its neighbours and would inflate a
+                // top-to-top distance into a phantom blank line.
+                let gap = band_center(&geom.bands[b]) - band_center(&geom.bands[p]);
+                // Subtract the bands themselves: when one visual row was split
+                // into two bands, the span is 2 but the gap is one line and
+                // there is no blank between the rows.
+                let span = (b - p) as f32;
+                // More than three consecutive blanks is a layout artifact (a
+                // section rule, a floating window), not text structure.
+                let blanks = ((gap / pitch).round() - span).clamp(0.0, 3.0) as usize;
+                // A blank row that owns a band (an editor still draws its line
+                // number) is one of those blanks, not an extra one.
+                let extra = blanks.saturating_sub(usize::from(is_blank));
+                for _ in 0..extra {
+                    out.push(Line {
+                        text: String::new(),
+                        indent: 0,
+                        conf: None,
+                        x0: None,
+                    });
+                    rebuilt += 1;
+                }
+            }
+        }
+        out.push(line);
+        prev = Some(b);
+    }
+    (out, rebuilt)
+}
+
+fn band_center(b: &crate::geom::Band) -> f32 {
+    (b.y0 + b.y1) * 0.5
+}
+
+/// Line pitch in px: the distance between adjacent band centres.
+///
+/// Paragraph gaps are *larger* than one line, never smaller, so the pitch is
+/// estimated from the bottom of the distribution (25th percentile) and then
+/// refined over the values close to it. A median would be dragged upward on a
+/// screen where half the rows are separated by a blank line.
+fn band_pitch(geom: &Geometry) -> f32 {
+    let mut diffs: Vec<f32> = geom
+        .bands
+        .windows(2)
+        .map(|w| band_center(&w[1]) - band_center(&w[0]))
+        .filter(|d| *d > 0.0)
+        .collect();
+    if diffs.is_empty() {
+        return 0.0;
+    }
+    diffs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let q = diffs[diffs.len() / 4];
+    if q <= 0.0 {
+        return 0.0;
+    }
+    let med = q;
+    let tight: Vec<f32> = diffs.iter().copied().filter(|d| *d <= med * 1.5).collect();
+    median(&tight).unwrap_or(med)
+}
+
+/// Snap indentation to the document's own indent unit.
+///
+/// `indent = round((x0 - left) / advance)` is one pixel-estimate away from
+/// flipping by a cell. When the document has a dominant indent unit (2, 3, 4 or
+/// 8 columns), a value within one column of a multiple is almost certainly that
+/// multiple. Only applied when the unit is well represented, so prose and
+/// hand-aligned tables keep their exact offsets.
+fn snap_indents(lines: &mut [Line]) -> usize {
+    // Diff hunks indent by "prefix width + code indent" (`+ ` + 4 = 5), which is
+    // not a multiple of the indent unit. Snapping there rewrites real offsets.
+    if lines.iter().any(|l| {
+        let t = l.text.trim_start();
+        t.starts_with("diff --git ")
+            || t.starts_with("@@ ")
+            || t.starts_with("+++ ")
+            || t.starts_with("--- ")
+    }) {
+        return 0;
+    }
+    let indents: Vec<usize> = lines
+        .iter()
+        .filter(|l| l.indent > 0)
+        .map(|l| l.indent as usize)
+        .collect();
+    if indents.len() < 4 {
+        return 0;
+    }
+    let mut counts: Vec<(usize, usize)> = Vec::new();
+    for &i in &indents {
+        match counts.iter_mut().find(|(v, _)| *v == i) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((i, 1)),
+        }
+    }
+    let Some((unit, hits)) = counts.into_iter().max_by_key(|(_, n)| *n) else {
+        return 0;
+    };
+    if !matches!(unit, 2 | 3 | 4 | 8) || hits * 100 < indents.len() * 40 {
+        return 0;
+    }
+    let mut snapped = 0;
+    for l in lines.iter_mut() {
+        let i = l.indent as i64;
+        let target = ((i as f64) / unit as f64).round() as i64 * unit as i64;
+        if target != i && (target - i).abs() <= 1 && target > 0 {
+            l.indent = target as u32;
+            snapped += 1;
+        }
+    }
+    snapped
 }
 
 /// Map text-line index -> band index, ignoring blank text lines (they occupy no
@@ -341,7 +632,7 @@ fn ratios_for(
     let mut out = Vec::new();
     for &ti in nonblank {
         let t = texts[ti].text.trim();
-        let n = t.chars().count();
+        let n = display_width(t);
         if n < 10 {
             continue;
         }
@@ -380,7 +671,7 @@ fn align_by_width(
         return Some(nonblank.iter().enumerate().map(|(i, &t)| (t, i)).collect());
     }
     const SKIP: f32 = 0.05; // tiny penalty so 1:1 wins when widths are ambiguous
-    let exp = |i: usize| texts[nonblank[i]].text.trim().chars().count() as f32 * adv;
+    let exp = |i: usize| display_width(texts[nonblank[i]].text.trim()) as f32 * adv;
     let bw = |j: usize| (bands[j].x1 - bands[j].x0).max(1.0);
     let mut cost = vec![f32::MAX; (m + 1) * (n + 1)];
     let mut from = vec![(0u8, 0u8); (m + 1) * (n + 1)];
@@ -444,6 +735,86 @@ fn align_by_width(
     Some(pairs)
 }
 
+/// Split `  5 │ code` into (number, separator, code).
+///
+/// The code keeps no leading spaces: its column is recovered from pixels, not
+/// from the model's spacing.
+fn split_gutter_row(text: &str) -> Option<(&str, char, &str)> {
+    let t = text.trim_start();
+    let digits = t.chars().take_while(|c| c.is_ascii_digit()).count();
+    if digits == 0 || digits > 6 {
+        return None;
+    }
+    let rest = &t[digits..];
+    let sep = rest
+        .chars()
+        .next()
+        .filter(|c| *c == ' ' || *c == '\u{2502}' || *c == '|')?;
+    let code = &rest[sep.len_utf8()..];
+    if code.trim().is_empty() {
+        return None;
+    }
+    Some((&t[..digits], sep, code))
+}
+
+/// Rebuild a gutter row so the code carries `code_indent` at its new column.
+///
+/// The line number and its separator are kept verbatim; only the whitespace
+/// between the separator and the code is re-derived, which is what makes a
+/// gutter whose width changes (9 → 10 → 100) stop shifting the code.
+fn rebuild_gutter_text(text: &str, code_indent: usize) -> String {
+    let Some((digits, sep, raw)) = split_gutter_row(text) else {
+        return text.trim_start().trim_end().to_string();
+    };
+    // The separator itself occupies one column, so it is not part of `code_indent`.
+    format!(
+        "{}{}{}{}",
+        digits,
+        sep,
+        " ".repeat(code_indent),
+        raw.trim_start()
+    )
+}
+
+/// Rebuild the spaces between tokens from pixel column gaps.
+///
+/// Only widens a gap: the model's own spacing is kept when the pixels do not
+/// show more, so a token that is merely split differently is never rewritten.
+/// Requires an exact token/run correspondence; anything else is left alone.
+fn respace_with_pixels(text: &str, runs: &[(u32, u32)], adv: f32) -> Option<String> {
+    if adv <= 0.0 || text.is_empty() {
+        return None;
+    }
+    let mut tokens: Vec<&str> = Vec::new();
+    let mut gaps: Vec<usize> = Vec::new();
+    let mut spaces = 0usize;
+    for part in text.split(' ') {
+        if part.is_empty() {
+            spaces += 1;
+            continue;
+        }
+        if !tokens.is_empty() {
+            gaps.push(spaces + 1);
+        }
+        tokens.push(part);
+        spaces = 0;
+    }
+    if tokens.len() < 2 || tokens.len() != runs.len() {
+        return None;
+    }
+    let mut out = String::with_capacity(text.len() + 8);
+    out.push_str(tokens[0]);
+    for i in 1..tokens.len() {
+        // Floor, not round: a single space is already wider than one cell
+        // because of the glyph side bearings at both ends of the gap.
+        let gap = (runs[i].0 as f32 - runs[i - 1].1 as f32).max(0.0);
+        let cols = (gap / adv).floor().max(1.0) as usize;
+        out.push_str(&" ".repeat(cols.max(gaps[i - 1])));
+        out.push_str(tokens[i]);
+    }
+    Some(out)
+}
+
 /// Line-number gutters make x0 identical on every row, so geometry stops telling
 /// us anything about indentation. Detect them and fall back to the model's own
 /// spacing (see docs §4.6, the single failing case).
@@ -480,7 +851,7 @@ fn join_soft_wraps(out: &mut Vec<Line>, geom: &Geometry, adv: f32) -> usize {
         // a wrap: current row reaches the right margin, next row starts at the left
         let reaches_right = out[i]
             .x0
-            .map(|x| x + adv * out[i].text.chars().count() as f32 >= edge)
+            .map(|x| x + adv * display_width(&out[i].text) as f32 >= edge)
             .unwrap_or(false);
         let next_left = out[i + 1].indent == 0;
         if reaches_right && next_left && !out[i + 1].text.trim().is_empty() {
@@ -537,6 +908,7 @@ mod tests {
             right: bands.iter().map(|b| b.3).fold(0.0, f32::max),
             // ink height 26.7 -> typography prior 16.0 px per cell
             line_height: 26.7,
+            column_runs: Vec::new(),
         }
     }
 
@@ -628,6 +1000,84 @@ mod tests {
         // all four lines survive; the split pair shares the middle band
         assert!(texts[0].starts_with("aaaa"));
         assert!(texts[3].starts_with("dddd"));
+    }
+
+    fn line(text: &str) -> Line {
+        Line {
+            text: text.into(),
+            indent: 0,
+            conf: None,
+            x0: None,
+        }
+    }
+
+    #[test]
+    fn blank_lines_are_rebuilt_from_band_spacing() {
+        // centres at 10, 30, 90: the last row is three pitches down -> 2 blanks
+        let geom = geom_with(&[
+            (0.0, 20.0, 10.0, 100.0),
+            (20.0, 40.0, 10.0, 100.0),
+            (80.0, 100.0, 10.0, 100.0),
+        ]);
+        let rows = vec![
+            (line("a"), Some(0)),
+            (line(""), None), // the model invented this blank
+            (line("b"), Some(1)),
+            (line("c"), Some(2)),
+        ];
+        let (out, rebuilt) = rebuild_blanks(rows, &geom);
+        let texts: Vec<&str> = out.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(texts, vec!["a", "b", "", "", "c"]);
+        assert_eq!(rebuilt, 2);
+    }
+
+    #[test]
+    fn model_blank_lines_are_dropped_when_geometry_has_none() {
+        let geom = geom_with(&[(0.0, 20.0, 10.0, 100.0), (20.0, 40.0, 10.0, 100.0)]);
+        let rows = vec![
+            (line("a"), Some(0)),
+            (line(""), None),
+            (line(""), None),
+            (line("b"), Some(1)),
+        ];
+        let (out, rebuilt) = rebuild_blanks(rows, &geom);
+        assert_eq!(out.len(), 2);
+        assert_eq!(rebuilt, 0);
+    }
+
+    #[test]
+    fn blanks_fall_back_to_the_model_when_bands_are_missing() {
+        // 2 bands for 3 text rows: the band detector missed a row, so vertical
+        // spacing cannot be trusted and the model's newlines must survive
+        let geom = geom_with(&[(0.0, 20.0, 10.0, 100.0), (40.0, 60.0, 10.0, 100.0)]);
+        let rows = vec![
+            (line("a"), Some(0)),
+            (line(""), None),
+            (line("b"), Some(1)),
+            (line("c"), Some(1)),
+        ];
+        let (out, rebuilt) = rebuild_blanks(rows, &geom);
+        assert_eq!(out.len(), 4);
+        assert_eq!(rebuilt, 0);
+    }
+
+    #[test]
+    fn gutter_text_keeps_the_code_indent_when_the_number_widens() {
+        // five spaces before the code in both rows: the number's width must not
+        // change the logical indentation
+        assert_eq!(rebuild_gutter_text("  8     foo", 4), "8     foo");
+        assert_eq!(rebuild_gutter_text(" 10     bar", 4), "10     bar");
+    }
+
+    #[test]
+    fn pixel_gaps_restore_spaces_the_model_collapsed() {
+        let runs = vec![(0, 16), (48, 64)]; // 32 px gap = 2 cells at 16 px
+        assert_eq!(
+            respace_with_pixels("a b", &runs, 16.0).as_deref(),
+            Some("a  b")
+        );
+        // a token/run mismatch is left exactly as the model wrote it
+        assert!(respace_with_pixels("a b c", &runs, 16.0).is_none());
     }
 
     #[test]

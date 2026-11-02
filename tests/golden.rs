@@ -93,14 +93,32 @@ fn blank_lines_do_not_shift_alignment() {
 }
 
 #[test]
-fn gutter_is_detected_and_model_spacing_kept() {
+fn gutter_code_column_comes_from_pixels() {
     let (out, st) = run("editor-rust");
     assert!(st.gutter, "editor-rust has a line-number gutter");
-    // indentation now comes from the text itself, not from geometry
     let code: Vec<&sofer::Line> = out.iter().filter(|l| l.text.contains("map:")).collect();
-    // the gutter is kept as indentation (2 spaces) and the code's own indent lives
-    // inside the row text, which is exactly how a human would paste it back
+    // the line number stays in the row's own text (2 leading spaces are the
+    // gutter's indent); the code's indentation after it is recovered from the
+    // second ink run inside the band, not from the model's spaces
     assert_eq!(code[0].rendered(), "  5     map: HashMap<K, V>,".trim_end());
+}
+
+#[test]
+fn model_blank_lines_are_replaced_by_the_image_spacing() {
+    let img = image::open("bench/images/tree@2x.png").unwrap().to_luma8();
+    let geom = analyze(&img);
+    let truth = truth_lines("tree");
+    // simulate a model that inserts a blank after every row
+    let raw: Vec<RawLine> = truth
+        .iter()
+        .flat_map(|l| [RawLine::plain(l.clone()), RawLine::plain("")])
+        .collect();
+    let (out, _) = assemble(&raw, &geom, &Opts::default());
+    let nonblank = out.iter().filter(|l| !l.text.trim().is_empty()).count();
+    let expected = truth.iter().filter(|l| !l.trim().is_empty()).count();
+    assert_eq!(nonblank, expected, "no text row may be lost");
+    let blanks = out.iter().filter(|l| l.text.trim().is_empty()).count();
+    assert_eq!(blanks, 1, "tree has exactly one blank line in the image");
 }
 
 #[test]

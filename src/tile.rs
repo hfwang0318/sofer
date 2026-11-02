@@ -233,6 +233,7 @@ mod tests {
             left: 10.0,
             right: width as f32 - 10.0,
             line_height: lh,
+            column_runs: Vec::new(),
         }
     }
 

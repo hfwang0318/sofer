@@ -426,10 +426,24 @@ fn print_stats(path: &Path, outcome: &pipeline::Outcome) {
             trace.rows, trace.bands
         );
     }
+    if trace.clean.deduped_rows > 0 || trace.clean.fence.is_some() {
+        eprintln!(
+            "  clean: deduped={} fence={:?}",
+            trace.clean.deduped_rows, trace.clean.fence
+        );
+    }
     let g = &trace.geometry;
     eprintln!(
-        "  geometry: mode={} bands={} text={} advance={:.1}px gutter={} wraps={}",
-        g.mode, g.bands, g.text_lines, g.advance, g.gutter, g.joined_wraps
+        "  geometry: mode={} bands={} text={} advance={:.1}px gutter={} wraps={} blanks={} snapped={} suspicious={}",
+        g.mode,
+        g.bands,
+        g.text_lines,
+        g.advance,
+        g.gutter,
+        g.joined_wraps,
+        g.rebuilt_blanks,
+        g.snapped_indents,
+        g.suspicious_rows
     );
 }
 

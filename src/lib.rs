@@ -26,6 +26,7 @@ pub mod pipeline;
 pub mod pool;
 pub mod render;
 pub mod repair;
+pub mod text;
 pub mod tile;
 
 pub use engine::{Engine, EngineOutput, ImageFormat, ImageInput, RawLine};

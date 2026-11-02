@@ -46,6 +46,12 @@ pub struct Geometry {
     pub right: f32,
     /// median band height in px
     pub line_height: f32,
+    /// Per-band runs of ink columns, in px, left to right. Letters inside a word
+    /// are merged (their gap is a fraction of a cell); a run break is a real
+    /// column gap. This is what lets a bbox-less model's row be re-spaced from
+    /// pixels, and what locates the code after a line-number gutter.
+    #[serde(skip)]
+    pub column_runs: Vec<Vec<(u32, u32)>>,
 }
 
 impl Geometry {
@@ -145,6 +151,7 @@ pub fn band_rows(mask: &[bool], w: u32, h: u32) -> Vec<(u32, u32)> {
     out
 }
 
+#[cfg(test)]
 fn band_bounds(mask: &[bool], w: u32, y0: u32, y1: u32) -> (u32, u32) {
     let mut x0 = u32::MAX;
     let mut x1 = 0u32;
@@ -172,25 +179,44 @@ pub fn analyze(img: &GrayImage) -> Geometry {
     let (w, h) = img.dimensions();
     let mask = ink_mask(img);
     let rows = band_rows(&mask, w, h);
-    let bands: Vec<Band> = rows
-        .iter()
-        .map(|&(y0, y1)| {
-            let (x0, x1) = band_bounds(&mask, w, y0, y1);
-            Band {
-                y0: y0 as f32,
-                y1: y1 as f32,
-                x0: x0 as f32,
-                x1: x1 as f32,
+
+    // Column projection per band, kept until the merge threshold is known.
+    let mut cols: Vec<Vec<bool>> = Vec::new();
+    let mut bands: Vec<Band> = Vec::new();
+    for &(y0, y1) in &rows {
+        let mut col = vec![false; w as usize];
+        for y in y0..y1 {
+            let base = (y * w) as usize;
+            for x in 0..w as usize {
+                if mask[base + x] {
+                    col[x] = true;
+                }
             }
-        })
-        .filter(|b| b.x1 > b.x0)
-        .collect();
+        }
+        if !col.iter().any(|c| *c) {
+            continue;
+        }
+        let x0 = col.iter().position(|c| *c).unwrap() as u32;
+        let x1 = col.iter().rposition(|c| *c).unwrap() as u32 + 1;
+        bands.push(Band {
+            y0: y0 as f32,
+            y1: y1 as f32,
+            x0: x0 as f32,
+            x1: x1 as f32,
+        });
+        cols.push(col);
+    }
 
     let left = bands.iter().map(|b| b.x0).fold(f32::MAX, f32::min);
     let right = bands.iter().map(|b| b.x1).fold(0.0, f32::max);
     let mut hs: Vec<f32> = bands.iter().map(|b| b.y1 - b.y0).collect();
     hs.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let line_height = hs.get(hs.len() / 2).copied().unwrap_or(0.0);
+
+    // Letters within a word leave a gap well under half a cell; a real column
+    // gap is at least one cell (~0.6 line heights). Merge below that.
+    let merge = ((line_height * 0.3) as u32).max(2);
+    let column_runs = cols.iter().map(|c| runs_from_columns(c, merge)).collect();
 
     Geometry {
         width: w,
@@ -199,7 +225,36 @@ pub fn analyze(img: &GrayImage) -> Geometry {
         left: if left.is_finite() { left } else { 0.0 },
         right,
         line_height,
+        column_runs,
     }
+}
+
+/// Contiguous ink columns, with gaps no wider than `merge` joined.
+fn runs_from_columns(cols: &[bool], merge: u32) -> Vec<(u32, u32)> {
+    let mut raw: Vec<(u32, u32)> = Vec::new();
+    let mut start: Option<u32> = None;
+    for (x, &ink) in cols.iter().enumerate() {
+        match (ink, start) {
+            (true, None) => start = Some(x as u32),
+            (false, Some(s)) => {
+                raw.push((s, x as u32));
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(s) = start {
+        raw.push((s, cols.len() as u32));
+    }
+
+    let mut merged: Vec<(u32, u32)> = Vec::with_capacity(raw.len());
+    for (a, b) in raw {
+        match merged.last_mut() {
+            Some((_, prev_end)) if a.saturating_sub(*prev_end) <= merge => *prev_end = b,
+            _ => merged.push((a, b)),
+        }
+    }
+    merged
 }
 
 /// 1-D lattice fit: the cell width that best explains a set of x offsets.

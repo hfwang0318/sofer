@@ -3,6 +3,24 @@
 All notable changes to the desktop app. The root OCR kernel keeps its own
 `cargo test`/baseline history; this file records the shipped desktop releases.
 
+## Unreleased
+
+内核后处理改进。26 个基准场景的质量指标与 1.0.0 完全持平（逐场景 `content_acc`
+只有 tesseract `git-diff` 曾短暂回退，已修正），新增能力主要作用于病态模型输出。
+
+- 模型把整段结果包在 Markdown 围栏里时自动剥离，围栏语言回填到输出。
+- 空行由行带间距重建，不再照搬模型多吐或漏吐的空行；行带漏检时回退到模型换行。
+- 行号槽场景用行带内部的第二个墨迹段定位代码列，行号从 9 变 10 不再带动代码缩进。
+- 模型复读（连续 3 行以上相同、且总行数明显超出图像行数）折叠为一行。
+- 行内多空格可由像素列段补回；代码场景的缩进按文档缩进单位吸附。
+- diff 中单独出现的 `—` 还原为 `--`；`-—`、`——` 不会被多补。
+- Markdown 输出的围栏长度会超过内容里的反引号，避免日志中的围栏提前闭合。
+- `--stats` 增加 clean 段与 blanks / snapped / suspicious 计数。
+
+基线（26 场景，2x，与上一版逐项相同）：mock `1.000 / 0.990 / 1.00`，
+llamacpp `0.960 / 0.910 / 0.98`，tesseract `0.899 / 0.870 / 0.93`
+（content_acc / indent_exact / rows_ratio）。
+
 ## v1.0.0 — 2026-11-01
 
 首个正式版本，提供 Windows NSIS 安装包与 macOS（Apple Silicon）DMG。

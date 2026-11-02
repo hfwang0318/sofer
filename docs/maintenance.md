@@ -10,10 +10,11 @@
 
 ```
 src/                 内核（纯 Rust，平台无关）
-  geom.rs            像素 → 行带 + 列原点 + advance
+  geom.rs            像素 → 行带 + 列原点 + advance + 每带列段
   tile.rs            切块规划 / 拼接 / 重试判定
-  assemble.rs        文本行 ↔ 行带配对、行号槽、列距、软换行
-  repair.rs          破折号 / 引号 / 全角折叠
+  assemble.rs        文本行 ↔ 行带配对、行号槽、空行重建、像素列距、缩进吸附、软换行
+  repair.rs          文档分类 / 围栏剥离 / 复读折叠 / 破折号 / 引号 / 全角折叠
+  text.rs            终端列宽（CJK 记 2、零宽记 0）
   lang.rs            围栏语言猜测
   render.rs          text / markdown / json
   engine/            llamacpp（主力）、tesseract（兜底）、mock（测试）
@@ -62,7 +63,7 @@ CHANGELOG.md         桌面端变更记录
 
 **必须同时验证三样东西**，缺一不可：
 
-1. `cargo test`（53 单元 + 24 集成）
+1. `cargo test`（71 单元 + 25 集成）
 2. **合成场景的 mock 基线**：26 个场景 `indent_exact` 应 ≈ 1.00
 3. **两张真机截图**（`real-editor-code` / `real-editor-term`）：同样是 1.00
 
@@ -73,7 +74,8 @@ CHANGELOG.md         桌面端变更记录
 | 每级缩进偏 1 | ink 阈值取 `p90×0.35`，文字只占几个百分点，p90 ≈ 背景，窗口边框被当成墨迹，列原点被拉到 0 | 阈值看分布亮端；**边框靠裁掉，不靠抬阈值**（抬阈值会丢 `_` 和 `-`） |
 | `tree` 段 16 行塌成 8 个行带 | `min_ink` 太低，框线竖笔画跨行相连，每一行都有墨 | `min_ink = max(3, w×0.002)` |
 
-**列原点不要用"全局最左墨迹"**：光标、窗口边框、选中把手都会把它带偏。目前的做法是把截图裁干净，
+**列原点不要用"全局最左墨迹"**：光标、窗口边框、选中把手都会把它带偏。行号槽场景已经不用它了
+（`code_left` 由"代码起点 − 模型缩进 × advance"的中位数给出）；其余场景仍靠把截图裁干净，
 并在真机验证里覆盖这个点。
 
 调试开关：
@@ -185,7 +187,7 @@ done
 
 ### 根 crate
 
-- [ ] `cargo test`（53 unit + 24 integration）
+- [ ] `cargo test`（71 unit + 25 integration）
 - [ ] `cargo fmt --all -- --check` 与 `cargo clippy --all-targets -- -D warnings` 通过
 - [ ] `cargo build --release` 无 warning
 - [ ] 四个变体基线跑完，达到 §5 的判据
@@ -229,7 +231,7 @@ done
 | `doctor` 显示 `[--] llama.cpp server` | server 没起 / 端口不是 8099；`SOFER_LLAMA_URL` 可改地址 |
 | 输出只有几行 | `--stats` 看 `rows_ratio`；`tiling: off` 但行数远小于行带数 → 预算估算错了，调 `--max-tokens` |
 | 输出行数比真值多 | 模型超发（常见于把 `--max-tokens` 调很大）；看 `warning: output has N rows for M bands` |
-| 缩进全是 0 | 是不是行号槽场景（`gutter=true` 属正常）；或用了 `--no-geometry` |
+| 缩进全是 0 | 是不是行号槽场景（`gutter=true` 且行带内找不到第二个墨迹段）；或用了 `--no-geometry` |
 | 缩进整体偏 1–2 格 | 列原点被光标/边框带偏 → 把截图裁干净，或先点走光标再截 |
 | tesseract 中文变乱码 | `--tess-lang eng+chi_sim`，且语言包必须能被 `TESSDATA_PREFIX` 找到 |
 | markdown 围栏语言不对 | `--lang rust|python|diff|bash` 手动指定 |
@@ -256,3 +258,5 @@ done
 | Powerline 图标 | 图标在像素上已经是 tofu，模型没有可映射的语义 | 需要像素模板匹配，而不是字符映射表 |
 | Windows 滚动长截图 | 自绘选区一次只抓鼠标所在显示器，也没有滚动拼接 | 长日志需要用户分多次截图 |
 | 快速预览冷启动 | Apple Vision 首次调用有系统级约 25 s 冷启动，之后 ~0.2 s | 首次开启「快速预览」时可能反而不如直接等模型 |
+| 空行重建依赖行带数量 | 按行带中心距重建空行；当图像行带数少于文本非空行数（漏检/合并）时回退到模型自己的换行 | 漏检严重的截图（真实编辑器、无边框终端）仍可能沿用模型空行 |
+| 行内列距只增不减 | `respace_with_pixels` 只在像素间隙大于模型空格时补空格，且要求 token 数与列段数一致 | 模型多给空格时不会被纠正 |

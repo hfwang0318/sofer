@@ -57,11 +57,11 @@ guide in the same change and explain why. Do not silently diverge.
 ### Kernel / CLI (from repo root)
 
 ```bash
-cargo test                                   # 53 unit + 9 boxdraw + 10 CLI + 5 golden
+cargo test                                   # 71 unit + 9 boxdraw + 10 CLI + 6 golden
 cargo fmt --all -- --check                   # formatting gate
 cargo clippy --all-targets -- -D warnings    # warnings are errors
 cargo test --test golden                     # integration tests only
-cargo test --test golden gutter_is_detected_and_model_spacing_kept
+cargo test --test golden gutter_code_column_comes_from_pixels
 cargo test repair::                          # any test name/module filter
 cargo run --release -- ocr shot.png --format markdown
 cargo run --release -- doctor                # engine availability
@@ -166,14 +166,18 @@ signing must still be verified in a native build.
 
 ```text
 image ─► engine (llamacpp / vision / tesseract / mock) ─► text lines (bbox optional)
-      └► geom (ink mask, row bands, x0/x1, advance) ─► tile when over budget
+      └► geom (ink mask, row bands, x0/x1, advance, column runs) ─► tile when over budget
                                                          │
-              assemble (pairing, gutter, DP alignment, soft wrap) ◄─┘
+              repair (fence strip, dedupe, dashes, quotes, full-width) ◄─┘
                     │
-              repair (dashes, quotes, context-aware full-width)
+              assemble (pairing, gutter, blank rebuild, pixel spacing, snap, soft wrap)
                     │
               render (text / markdown / json)
 ```
+
+Repair runs **before** assemble on purpose: zero-width marks and full-width
+twins change the text width per character while the ink stays the same, which
+would bias every width comparison in `assemble`.
 
 Key invariant: **engines only supply text**. Indentation, column alignment and
 line structure are recovered from pixels by `geom`/`assemble`. Do not move
@@ -182,13 +186,17 @@ indentation responsibility into an engine.
 - `src/pipeline.rs` — the reusable pipeline and `Config`, shared by CLI and the
   desktop app. `Config` is the single source of truth for kernel knobs.
 - `src/geom.rs` — polarity-independent ink mask, row projection, per-band x0/x1,
-  grid-fit advance.
+  grid-fit advance, per-band column runs (used for gutter columns and pixel
+  spacing).
 - `src/tile.rs` — budget-based tiling, stitching by band index, adaptive retry.
 - `src/pool.rs` — ordered parallel map and the shared job semaphore.
-- `src/assemble.rs` — text-line ↔ band pairing, line-number gutter, bbox column
-  gaps, soft-wrap joining.
-- `src/repair.rs` / `src/lang.rs` / `src/render.rs` — text repair, fence-language
-  guessing, output formats.
+- `src/assemble.rs` — text-line ↔ band pairing, line-number gutter (code column
+  from the second ink run), blank-line rebuild from band spacing, pixel spacing,
+  indent snapping (code only), bbox column gaps, soft-wrap joining.
+- `src/repair.rs` — document classification (code / diff / terminal / table /
+  prose), fence stripping, repeated-line collapse, dashes, quotes, full-width
+  folding. `/src/lang.rs` guesses the fence language, `/src/text.rs` defines
+  terminal column width (CJK = 2, zero-width = 0), `/src/render.rs` formats.
 - `src/engine/` — `llamacpp` (primary), `vision` (macOS fast tier, Swift shim
   compiled by `build.rs`), `tesseract` (fallback), `mock` (tests).
 - `src/boxdraw.rs` — opt-in `--box-art`: reconstructs tree/table rules from the
