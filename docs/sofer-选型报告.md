@@ -78,7 +78,7 @@
 
 | 模型 | 参数 | 许可 | 结构输出 | 公开成绩 | 本地推理（GGUF / llama.cpp） |
 |---|---|---|---|---|---|
-| PaddleOCR-VL-1.6 | 0.9B | Apache-2.0 | md/json + bbox | OmniDocBench v1.6 **96.34** | ⚠️ 社区 GGUF（非官方）；官方 MLX 仅 Apple |
+| PaddleOCR-VL-1.6 | 0.9B | Apache-2.0 | md/json + bbox | OmniDocBench v1.6 **96.34** | ✅ **官方 GGUF**（2026-11 起）+ llama.cpp 原生支持；实测见 §3.4 |
 | **GLM-OCR** | 0.9B | **MIT** | md/json | v1.5 94.62 | ✅ **官方 GGUF（Q8 0.9 GB + mmproj）**，两端通用 |
 | Qwen3-VL-4B / 8B | 4B/8B | Apache-2.0 | HTML + bbox | OCRBench 88.1（8B）；olmOCR-Bench 8B 仅 64.6 | ✅ GGUF 生态全，但 4B 起内存/延迟高 |
 | dots.mocr | 3B | MIT | bbox + HTML/SVG | olmOCR-Bench 83.9 | ⚠️ 社区 GGUF 仅 F16/Q8，生态薄 |
@@ -88,7 +88,9 @@
 | olmOCR 2 | 7B | Apache-2.0 | md | 82.4 | ❌ 仅 vLLM |
 | Tesseract / RapidOCR(PP-OCRv6) | 传统 CNN | Apache-2.0 | 行/词 bbox | — | ✅ ONNX，CPU 毫秒级，两端同文件 |
 
-> 选型视角：**能出官方 GGUF 的只有 GLM-OCR**。其余要么只有 MLX（Apple 专属），要么只有社区二次量化（许可与质量都要自己兜）。
+> 选型视角：**能出官方 GGUF 的只有 GLM-OCR 和 PaddleOCR-VL-1.6**。其余要么只有 MLX
+> （Apple 专属），要么只有社区二次量化（许可与质量都要自己兜）。但"能跑"只是入场券，
+> 代码场景的实际质量见 §3.4。
 
 ### 3.2 榜单为什么不能直接用来选型
 
@@ -100,6 +102,43 @@
 ### 3.3 量化的坑
 
 唯一可查的量化实测来自 PaddleOCR-VL-1.6 的 MLX 模型卡：4bit 反超 5bit 的"字段准确率"其实是**模板漂移**（换 prompt 排序就反转）。本机实测也验证了这点（§4.3）。
+
+### 3.4 2026-11 复测：OXR 与两个更小的候选
+
+**OXR（SoMarkAI，1.3B）不能作为候选**，五条硬约束：
+
+| 约束 | OXR | 本项目 |
+|---|---|---|
+| 运行时 | vLLM + out-of-tree 插件，官方只在 Linux + NVIDIA 上验证 | llama.cpp（Metal / Vulkan / CPU），双平台同一 GGUF |
+| 显存 | 24 GB 起（推荐 48 GB） | 16 GB 统一内存 / Windows 纯 CPU |
+| 结构 | 1.3B BF16 **加** 独立 DFINE 版面模型，直接输出版面与阅读顺序 | 模型只出文本，版面由 `geom`/`assemble` 从像素重建 |
+| 许可 | "OXR Open Source License"：融资或营收 > 200 万美元需单独商业许可，且禁止竞品托管 API | 桌面 App 分发，要求 MIT / Apache |
+| 可验证性 | 无技术报告，训练数据、上下文长度未公开 | 本报告 §3 的准入门槛 |
+
+另外它没有官方或社区 GGUF，llama.cpp 目前不支持该架构——即使许可没问题，也进不了
+app 的模型包流程。
+
+**两个真正对口的候选**：OvisOCR2（0.8B / Apache-2.0 / 社区 GGUF）与
+PaddleOCR-VL-1.6（0.9B / Apache-2.0 / 官方 GGUF）。26 场景实测见
+[baseline.md §3.4](baseline.md)：两者都没有在任何一项上同时超过 GLM-OCR——
+
+| | GLM-OCR | OvisOCR2 | PaddleOCR-VL-1.6 |
+|---|---:|---:|---:|
+| `sym_recall` | **0.996** / 0.994 | 0.956 / 0.955 | 0.937 |
+| `rows_ratio` | **0.98** | 1.47 / 1.49 | 0.92 |
+| 单请求 ms | 1288 / **922** | 1944 / 1331 | 3356 |
+| 空闲 RSS | 2409 / **1879 MB** | 1669 / **1078 MB** | — |
+
+（GLM 与 Ovis 行的两个数是 Q8 / Q4_K_M；Paddle 只有 Q8。Q4 的 `sym_recall` 与 Q8 在噪声内。）
+
+- **OvisOCR2** 的 `sym_recall` 低 3.9 pp，且 `pytest-traceback` 单场景低 60 pp（0.394 vs
+  1.000）；每图还多吐 47% 的空行。它唯一的优势是省 ~800 MB 内存——不足以抵消。
+- **PaddleOCR-VL-1.6** 的 `sym_recall` 低 5.9 pp、`huge-4k` 截断到 19/56 行，且在非模板
+  prompt 下复读（单图 45 s，`rows_ratio` 25.7）。官方 Q8 GGUF 没有解决老问题。
+
+**结论：维持 GLM-OCR。** OXR 因为跑不起来被排除，另两个因为"在代码场景更差"被排除；
+若将来出现"常驻必须 < 1.2 GB"的硬需求，OvisOCR2 Q4 是唯一能进预算的候选，
+但需要先实现空行的几何重建（见 [baseline.md §4](baseline.md) 结论 ⑥）。
 
 ---
 
@@ -353,7 +392,9 @@ GLM-OCR 唯一的硬短板是"没有 bbox → 缩进只能靠模型自己吐空�
 | 方案 | 原因 |
 |---|---|
 | MLX（含 mlx-vlm） | Apple 专属，Windows 无法复用（本报告第一版曾以此为主，**已修正**） |
-| PaddleOCR-VL-1.6 4bit | 复读崩溃 + 丢 box 字符 + grounding token 泄漏；GGUF 为社区量化，需重测 |
+| PaddleOCR-VL-1.6 | 官方 Q8 GGUF 复测后仍有复读、丢符号（`sym_recall` 0.937）、超大图截断（§3.4）；MLX 4bit 版本另有 grounding token 泄漏 |
+| OvisOCR2 | `sym_recall` 0.955、`pytest-traceback` 0.394、每图多 47% 空行；省下的 ~800 MB 不足以抵消（§3.4） |
+| OXR | vLLM + 24 GB 显存、无 GGUF、许可含竞品条款（§3.4） |
 | DeepSeek-OCR / olmOCR / Chandra | 无官方 GGUF / 许可受限（OpenRAIL-M）/ 体积过大 |
 | Windows.Media.Ocr 作质量档 | 无 confidence、语言包不可控 |
 | 把 UIA/AX 当主路径 | 拿不到"用户框选的那一块"，且终端会卡死 |

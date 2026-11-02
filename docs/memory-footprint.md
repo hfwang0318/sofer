@@ -291,6 +291,61 @@ python3 bench/baseline.py --engines llamacpp --variant 1x
 
 对比时看**分场景**，不要只看均值：均值差 0.2 pp 可能只是某个场景多吐了一行。
 
+### 4.8 候选模型的内存账（2026-11）
+
+同一次 A/B 里量了其他候选模型的常驻内存。启动参数与 app 默认一致
+（`-c 24576 -np 3 -ctk q8_0 -ctv q8_0`），空闲值取加载后 3 s：
+
+| 配置 | 磁盘（权重+mmproj） | 空闲 RSS | 单请求 ms¹ | `sym_recall` | `rows_ratio` |
+|---|---:|---:|---:|---:|---:|
+| GLM-OCR Q8_0（高精度档） | 1434 MB | 2409 MB | 1288 | **0.996** | 0.98 |
+| **GLM-OCR Q4_K_M**（低精度档） | 1033 MB | 1879 MB | **922** | 0.994 | **0.98** |
+| OvisOCR2 Q8_0 | 928 MB | 1669 MB | 1944 | 0.956 | 1.47 |
+| OvisOCR2 Q4_K_M | 645 MB | **1078 MB** | 1331 | 0.955 | 1.49 |
+| PaddleOCR-VL-1.6 Q8（`OCR:`） | 1817 MB | — | 3356² | 0.937 | 0.92 |
+
+¹ 四场景（`git-diff` / `pytest-traceback` / `editor-rust` / `small-text`）串行、已热身；
+同配置重复跑有 ±10–15% 波动。
+² 在 `-c 32768 -np 4` 下测得，未按 app 参数重测。
+
+> 注：绝对值和 §4.6 的表对不上（Q4_K_M 这里 1879 MB、那里 2159 MB），因为两次用的
+> llama.cpp 版本和 `-c` 不同（本轮为 build 11960 + `-c 24576`）。**跨表只比同表内的
+> 相对关系，不要横向相减。**
+
+三点结论：
+
+1. **Q4_K_M 是"又快又省"的那一档**：比 Q8 少 530 MB 常驻、快 28%，精度在噪声内
+   （0.960/0.994 vs 0.957/0.996，26 场景）。这也是它成为默认值的原因。
+2. **OvisOCR2 少 800 MB，但代价是 `sym_recall` -3.9 pp 和每图多 47% 的空行**
+   （[baseline.md §3.4](baseline.md)）。这 800 MB 是**结构性**的：它的 mmproj 只有
+   116 MB，GLM 的是 484 MB 且不能量化（§4.4），再加上视觉前处理缓冲——压 prompt、
+   调 KV 都改不动。
+3. **只有在"常驻必须 < 1.2 GB"的硬需求下才值得选它**；按 `sym_recall ≥ 0.995`
+   的判据，它进不了主档。
+
+### 4.9 Windows 的后端现状：CPU-only，核显不省内存
+
+内置运行时是 **CPU-only**：`fetch-runtime.py` 只下载 `llama-b12018-bin-win-cpu-x64.zip`，
+`server_args` 在 Windows 上固定 `-ngl 0`，代码里没有任何 GPU/NPU 探测分支。
+
+| 后端 | 能不能用 | 障碍 |
+|---|---|---|
+| CPU | ✅ 现状 | 权重全在 RAM，KV 未量化 |
+| **Vulkan（核显 / 独显）** | ⚠️ 可用，需换运行时 | 打包体积 + 探测分支；Intel 上 Vulkan 弱于 OpenVINO / SYCL |
+| NPU | ❌ | llama.cpp 的 OpenVINO 后端仍标 "in progress"（stateless-only、主验 Q4_0、推荐 `-c 512`），Hexagon 为 experimental；我们的负载需要 ~11k token/slot **加**视觉编码器 |
+| Windows ML（QNN / OpenVINO EP） | ❌ | 另一个 server 二进制（`WinMLServer.exe`），实验性 |
+
+两个容易误解的地方：
+
+1. **核显不会省内存。** 它的"显存"从系统 RAM 划，权重只是从左口袋挪到右口袋；而且
+   mmap 的可回收文件页会变成不可回收的匿名缓冲，内存紧张时反而更难释放。
+   M5 上 `-ngl 99` vs `-ngl 0` 的 RSS 差（1880 vs ~2100 MB）来自 macOS CPU 后端的
+   Q4_K 重排副本，**不能搬到 Windows**。
+2. **核显只对 prefill 有用。** 实测我们的负载 prefill 占 68–78%（`editor-rust`：
+   2669 ms prefill / 762 ms decode），而 decode 是带宽密集，核显与 CPU 共享 DDR5 带宽。
+   参考值：同为 4 Xe 核的 Ultra 7 265K 在 SYCL 下跑 Qwen3-4B Q4_K_M 是 `pp512 = 264 t/s`。
+   **判据：`-ngl 99` 后日志里的 `prompt eval time` 没掉到 CPU 的一半以下，这条路就不值得做。**
+
 ---
 
 ## 5. 推荐配置
@@ -416,3 +471,6 @@ python3 bench/baseline.py --engines llamacpp --variant 2x \
   Q4_K_M 约 +0.2 s。
 - 所有数字都是 M5 / 16 GB / macOS 27；内存压力、热降频会让绝对值漂移，
   但“KV 占大头、休眠最有效、q8 KV 无损”三个结论不依赖具体机器。
+- §4.8 的候选模型数字（OvisOCR2 / PaddleOCR-VL-1.6）同样是 macOS + Metal 测的，
+  它们的跨后端表现**没有任何 Windows 数据**；§4.9 的 NPU / 核显结论来自代码阅读和
+  公开基准，**没有实机验证**。
