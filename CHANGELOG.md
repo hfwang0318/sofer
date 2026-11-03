@@ -3,7 +3,7 @@
 All notable changes to the desktop app. The root OCR kernel keeps its own
 `cargo test`/baseline history; this file records the shipped desktop releases.
 
-## 未发布
+## v1.3.0 — 2026-11-03
 
 版面重建（模型不变，全部由像素计算）：
 

@@ -1,7 +1,7 @@
 {
   "name": "sofer-app",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.3.0",
   "type": "module",
   "description": "Desktop UI for the sofer kernel: screenshot, recognise, paste.",
   "scripts": {
