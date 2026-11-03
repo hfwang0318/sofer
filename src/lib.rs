@@ -21,6 +21,7 @@ pub mod boxdraw;
 pub mod cli_input;
 pub mod engine;
 pub mod geom;
+pub mod gguf;
 pub mod lang;
 pub mod pipeline;
 pub mod pool;

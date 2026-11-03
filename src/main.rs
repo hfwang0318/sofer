@@ -135,6 +135,16 @@ struct OcrArgs {
     #[arg(long)]
     no_upscale_small: bool,
 
+    /// do not downscale screenshots whose text is much larger than the encoder needs
+    #[arg(long)]
+    no_downscale_large: bool,
+
+    /// pixels one visual token covers (`patch_size × merge`); 0 = 28 px default.
+    /// Read it from the projector metadata when the model does not ship GLM-OCR's
+    /// 14 px patch with a 2×2 merger.
+    #[arg(long, default_value_t = 0.0)]
+    vision_token_px: f32,
+
     /// estimate the ink background once per frame instead of per 64 px block
     #[arg(long)]
     no_adaptive_background: bool,
@@ -216,6 +226,8 @@ fn ocr(args: OcrArgs) -> Result<()> {
         max_pixels: args.max_pixels,
         trim: !args.no_trim,
         upscale_small: !args.no_upscale_small,
+        downscale_large: !args.no_downscale_large,
+        vision_token_px: args.vision_token_px,
         adaptive_background: !args.no_adaptive_background,
         mock_text: args.mock_text.clone(),
         mock_text_file: args.mock_text_file.clone(),

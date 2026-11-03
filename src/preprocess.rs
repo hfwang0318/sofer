@@ -31,16 +31,87 @@ use std::io::Cursor;
 /// 5K screenshot (14.7 M) with a wide margin, and only large photos/scans hit it.
 pub const DEFAULT_MAX_PIXELS: u64 = 50_000_000;
 
-/// Rows whose ink height is below this are upscaled 2× before recognition.
+/// One visual token covers 28×28 pixels for the shipped projector (`patch_size`
+/// 14 with a 2×2 merger). Used when the caller cannot read the projector
+/// metadata (e.g. a remote server).
+pub const DEFAULT_TOKEN_PX: f32 = 28.0;
+
+/// Ink height, as a fraction of one visual token, at which text is upscaled.
 ///
-/// Measured on the bench corpus: `@2x` screenshots have a line height around
-/// 28–34 px, `@1x` around 14–17 px. The encoder's effective resolution is
-/// better when a 1× screenshot is resampled than when the encoder downsamples it.
-pub const SMALL_TEXT_LINE_HEIGHT: f32 = 16.0;
+/// Below ~half a token a glyph cannot span a full patch and the encoder starts
+/// guessing. The `@1x` corpus (13 px ink) is the measured worst case; 2×
+/// upscaling recovers it to the `@2x` standard.
+pub const MIN_INK_RATIO: f32 = 0.57;
+
+/// Ink height, as a fraction of one visual token, that downscaling targets and
+/// triggers on: anything taller is reduced to this. 0.86 of a 28 px token is
+/// 24 px, the measured `@2x`-minus-8 % point that stayed lossless across code,
+/// tables and diffs; the 0.9 amplitude clamp keeps deeper reductions out.
+pub const DOWNSCALE_INK_RATIO: f32 = 0.86;
 
 /// Multiply a small-text image by this factor. Only 2× is used: a non-integer
 /// factor needs a second interpolation pass and gains nothing measurable.
 const UPSCALE_FACTOR: f32 = 2.0;
+
+/// How many pixels one visual token covers, in the input image's coordinates.
+///
+/// The number itself comes from the projector metadata
+/// ([`crate::gguf::vision_shape`] gives `patch_px × merge_px`); the ratios above
+/// turn it into the resampling thresholds. Keeping the thresholds relative means
+/// a different projector (a different patch size or merger) automatically gets
+/// its own scale instead of inheriting GLM-OCR's 16/24/26 px absolutes.
+#[derive(Debug, Clone, Copy)]
+pub struct VisionMetrics {
+    token_px: f32,
+}
+
+impl VisionMetrics {
+    /// `token_px <= 0` falls back to [`DEFAULT_TOKEN_PX`], which is what callers
+    /// that cannot read the model metadata pass.
+    pub fn from_token_px(token_px: f32) -> Self {
+        Self {
+            token_px: if token_px > 0.0 {
+                token_px
+            } else {
+                DEFAULT_TOKEN_PX
+            },
+        }
+    }
+
+    pub fn token_px(self) -> f32 {
+        self.token_px
+    }
+
+    /// Rows below this ink height are upscaled 2×.
+    pub fn min_ink(self) -> f32 {
+        self.token_px * MIN_INK_RATIO
+    }
+
+    /// Rows above this ink height are reduced to it: trigger and target are
+    /// the same point, so a triggered reduction always has a factor below 1.
+    pub fn downscale_ink(self) -> f32 {
+        self.token_px * DOWNSCALE_INK_RATIO
+    }
+}
+
+impl Default for VisionMetrics {
+    fn default() -> Self {
+        Self::from_token_px(DEFAULT_TOKEN_PX)
+    }
+}
+
+/// Frames above this decoded area may be downscaled.
+///
+/// Small screenshots are dominated by request overhead and showed measurable
+/// regressions when shrunk; only frames whose vision pass is expensive and
+/// whose text is comfortably large are eligible.
+pub const LARGE_IMAGE_PIXELS: u64 = 4_000_000;
+
+/// Never shrink below this fraction. The sweep put the lossless boundary at
+/// 0.9×: 0.85× already costs a code scene 11 pp, so the clamp is the safety
+/// net, not an optimisation knob. A mis-detected line height (a poster, a
+/// one-line hero image) can never shrink the frame past this.
+const MIN_DOWNSCALE: f32 = 0.9;
 
 /// A crop that loses less than this fraction of the area is skipped.
 ///
@@ -224,9 +295,10 @@ impl Transform {
 pub fn upscale_small(
     image: &DynamicImage,
     line_height: f32,
+    vision: VisionMetrics,
     enabled: bool,
 ) -> Option<(DynamicImage, f32)> {
-    if !enabled || line_height <= 0.0 || line_height >= SMALL_TEXT_LINE_HEIGHT {
+    if !enabled || line_height <= 0.0 || line_height >= vision.min_ink() {
         return None;
     }
     let (width, height) = image.dimensions();
@@ -238,6 +310,40 @@ pub fn upscale_small(
     Some((
         image.resize_exact(new_width, new_height, FilterType::Lanczos3),
         UPSCALE_FACTOR,
+    ))
+}
+
+/// Downscale when the detected line height says the encoder is being fed more
+/// pixels than it can use.
+///
+/// Mirrors [`upscale_small`]: it only changes the model copy, so geometry keeps
+/// its original coordinate space and [`Transform`] carries the factor. Like
+/// `upscale_small`, `None` means "leave the image alone" and avoids a clone.
+pub fn downscale_large(
+    image: &DynamicImage,
+    line_height: f32,
+    vision: VisionMetrics,
+    enabled: bool,
+) -> Option<(DynamicImage, f32)> {
+    if !enabled || line_height <= vision.downscale_ink() {
+        return None;
+    }
+    let (width, height) = image.dimensions();
+    if u64::from(width) * u64::from(height) <= LARGE_IMAGE_PIXELS {
+        return None;
+    }
+    let factor = (vision.downscale_ink() / line_height).clamp(MIN_DOWNSCALE, 1.0);
+    if factor >= 1.0 {
+        return None;
+    }
+    let new_width = ((width as f32) * factor).round() as u32;
+    let new_height = ((height as f32) * factor).round() as u32;
+    if new_width < 2 || new_height < 2 {
+        return None;
+    }
+    Some((
+        image.resize_exact(new_width, new_height, FilterType::Lanczos3),
+        factor,
     ))
 }
 
@@ -321,12 +427,77 @@ mod tests {
 
     #[test]
     fn upscaling_only_triggers_below_the_threshold() {
-        assert!(upscale_small(&rgb(100, 100), 30.0, true).is_none());
+        let v = VisionMetrics::default();
+        assert!(upscale_small(&rgb(100, 100), 30.0, v, true).is_none());
 
-        let (small, factor) = upscale_small(&rgb(100, 100), 12.0, true).expect("upscaled");
+        let (small, factor) = upscale_small(&rgb(100, 100), 12.0, v, true).expect("upscaled");
         assert_eq!(factor, 2.0);
         assert_eq!(small.dimensions(), (200, 200));
 
-        assert!(upscale_small(&rgb(100, 100), 12.0, false).is_none());
+        assert!(upscale_small(&rgb(100, 100), 12.0, v, false).is_none());
+    }
+
+    #[test]
+    fn downscaling_only_triggers_on_large_frames_with_large_text() {
+        let v = VisionMetrics::default();
+        // Comfortable ink height: untouched.
+        assert!(downscale_large(&rgb(4000, 2000), 24.0, v, true).is_none());
+        assert!(downscale_large(&rgb(4000, 2000), 12.0, v, true).is_none());
+
+        // Large text on a small frame is left alone: the bench showed
+        // regressions when ordinary screenshots were shrunk.
+        assert!(downscale_large(&rgb(400, 200), 37.0, v, true).is_none());
+
+        // The `@2x` ink height sits just above the target, so it is reduced by
+        // about 8 %; a larger glyph is clamped to the 0.9 lossless floor.
+        let (large, factor) = downscale_large(&rgb(4000, 2000), 26.0, v, true).expect("downscaled");
+        assert!((factor - 24.08 / 26.0).abs() < 1e-3, "factor {factor}");
+        let clamped = downscale_large(&rgb(4000, 2000), 40.0, v, true).expect("downscaled");
+        assert_eq!(clamped.1, MIN_DOWNSCALE);
+        let expected = (
+            (4000.0 * factor).round() as u32,
+            (2000.0 * factor).round() as u32,
+        );
+        assert_eq!(large.dimensions(), expected);
+
+        assert!(downscale_large(&rgb(4000, 2000), 28.0, v, false).is_none());
+    }
+
+    #[test]
+    fn downscaling_has_a_floor() {
+        // A mis-detected 100 px line height must not shrink the frame past the
+        // lossless boundary (the sweep put it at 0.9×).
+        let (large, factor) =
+            downscale_large(&rgb(4000, 2000), 100.0, VisionMetrics::default(), true)
+                .expect("downscaled");
+        assert_eq!(factor, MIN_DOWNSCALE);
+        assert_eq!(large.dimensions(), (3600, 1800));
+    }
+
+    #[test]
+    fn thresholds_follow_the_projector_token_size() {
+        let standard = VisionMetrics::default();
+        assert_eq!(standard.token_px(), 28.0);
+        assert!(
+            (standard.min_ink() - 16.0).abs() < 0.2,
+            "{}",
+            standard.min_ink()
+        );
+        assert!(
+            (standard.downscale_ink() - 24.1).abs() < 0.2,
+            "{}",
+            standard.downscale_ink()
+        );
+
+        // A projector with a 16 px token must scale every threshold with it.
+        let smaller = VisionMetrics::from_token_px(16.0);
+        assert!((smaller.min_ink() - 9.1).abs() < 0.2);
+        assert!((smaller.downscale_ink() - 13.8).abs() < 0.2);
+
+        // Missing metadata falls back to the default grid.
+        assert_eq!(
+            VisionMetrics::from_token_px(0.0).token_px(),
+            DEFAULT_TOKEN_PX
+        );
     }
 }

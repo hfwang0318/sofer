@@ -88,6 +88,10 @@ pub struct Config {
     pub trim: bool,
     /// upscale screenshots whose text is too small for the vision encoder
     pub upscale_small: bool,
+    /// downscale screenshots whose text is much larger than the encoder needs
+    pub downscale_large: bool,
+    /// pixels one visual token covers (`patch × merge`); `0` = the 28 px default
+    pub vision_token_px: f32,
     /// estimate the ink background per block instead of once per frame
     pub adaptive_background: bool,
 
@@ -117,6 +121,8 @@ impl Default for Config {
             max_pixels: preprocess::DEFAULT_MAX_PIXELS,
             trim: true,
             upscale_small: true,
+            downscale_large: true,
+            vision_token_px: 0.0,
             adaptive_background: true,
             mock_text: None,
             mock_text_file: None,
@@ -212,7 +218,7 @@ pub struct PreprocessTrace {
     /// in normalized-original pixels.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub crop: Option<[u32; 4]>,
-    /// Uniform upscale factor for small text (1.0 = none).
+    /// Uniform resample factor for the model copy (1.0 = none; <1 downscaled).
     pub scale: f32,
     /// Frame size after EXIF/alpha/pixel-cap normalization.
     pub pixels: u64,
@@ -373,7 +379,7 @@ fn recognize_prepared(
     cfg: &Config,
     limiter: &Semaphore,
 ) -> Result<Outcome> {
-    let out = run_engine(engine, prep, prep.plan.as_ref(), cfg, limiter)?;
+    let out = run_engine(engine, prep, prep.plan.as_ref(), cfg, limiter, None)?;
     let (out, used, retry_trace) =
         retry_if_truncated(engine, prep, cfg, limiter, out, prep.plan.clone())?;
     Ok(finish(out, used, retry_trace, prep, path, cfg))
@@ -395,11 +401,16 @@ pub fn recognize_streaming(
     on_delta: &mut dyn FnMut(&str),
 ) -> Result<Outcome> {
     let prep = prepare(path, cfg)?;
-    streaming_prepared(engine, &prep, path, cfg, limiter, on_delta)
+    streaming_prepared(engine, &prep, path, cfg, limiter, on_delta, false)
 }
 
 /// Like [`recognize_streaming`], but reuse an already-decoded image (see
 /// [`recognize_decoded`]).
+///
+/// Unlike the CLI path, a tiled image streams each tile's rows as a *preview*:
+/// the desktop UI replaces them with the assembled document when the capture
+/// finishes, so a large screenshot shows its first third long before the last
+/// tile lands.
 pub fn recognize_streaming_decoded(
     engine: &dyn Engine,
     path: &Path,
@@ -409,9 +420,15 @@ pub fn recognize_streaming_decoded(
     on_delta: &mut dyn FnMut(&str),
 ) -> Result<Outcome> {
     let prep = prepare_decoded(path, decoded, cfg)?;
-    streaming_prepared(engine, &prep, path, cfg, limiter, on_delta)
+    streaming_prepared(engine, &prep, path, cfg, limiter, on_delta, true)
 }
 
+/// `preview_tiles` decides what a tiled run does with `on_delta`.
+///
+/// A live preview wants each tile's raw rows the moment they arrive. A caller
+/// that treats the deltas as *the* output (the CLI `--stream` path) must not:
+/// the raw rows still carry per-tile spacing and the straddling duplicate, and
+/// the assembled document is what it prints instead.
 fn streaming_prepared(
     engine: &dyn Engine,
     prep: &Prepared,
@@ -419,6 +436,7 @@ fn streaming_prepared(
     cfg: &Config,
     limiter: &Semaphore,
     on_delta: &mut dyn FnMut(&str),
+    preview_tiles: bool,
 ) -> Result<Outcome> {
     let out = if prep.plan.is_none() {
         let _permit = limiter.acquire();
@@ -435,8 +453,32 @@ fn streaming_prepared(
             }
             Err(err) => return Err(err.context("streaming interrupted mid-reply")),
         }
+    } else if preview_tiles {
+        // Tiled preview: emit each tile's rows as soon as it lands. A fresh
+        // large screenshot is dominated by the first tile's vision pass, so the
+        // UI can show a third of the result instead of waiting for all of them.
+        let mut on_tile = |lines: &[crate::engine::RawLine]| {
+            if lines.is_empty() {
+                return;
+            }
+            let text = lines
+                .iter()
+                .map(|l| l.text.as_str())
+                .collect::<Vec<_>>()
+                .join("\n");
+            on_delta(&text);
+            on_delta("\n");
+        };
+        run_engine(
+            engine,
+            prep,
+            prep.plan.as_ref(),
+            cfg,
+            limiter,
+            Some(&mut on_tile),
+        )?
     } else {
-        run_engine(engine, prep, prep.plan.as_ref(), cfg, limiter)?
+        run_engine(engine, prep, prep.plan.as_ref(), cfg, limiter, None)?
     };
 
     let (out, used, retry_trace) =
@@ -499,10 +541,27 @@ fn build_prepared(decoded: preprocess::Decoded, bytes: Vec<u8>, cfg: &Config) ->
         }
     }
 
-    let base = model.as_ref().unwrap_or(&image);
-    if let Some((upscaled, factor)) =
-        preprocess::upscale_small(base, geom.line_height, cfg.upscale_small)
-    {
+    // The two resamplers are mutually exclusive (their thresholds are far
+    // apart), and both only touch the model copy: `geom` stays in original
+    // pixels and `Transform` carries the factor for `crop_tile`. The thresholds
+    // scale with the projector's token size, so they follow the model.
+    let vision = preprocess::VisionMetrics::from_token_px(cfg.vision_token_px);
+    if let Some((downscaled, factor)) = preprocess::downscale_large(
+        model.as_ref().unwrap_or(&image),
+        geom.line_height,
+        vision,
+        cfg.downscale_large,
+    ) {
+        model = Some(downscaled);
+        transform.scale = factor;
+        changed = true;
+    }
+    if let Some((upscaled, factor)) = preprocess::upscale_small(
+        model.as_ref().unwrap_or(&image),
+        geom.line_height,
+        vision,
+        cfg.upscale_small,
+    ) {
         model = Some(upscaled);
         transform.scale = factor;
         changed = true;
@@ -549,7 +608,9 @@ fn retry_if_truncated(
         if let Some(forced) = tile::plan_forced(&prepared.geom, prepared.adv, cfg.max_tokens) {
             let first_rows = out.lines.len();
             let tiles = forced.tiles.len();
-            let retry = run_engine(engine, prepared, Some(&forced), cfg, limiter)?;
+            // Never re-emit during the retry: the caller already saw the first
+            // pass, and a second copy would be appended to it.
+            let retry = run_engine(engine, prepared, Some(&forced), cfg, limiter, None)?;
             let retry_rows = retry.lines.len();
             let accepted = tile::is_better(retry_rows, first_rows, bands);
             if accepted {
@@ -617,11 +678,12 @@ fn finish(
     // terminal output decorates with arbitrary offsets instead.
     opts.snap_indent = kind == repair::Kind::Code;
     let (mut lines, stats) = assemble(&out.lines, geom, &opts);
-    // Only at native resolution: when a 1× screenshot was upscaled for the
+    // Never on an upscaled copy: when a 1× screenshot was upscaled for the
     // model, geometry still works in the original pixels, where a `|` in code
     // is as wide as a `│` branch and the stroke detector misfires (measured:
-    // `real-editor-code@1x` 0.996 -> 0.643).
-    let box_art = if cfg.box_art && prep.transform.scale == 1.0 {
+    // `real-editor-code@1x` 0.996 -> 0.643). A downscaled copy keeps the
+    // original pixel grid, so the detector is just as valid there.
+    let box_art = if cfg.box_art && prep.transform.scale <= 1.0 {
         boxdraw::apply(luma, geom, stats.advance, &mut lines)
     } else {
         boxdraw::BoxArtStats::default()
@@ -714,38 +776,60 @@ fn trace(
 ///
 /// Crops are encoded in memory and handed to the engine as pixels, so the tile
 /// path never writes to (or reads back from) the temp directory.
+///
+/// `on_tile` switches the tile phase to sequential and reports each tile's rows
+/// the moment they arrive. Sequential is deliberate: the engine-call budget is
+/// shared anyway, and racing tiles for the same GPU made a fresh large
+/// screenshot slower, not faster (measured on `huge-4k@2x`: 74 s concurrent vs
+/// 69 s sequential). The callback is what lets the UI show the first third of
+/// the result instead of waiting for the slowest tile.
+type TileListener<'a> = &'a mut dyn FnMut(&[crate::engine::RawLine]);
+
 fn run_engine(
     engine: &dyn Engine,
     prepared: &Prepared,
     plan: Option<&tile::Plan>,
     cfg: &Config,
     limiter: &Semaphore,
+    on_tile: Option<TileListener<'_>>,
 ) -> Result<EngineOutput> {
     let Some(p) = plan else {
         let _permit = limiter.acquire();
         return engine.recognize_image(&prepared.input(), cfg.image_format);
     };
 
-    // Tiles are independent, so they run concurrently — bounded by the same
-    // semaphore as whole images, which is what keeps `--jobs` a global budget
-    // instead of "jobs per image" (3 images × 3 tiles would be 9 requests).
-    // Wall clock for the whole tile phase: summing per-tile `ms` would over-report
-    // by the concurrency factor (3 tiles in parallel are not 3× the time).
     let started = std::time::Instant::now();
-    type TileOut = (u64, Vec<crate::engine::RawLine>);
-    let results = crate::pool::map(&p.tiles, cfg.jobs.max(1), |_, t| -> Result<TileOut> {
-        let crop = prepared.crop_tile(t);
-        let out = {
-            let _permit = limiter.acquire();
-            engine.recognize_image(&ImageInput::from_pixels(&crop), cfg.image_format)?
-        };
-        Ok((out.ms, out.lines))
-    });
-
     let mut per_tile = Vec::with_capacity(p.tiles.len());
-    for r in results {
-        let (_tile_ms, lines) = r?;
-        per_tile.push(lines);
+    match on_tile {
+        Some(emit) => {
+            for t in &p.tiles {
+                let crop = prepared.crop_tile(t);
+                let out = {
+                    let _permit = limiter.acquire();
+                    engine.recognize_image(&ImageInput::from_pixels(&crop), cfg.image_format)?
+                };
+                emit(&out.lines);
+                per_tile.push(out.lines);
+            }
+        }
+        None => {
+            // Without a listener the tiles run concurrently — bounded by the
+            // same semaphore as whole images, which keeps `--jobs` a global
+            // budget instead of "jobs per image".
+            type TileOut = (u64, Vec<crate::engine::RawLine>);
+            let results = crate::pool::map(&p.tiles, cfg.jobs.max(1), |_, t| -> Result<TileOut> {
+                let crop = prepared.crop_tile(t);
+                let out = {
+                    let _permit = limiter.acquire();
+                    engine.recognize_image(&ImageInput::from_pixels(&crop), cfg.image_format)?
+                };
+                Ok((out.ms, out.lines))
+            });
+            for r in results {
+                let (_tile_ms, lines) = r?;
+                per_tile.push(lines);
+            }
+        }
     }
     let ms = started.elapsed().as_millis() as u64;
     Ok(EngineOutput {
@@ -813,6 +897,34 @@ mod tests {
 
     fn sample() -> DynamicImage {
         DynamicImage::ImageRgb8(RgbImage::from_pixel(40, 30, Rgb([250, 250, 250])))
+    }
+
+    /// Answers with the call number, so a test can see the order tiles ran in.
+    struct NumberedEngine {
+        next: AtomicUsize,
+    }
+
+    impl Engine for NumberedEngine {
+        fn name(&self) -> &str {
+            "numbered"
+        }
+
+        fn recognize(&self, _image: &Path) -> Result<EngineOutput> {
+            unreachable!("tiles must never use the path-based flow")
+        }
+
+        fn recognize_image(
+            &self,
+            _input: &ImageInput<'_>,
+            _format: ImageFormat,
+        ) -> Result<EngineOutput> {
+            let n = self.next.fetch_add(1, Ordering::SeqCst);
+            Ok(EngineOutput {
+                engine: "numbered".into(),
+                lines: vec![crate::engine::RawLine::plain(format!("row{n}"))],
+                ms: 0,
+            })
+        }
     }
 
     fn plan() -> tile::Plan {
@@ -888,6 +1000,7 @@ mod tests {
             Some(&plan()),
             &cfg,
             &limiter,
+            None,
         )
         .expect("tiled run");
 
@@ -909,6 +1022,40 @@ mod tests {
     }
 
     #[test]
+    fn tiled_runs_report_each_tile_in_order() {
+        let img = sample();
+        let engine = NumberedEngine {
+            next: AtomicUsize::new(0),
+        };
+        let cfg = Config::default();
+        let limiter = limiter(3);
+
+        let mut seen: Vec<String> = Vec::new();
+        let out = run_engine(
+            &engine,
+            &prepared(&img, None),
+            Some(&plan()),
+            &cfg,
+            &limiter,
+            Some(&mut |lines| {
+                seen.extend(lines.iter().map(|l| l.text.clone()));
+            }),
+        )
+        .expect("tiled run");
+
+        // The preview must arrive in reading order, one tile at a time, and
+        // must not change what the stitched result contains.
+        assert_eq!(seen, vec!["row0", "row1", "row2"]);
+        assert_eq!(
+            out.lines
+                .iter()
+                .map(|l| l.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["row0", "row1", "row2"]
+        );
+    }
+
+    #[test]
     fn a_whole_image_hands_the_engine_both_pixels_and_source_bytes() {
         let img = sample();
         let engine = MemoryEngine::new();
@@ -921,6 +1068,7 @@ mod tests {
             None,
             &cfg,
             &limiter,
+            None,
         )
         .expect("whole image");
 

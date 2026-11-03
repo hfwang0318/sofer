@@ -19,6 +19,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use sofer::pipeline::EngineMode;
 
+use crate::engine::{self, ModelQuality};
 use crate::settings::{AppState, Settings};
 use crate::toast;
 
@@ -383,6 +384,24 @@ fn current_settings(app: &AppHandle) -> Settings {
     app.state::<AppState>().settings.lock().unwrap().clone()
 }
 
+/// Pixels one visual token covers for the configured model, read from the
+/// projector's tensor shapes (`patch_size × merge`).
+///
+/// `0` means "use the 28 px default": no managed model on disk (external
+/// server), a projector without recognisable patch tensors, or tesseract.
+fn vision_token_px(app: &AppHandle, quality: ModelQuality) -> f32 {
+    let paths = crate::engine_paths(app);
+    let Some(mmproj) = engine::model_files(quality)
+        .iter()
+        .find(|f| f.name.contains("mmproj"))
+    else {
+        return 0.0;
+    };
+    sofer::gguf::vision_shape(&paths.models.join(mmproj.name))
+        .map(|shape| shape.token_px())
+        .unwrap_or(0.0)
+}
+
 /// Recognise the selected pixels. `Ok(None)` means the user cancelled engine
 /// startup (no error, no result).
 fn process_capture(
@@ -393,6 +412,7 @@ fn process_capture(
     chunked: bool,
 ) -> Result<Option<OcrResult>> {
     let mut config = settings.config();
+    config.vision_token_px = vision_token_px(app, settings.model_quality);
     if settings.engine != EngineMode::Tesseract {
         let _ = app.emit("ocr:phase", Phase { phase: "starting" });
         if !prepare_engine(app, settings, &mut config)? {

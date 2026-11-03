@@ -343,6 +343,8 @@ impl Settings {
             max_pixels: sofer::preprocess::DEFAULT_MAX_PIXELS,
             trim: true,
             upscale_small: true,
+            downscale_large: true,
+            vision_token_px: 0.0,
             adaptive_background: true,
             mock_text: None,
             mock_text_file: None,

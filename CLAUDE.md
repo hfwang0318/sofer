@@ -188,9 +188,15 @@ indentation responsibility into an engine.
 - `src/pipeline.rs` — the reusable pipeline and `Config`, shared by CLI and the
   desktop app. `Config` is the single source of truth for kernel knobs.
 - `src/preprocess.rs` — the model copy: EXIF orientation, transparent→white,
-  decoded-pixel cap, content-box crop, 2× upscale for small text. Geometry keeps
+  decoded-pixel cap, content-box crop, 2× upscale for small text, and a bounded
+  downscale for very large frames. Both resampler thresholds are fractions of
+  `VisionMetrics::token_px` (0.57 / 0.86, amplitude ≤0.9×), not absolute pixels,
+  so they follow the projector. Both only touch the model copy. Geometry keeps
   working in the normalized original's coordinates; `Transform` maps a tile onto
   the model copy. Original bytes are forwarded only when nothing changed.
+- `src/gguf.rs` — minimal GGUF header reader: reads `patch_embd` and
+  `patch_merger` tensor shapes to derive `token_px` for any projector. Never
+  reads tensor data; malformed files return `None`.
 - `src/geom.rs` — polarity-independent ink mask (64 px local background), row
   projection, per-band x0/x1, grid-fit advance, per-band column runs (used for
   gutter columns and pixel spacing).
@@ -218,7 +224,9 @@ Kernel change guardrails (details in [docs/maintenance.md](docs/maintenance.md))
 - Geometry/assembly changes require all three: `cargo test`, mock baseline
   `indent_exact ≈ 1.00`, and the real-editor screenshots.
 - Tiling may only cut at blank space between text lines and must stitch by band
-  index, not by text matching. `huge-4k` is the tiling regression scene.
+  index, not by text matching. Adjacent tiles do not share a row (the cut is the
+  band's ink edge); only a straddling duplicate is collapsed by content.
+  `huge-4k` is the tiling regression scene.
 - `--jobs` is a global semaphore budget shared by image-level and tile-level
   work; temp image filenames (only engines that need a file) must stay unique
   per process. Tiles are encoded in memory, not written to disk.
